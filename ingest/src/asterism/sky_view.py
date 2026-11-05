@@ -33,7 +33,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asterism import crosswalk_runtime, knowledge, substrate, themes
+from asterism import crosswalk_runtime, evidence, knowledge, substrate, themes
 from asterism.class_schema import class_labels
 from asterism.crosswalk import XW as _XW_NS
 from asterism.grounding import term_display_name, vocabularies
@@ -549,6 +549,21 @@ async def sky_view(
     )
     standards = [_standard_entry(i) for i in sorted(standard_iris)]
 
+    # --- 論文の根拠（論文の点から用語への細い線）---------------------------------------------
+    # 確定した関係の根拠の文を 1 回で引き、その文がある公開済みの論文ごとに両端の用語を束ねる。
+    evidence_terms: dict[str, set[str]] = {}
+    if doc_ids:
+        cited = await evidence.resolve_evidence(
+            client, [e for row in alignments for e in row.get("evidence", [])], registry_root=root
+        )
+        for row in alignments:
+            for e in row.get("evidence", []):
+                hit = cited.get(e)
+                if hit and hit["dataset_id"] in doc_ids:
+                    evidence_terms.setdefault(hit["dataset_id"], set()).update(
+                        (row["source"], row["target"])
+                    )
+
     # --- データセット ----------------------------------------------------------------------
     datasets = [
         {
@@ -556,6 +571,11 @@ async def sky_view(
             "label": d["label"],
             "created_at": d["created_at"],
             **({"document": True} if d["document"] else {}),
+            **(
+                {"evidence_terms": sorted(evidence_terms.get(d["id"], ()))}
+                if d["document"]
+                else {}
+            ),
             "kinds": [
                 {
                     "iri": iri,
