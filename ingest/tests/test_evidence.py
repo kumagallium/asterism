@@ -223,3 +223,33 @@ async def test_remove_evidence_removes_only_the_named_sentences(tmp_path: Path) 
     await remove_evidence(c, pore, tc, "lowers", [S + "2"])
     rows = await list_alignments(c)
     assert len(rows) == 1 and rows[0]["evidence"] == [S + "1"]
+
+
+def test_order_by_paper_puts_one_per_paper_first_by_paper_name_then_the_rest() -> None:
+    def e(n: int, did: str, label: str) -> dict:
+        return {"iri": f"i{n}", "dataset_id": did, "dataset_label": label}
+
+    items = [e(1, "y", "論文Y"), e(2, "y", "論文Y"), e(3, "x", "論文X"), e(4, "z", "論文Z")]
+    got = [i["iri"] for i in evidence.order_by_paper(items)]
+    assert got == ["i3", "i1", "i4", "i2"]  # X・Y・Z の先頭 1 件ずつ → 残り
+    assert [i["iri"] for i in evidence.order_by_paper(items, 2)] == ["i3", "i1"]
+    assert evidence.paper_count(items) == 3
+    assert evidence.paper_count(items[:2]) == 1
+    assert evidence.order_by_paper([]) == []
+
+
+async def test_drop_evidence_in_graphs_removes_only_that_papers_sentences(tmp_path: Path) -> None:
+    from asterism.crosswalk_runtime import drop_evidence_in_graphs
+
+    c, _root = await _world(tmp_path)
+    _terms(c)
+    other = "https://example.org/paper/pz/sent/1"
+    gz = substrate.versioned_graph_iri("paper-z", 1)
+    c.load(gz, f"<{other}> a <http://purl.org/spar/doco/Sentence> .")
+    pore, tc = sv.term_iri("pore"), sv.term_iri("tc")
+    await assert_alignment(c, pore, tc, "lowers", at=AT, evidence=[S + "1", other])
+    live = substrate.versioned_graph_iri("paper-x", 1)
+    assert await drop_evidence_in_graphs(c, [live]) == 1
+    (row,) = await list_alignments(c)
+    assert row["evidence"] == [other]  # 関係は残り、別の論文の根拠も残る
+    assert await drop_evidence_in_graphs(c, []) == 0

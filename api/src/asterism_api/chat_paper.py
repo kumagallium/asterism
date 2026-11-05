@@ -679,8 +679,8 @@ async def mark_supports(client: Any, ops: list[dict]) -> list[dict]:
                     dst = shared_vocab.term_iri(ub.split(":", 1)[1])
                     if await shared_vocab._ask(
                         client,
-                        f"ASK {{ GRAPH <{substrate.ALIGNMENT_GRAPH}> {{ <{src}> <{ALIGN_RELATIONS[pred]}> "
-                        f"<{dst}> }} }}",
+                        f"ASK {{ GRAPH <{substrate.ALIGNMENT_GRAPH}> "
+                        f"{{ <{src}> <{ALIGN_RELATIONS[pred]}> <{dst}> }} }}",
                     ):
                         o = {**o, "supports": True}
                 except Exception:

@@ -1256,7 +1256,8 @@ async def drop_evidence_in_graphs(client, graphs: list[str]) -> int:
         return 0
     values = " ".join(f"<{g}>" for g in gs)
     res = await client.sparql_select(
-        f"SELECT DISTINCT ?e WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a <{_PROV}wasDerivedFrom> ?e }} "
+        f"SELECT DISTINCT ?e WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> "
+        f"{{ ?a <{_PROV}wasDerivedFrom> ?e }} "
         f"VALUES ?g {{ {values} }} GRAPH ?g {{ ?e a <http://purl.org/spar/doco/Sentence> }} }}"
     )
     rows = res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
