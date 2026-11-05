@@ -1117,36 +1117,38 @@ def load_dataset(root: Path, dataset_id: str) -> dict | None:
         for key, filename in _ARTIFACT_FILES.items()
         if (dest / filename).is_file()
     }
-    _add_source_paper_to_description(artifacts, dataset_id, meta)
     return {"meta": meta, "artifacts": artifacts}
 
 
-def _add_source_paper_to_description(
-    artifacts: dict[str, str], dataset_id: str, meta: dict
-) -> None:
-    """論文の表から取り込んだデータセット（13e）の説明に、出所を機械が足す。
+def description_with_source_paper(
+    root: Path, dataset_id: str, artifacts: Mapping[str, str]
+) -> dict[str, str]:
+    """ストアへ説明を投影する直前に、論文の表から取り込んだ出所（13e）を重ねた artifacts を返す。
 
     ``meta.source_paper`` があるときだけ、``metadata.ttl``（無ければ型だけの説明）に
-    ``prov:wasDerivedFrom`` と ``dcterms:source`` を重ねる（``artifacts`` をその場で書き換え）。
-    読む側（公開・投影のやり直し）は全部ここを通るので、公開の説明に必ず付き、移行は要らない。
-    出所の無いデータセットは何も変わらない。壊れた説明でも読み込みは止めない。
+    ``dcterms:source`` を重ね、論文のデータセットが registry にあり撤回されていないときだけ
+    ``prov:wasDerivedFrom`` も付ける。**ディスクの ``metadata.ttl`` と ``load_dataset`` の
+    返り値は変えない**（履歴の差分・設計の保存し直しに偽の差分を出さないため）。
+    出所の無いデータセット・壊れた説明では入力と同じ内容をそのまま返す。
     """
-    source = meta.get("source_paper")
+    out = dict(artifacts)
+    source = (load_meta(root, dataset_id) or {}).get("source_paper")
     if not isinstance(source, dict):
-        return
+        return out
     try:
-        text = artifacts.get("metadata.ttl") or ""
+        text = out.get("metadata.ttl") or ""
         graph = (
-            graph_from_turtle(text)
-            if text.strip()
-            else build_metadata_graph(None, dataset_id)
+            graph_from_turtle(text) if text.strip() else build_metadata_graph(None, dataset_id)
         )
-        if add_source_paper(graph, dataset_id, source):
-            artifacts["metadata.ttl"] = metadata_turtle(graph)
+        paper = load_meta(root, str(source.get("dataset_id") or ""))
+        paper_alive = paper is not None and paper.get("status") != "retracted"
+        if add_source_paper(graph, dataset_id, source, link_paper=paper_alive):
+            out["metadata.ttl"] = metadata_turtle(graph)
     except Exception:
         logger.warning(
             "dataset %s: could not add source_paper to description", dataset_id, exc_info=True
         )
+    return out
 
 
 def dataset_origin(root: Path, dataset_id: str) -> str:

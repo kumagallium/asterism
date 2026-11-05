@@ -1143,7 +1143,11 @@ async def backfill_store_projections(cfg: Settings, client: Any) -> None:
             if not need:
                 continue
             try:
-                written += await project(client, dataset_id, artifacts)
+                # 説明の投影には論文の表の出所（13e）を重ねる登録の場所を渡す
+                extra = (
+                    {"registry_root": cfg.registry_root} if project is _project_meta_graph else {}
+                )
+                written += await project(client, dataset_id, artifacts, **extra)
             except Exception:
                 logger.warning(
                     "backfill_store_projections: %s failed (continuing)",

@@ -270,3 +270,58 @@ def test_put_license_on_unpromoted_dataset_does_not_touch_store(tmp_path: Path) 
         assert r.status_code == 200, r.text
 
     assert not any(b"CC-BY-4.0" in content for _path, content in calls)
+
+
+def test_put_license_keeps_source_paper_in_the_store_but_not_in_history_diffs(
+    tmp_path: Path,
+) -> None:
+    """13e: ライセンス PUT の投影にも出所が重なり（ストアの説明に出る）、一方で
+    ディスクの metadata.ttl と履歴の差分には出所が出ない（偽の差分を作らない）。"""
+    calls: list[tuple[str, bytes]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/query":
+            return httpx.Response(
+                200,
+                text=json.dumps({"head": {}, "boolean": True}),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+        calls.append((request.url.path, request.content))
+        return httpx.Response(204)
+
+    meta = _save(tmp_path)
+    dataset_id = meta["id"]
+    app, settings = _build(tmp_path, _mock_client(handler))
+    registry.mark_promoted(
+        settings.registry_root,
+        dataset_id,
+        triples_promoted=1,
+        alignment={},
+        promoted_at="2026-09-23T00:00:00+00:00",
+    )
+    registry.update_meta_atomic(
+        settings.registry_root,
+        dataset_id,
+        {
+            "source_paper": {
+                "dataset_id": dataset_id,  # 論文のデータセット（ここでは自分自身で代用）
+                "table_id": "tbl2",
+                "label": "Table 2",
+                "caption": "c",
+                "name": "論文X",
+            }
+        },
+    )
+    with TestClient(app, headers=_AUTH) as tc:
+        url = f"/api/datasets/{dataset_id}/license"
+        assert tc.put(url, json={"license": "CC-BY-4.0"}).status_code == 200
+        assert tc.put(url, json={"license": "MIT"}).status_code == 200
+        writes = [c for path, c in calls if path == "/store"]
+        assert any(b"wasDerivedFrom" in c and "論文「論文X」".encode() in c for c in writes)
+        on_disk = (settings.registry_root / dataset_id / "metadata.ttl").read_text(encoding="utf-8")
+        assert "wasDerivedFrom" not in on_disk
+        history = registry.list_dataset_history(settings.registry_root, dataset_id)
+        assert history
+        for h in history:
+            got = tc.get(f"/api/datasets/{dataset_id}/history/{h['id']}").json()
+            assert "wasDerivedFrom" not in json.dumps(got, ensure_ascii=False)

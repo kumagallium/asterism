@@ -191,11 +191,12 @@ def _source_paper(raw: object) -> dict[str, str] | None:
     """論文の表から取り込んだデータセットの出所（13e・``meta.source_paper``）を
     ``{dataset_id, name, label, caption}`` に整える。無い・壊れていれば ``None``
     （そのときは一覧の 1 件にこの項目を足さない）。"""
-    if not isinstance(raw, dict) or not isinstance(raw.get("dataset_id"), str):
+    if not isinstance(raw, dict):
         return None
-    return {
-        k: str(raw.get(k) or "") for k in ("dataset_id", "name", "label", "caption")
-    }
+    dataset_id = raw.get("dataset_id")
+    if not isinstance(dataset_id, str) or not dataset_id.strip():
+        return None
+    return {k: str(raw.get(k) or "") for k in ("dataset_id", "name", "label", "caption")}
 
 
 def _registry_entries(

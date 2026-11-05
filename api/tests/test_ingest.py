@@ -1220,6 +1220,7 @@ class _ProjectOxi:
     def __init__(self) -> None:
         self.updates: list[str] = []
         self.stores: list[str | None] = []
+        self.store_bodies: dict[str | None, bytes] = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/update":
@@ -1227,6 +1228,7 @@ class _ProjectOxi:
                 return httpx.Response(204)
             if request.url.path == "/store":
                 self.stores.append(request.url.params.get("graph"))
+                self.store_bodies[request.url.params.get("graph")] = request.content
                 return httpx.Response(204)
             q = request.content.decode()
             if "COUNT" in q and "GRAPH" not in q:
@@ -1310,8 +1312,9 @@ def test_ingest_of_unpublished_dataset_writes_meta_graph(tmp_path: Path, monkeyp
 def test_meta_graph_carries_source_paper_only_when_the_table_came_from_a_paper(
     tmp_path: Path, monkeypatch
 ) -> None:
-    # 13e: 論文の表から取り込んだデータセットの説明の graph に prov:wasDerivedFrom と
-    # dcterms:source が入る。出所の無いデータセットは変わらない。
+    # 13e: ingest の経路でも、論文の表から取り込んだデータセットの説明の graph に
+    # dcterms:source が入る（論文が registry に無ければ prov:wasDerivedFrom は付かない）。
+    # 出所の無いデータセットは変わらない。
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     bodies: dict[str, str] = {}
     for tag, source in (("paper", True), ("plain", False)):
@@ -1339,7 +1342,8 @@ def test_meta_graph_carries_source_paper_only_when_the_table_came_from_a_paper(
             )
             assert status == 202 and "done" in [n for n, _ in events], events
         bodies[tag] = oxi.store_bodies[substrate.meta_graph_iri(dataset_id)].decode()
-    assert "wasDerivedFrom" in bodies["paper"] and "論文「論文X」" in bodies["paper"]
+    # 論文のデータセットは registry に無い（消えた）ので、出所の文字列だけが残る
+    assert "論文「論文X」" in bodies["paper"] and "wasDerivedFrom" not in bodies["paper"]
     assert "wasDerivedFrom" not in bodies["plain"] and "dcterms:source" not in bodies["plain"]
 
 
@@ -1440,6 +1444,43 @@ def test_promote_projects_meta_graph_and_reports_it_in_payload(tmp_path: Path) -
     assert body["meta_triples"] > 0
     assert meta_iri in oxi.stores
     assert any("DROP" in u and meta_iri in u for u in oxi.updates)
+
+
+def test_promote_projects_source_paper_into_the_meta_graph(tmp_path: Path) -> None:
+    # 13e: 公開（/promote）の経路でも、論文が registry にあれば説明の graph に出所
+    # （prov:wasDerivedFrom と dcterms:source）が入る。
+    root = tmp_path / "registry"
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    paper_id = _save_dataset_with_rml(tmp_path)  # 論文のデータセット（同じ registry にある側）
+    registry.update_meta_atomic(
+        root,
+        dataset_id,
+        {
+            "source_paper": {
+                "dataset_id": paper_id,
+                "table_id": "tbl2",
+                "label": "Table 2",
+                "caption": "c",
+                "name": "論文X",
+            }
+        },
+    )
+    registry.mark_ingested(
+        root,
+        dataset_id,
+        graph_iri=substrate.versioned_graph_iri(dataset_id, 1),
+        triple_count=1,
+        ingested_at="2026-06-05T00:10:00+00:00",
+        data_seq=1,
+    )
+    oxi = _ProjectOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
+    body = oxi.store_bodies[substrate.meta_graph_iri(dataset_id)].decode()
+    assert "wasDerivedFrom" in body and paper_id in body and "論文「論文X」" in body
+    # ディスクの metadata.ttl は変わらない
+    assert "wasDerivedFrom" not in (root / dataset_id / "metadata.ttl").read_text(encoding="utf-8")
 
 
 def test_delete_promoted_with_force_drops_meta_and_ontology_graphs(tmp_path: Path) -> None:

@@ -153,7 +153,9 @@ def register_license(app: FastAPI, cfg: Settings) -> None:
             fresh = registry.load_dataset(cfg.registry_root, dataset_id)
             fresh_artifacts = fresh["artifacts"] if fresh else artifacts
             client: OxigraphClient = app.state.client
-            await _project_meta_graph(client, dataset_id, fresh_artifacts)
+            await _project_meta_graph(
+                client, dataset_id, fresh_artifacts, registry_root=cfg.registry_root
+            )
 
         normalized = normalize_license(license_value)
         return JSONResponse(

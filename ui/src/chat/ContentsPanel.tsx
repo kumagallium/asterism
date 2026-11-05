@@ -47,8 +47,13 @@ function FromPaper({ source }: { source: SourcePaper }) {
   const { t, i18n } = useTranslation('chat')
   const open = useOpenPaper(source.dataset_id)
   const text = t('attach.fromPaper', { paper: source.name, table: tableName(source.label, source.table_id, i18n.language) })
+  return <FromPaperLine text={text} caption={source.caption} open={open} />
+}
+
+/** 出所の 1 行の見た目（フックを持たない・押したら `open(null)`）。`open` が null なら押せない文字。 */
+export function FromPaperLine({ text, caption, open }: { text: string; caption: string; open: ((focus: string | null) => void) | null }) {
   return (
-    <p className="chat-note-line" data-testid="contents-from-paper" title={source.caption || undefined}>
+    <p className="chat-note-line" data-testid="contents-from-paper" title={caption || undefined}>
       {open ? (
         <button type="button" className="link-btn" data-testid="contents-open-paper" onClick={() => open(null)}>
           {text}

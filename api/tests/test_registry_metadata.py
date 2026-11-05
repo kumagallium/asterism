@@ -169,36 +169,78 @@ def test_update_projection_is_idempotent_history_grows_once(tmp_path: Path) -> N
     )
 
 
-def test_load_dataset_adds_source_paper_to_the_description(tmp_path: Path) -> None:
-    # 13e: meta.source_paper があるデータセットの説明（metadata.ttl）に出所が重なる。
-    # 出所の無いデータセットは何も変わらない。
+_SOURCE = {
+    "dataset_id": "paper-22222222",
+    "table_id": "tbl2",
+    "label": "Table 2",
+    "caption": "c",
+    "name": "論文X",
+}
+
+
+def _paper_dataset(root: Path) -> str:
+    """論文のデータセット（registry にある側）。"""
+    meta = registry.save_dataset(
+        root,
+        "paper",
+        {"diagram.md": "classDiagram\n  class P", "model.yaml": "- P:", "mie.yaml": _MIE},
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-09-07T00:00:00+00:00",
+    )
+    return meta["id"]
+
+
+def test_load_dataset_does_not_overlay_source_paper(tmp_path: Path) -> None:
+    # 13e: 出所を重ねるのはストアへ投影するところだけ。load_dataset の artifacts は
+    # ディスクの metadata.ttl とバイトで一致する（履歴の差分に偽の差分を出さない）。
+    root = tmp_path / "registry"
+    meta = _save(tmp_path)
+    registry.update_meta_atomic(root, meta["id"], {"source_paper": _SOURCE})
+    data = registry.load_dataset(root, meta["id"])
+    assert data is not None
+    on_disk = (root / meta["id"] / "metadata.ttl").read_text(encoding="utf-8")
+    assert data["artifacts"]["metadata.ttl"] == on_disk
+    assert "wasDerivedFrom" not in on_disk and "source" not in on_disk.replace("dcterms:", "")
+
+
+def test_description_with_source_paper_links_only_a_living_paper(tmp_path: Path) -> None:
     from asterism.metadata import PROV, graph_from_turtle
     from asterism.substrate import dataset_iri
 
     root = tmp_path / "registry"
+    paper_id = _paper_dataset(root)
     meta = _save(tmp_path)
-    plain = registry.load_dataset(root, meta["id"])
-    assert plain is not None
-    assert "wasDerivedFrom" not in plain["artifacts"]["metadata.ttl"]
-
-    registry.update_meta_atomic(
-        root,
-        meta["id"],
-        {
-            "source_paper": {
-                "dataset_id": "paper-22222222",
-                "table_id": "tbl2",
-                "label": "Table 2",
-                "caption": "c",
-                "name": "論文X",
-            }
-        },
-    )
-    data = registry.load_dataset(root, meta["id"])
-    assert data is not None
-    g = graph_from_turtle(data["artifacts"]["metadata.ttl"])
+    source = {**_SOURCE, "dataset_id": paper_id}
+    registry.update_meta_atomic(root, meta["id"], {"source_paper": source})
     d = rdflib.URIRef(dataset_iri(meta["id"]))
-    assert (d, PROV.wasDerivedFrom, rdflib.URIRef(dataset_iri("paper-22222222"))) in g
+    artifacts = registry.load_dataset(root, meta["id"])["artifacts"]
+
+    def graph_of(a: dict) -> rdflib.Graph:
+        return graph_from_turtle(a["metadata.ttl"])
+
+    g = graph_of(registry.description_with_source_paper(root, meta["id"], artifacts))
+    assert (d, PROV.wasDerivedFrom, rdflib.URIRef(dataset_iri(paper_id))) in g
     assert any("論文「論文X」" in str(o) for o in g.objects(d, DCTERMS.source))
-    # 元の説明は残る
-    assert (d, DCTERMS.description, None) in g
+    assert (d, DCTERMS.description, None) in g  # 元の説明は残る
+    # 入力は書き換えない
+    assert "wasDerivedFrom" not in artifacts["metadata.ttl"]
+
+    # 論文が撤回されている／消えている: 文字列は残り、リンクは付かない
+    registry.mark_retracted(root, paper_id, retracted_at="2026-09-08T00:00:00+00:00")
+    retracted = registry.description_with_source_paper(root, meta["id"], artifacts)
+    registry.delete_dataset(root, paper_id)
+    deleted = registry.description_with_source_paper(root, meta["id"], artifacts)
+    for a in (retracted, deleted):
+        g = graph_of(a)
+        assert (d, PROV.wasDerivedFrom, None) not in g
+        assert len(list(g.objects(d, DCTERMS.source))) == 2
+
+
+def test_description_without_source_paper_is_unchanged(tmp_path: Path) -> None:
+    root = tmp_path / "registry"
+    meta = _save(tmp_path)
+    artifacts = registry.load_dataset(root, meta["id"])["artifacts"]
+    assert registry.description_with_source_paper(root, meta["id"], artifacts) == artifacts

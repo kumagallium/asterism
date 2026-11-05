@@ -2838,9 +2838,15 @@ async def _project_meta_graph(
     artifacts: dict[str, str],
     *,
     raise_on_failure: bool = False,
+    registry_root: Path | None = None,
 ) -> int:
     """ADR dataset-description-in-the-store.md §4: replace the dataset's
     description named graph (``meta/{id}``) with its registry ``metadata.ttl``.
+
+    ``registry_root``（13e）を渡すと、論文の表から取り込んだ出所（``meta.source_paper``）を
+    ここで説明に重ねる。説明をストアへ投影する経路（公開・取り込み・ライセンス PUT・起動時の
+    補い）はすべてここを通るので、重ねるのはここ 1 か所だけ（ディスクの ``metadata.ttl`` は
+    変えない）。
 
     Same best-effort contract as :func:`_project_ontology_graph`: the
     description is a side channel (Ask's canonical scope never includes it —
@@ -2854,6 +2860,8 @@ async def _project_meta_graph(
     説明が空で 0 件が正しい答えのとき、「DROP が成功した 0」と「失敗した 0」を
     呼び出し側が区別したい場合（見本の入れ直し・種まきの印）に使う。
     """
+    if registry_root is not None:
+        artifacts = registry.description_with_source_paper(registry_root, dataset_id, artifacts)
     turtle = artifacts.get("metadata.ttl") or ""
     try:
         if not turtle.strip():
@@ -10947,7 +10955,9 @@ def build_app(
                     # Same freshness argument for the artifacts: a redesign saved
                     # while this job ran must be what the catalog describes.
                     fresh = (current or data).get("artifacts") or {}
-                    await _project_meta_graph(client, dataset_id, fresh)
+                    await _project_meta_graph(
+                        client, dataset_id, fresh, registry_root=cfg.registry_root
+                    )
                 # Does the graph we just built say what the design said it would?
                 # (ADR data-shape-checks.md) The existing gates stop at the design
                 # boundary — columns exist, functions type-check — so a predicate
@@ -11229,7 +11239,9 @@ def build_app(
         # that always (re-)writes the meta graph — the street's description is
         # confirmed at the moment of publication, same as published_subjects
         # below. Best-effort, same as the ontology projection above.
-        meta_triples = await _project_meta_graph(client, dataset_id, data.get("artifacts", {}))
+        meta_triples = await _project_meta_graph(
+            client, dataset_id, data.get("artifacts", {}), registry_root=cfg.registry_root
+        )
         meta = registry.mark_promoted(
             cfg.registry_root,
             dataset_id,

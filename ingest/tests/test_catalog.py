@@ -261,3 +261,18 @@ def test_source_paper_is_reported_only_for_paper_table_datasets(monkeypatch, tmp
         "caption": "Thermal conductivity",
     }
     assert "source_paper" not in by_id["plain-33333333"]
+
+
+def test_source_paper_needs_a_dataset_id() -> None:
+    from asterism.catalog import _source_paper
+
+    assert _source_paper({"dataset_id": "", "name": "X"}) is None
+    assert _source_paper({"dataset_id": "  ", "name": "X"}) is None
+    assert _source_paper({"name": "X"}) is None
+    assert _source_paper("x") is None
+    assert _source_paper({"dataset_id": "p-1", "name": "X"}) == {
+        "dataset_id": "p-1",
+        "name": "X",
+        "label": "",
+        "caption": "",
+    }
