@@ -260,3 +260,69 @@ def test_convert_docx_to_jats_via_env_without_path(monkeypatch) -> None:
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     jats, converter = convert_docx_to_jats((_FIXTURES / "sample.docx").read_bytes())
     assert "<body" in jats and converter.startswith("pandoc/")
+
+
+# --- 13c: tables_of_jats / is_importable ---------------------------------------------------
+
+
+def test_tables_of_jats_reads_real_jats_with_spans() -> None:
+    from asterism.documents import tables_of_jats
+
+    xml = (Path(__file__).resolve().parents[2] / "datasets/papers/jats/PMC5951533.xml").read_bytes()
+    tables = tables_of_jats(xml)
+    assert len(tables) >= 3
+    t1 = tables[0]
+    assert t1["label"] == "Table 1" and t1["id"] == "materials-11-00649-t001"
+    # 2 行にまたがる見出し（rowspan・colspan）が列ごとに 1 つの名前になる
+    assert "Detected Phases" in t1["header"] and "Ratio" in t1["header"]
+    assert all(len(r) == len(t1["header"]) for r in t1["rows"])  # 行の長さは見出しにそろう
+    assert len(t1["rows"]) >= 2
+
+
+def test_tables_of_jats_pandoc_shape_and_row_alignment() -> None:
+    from asterism.documents import tables_of_jats
+
+    xml = (
+        "<article><body><table-wrap id='t1'><caption><p>Cap</p></caption><table>"
+        "<thead><tr><th>A</th><th>B</th></tr></thead><tbody>"
+        "<tr><td>1</td></tr><tr><td>2</td><td>3</td><td>extra</td></tr></tbody></table></table-wrap>"
+        "<table-wrap><table><tbody><tr><td>X</td><td>Y</td></tr><tr><td>1</td><td>2</td></tr></tbody></table>"
+        "</table-wrap></body></article>"
+    )
+    a, b = tables_of_jats(xml)
+    assert a["rows"] == [["1", ""], ["2", "3"]]  # 足りなければ空・多ければ切る
+    assert b["header"] == ["X", "Y"] and b["id"] == "tbl2"  # thead が無ければ 1 行目が見出し
+
+
+def test_tables_of_jats_unreadable_or_none() -> None:
+    from asterism.documents import tables_of_jats
+
+    assert tables_of_jats(b"<not xml") == []
+    assert tables_of_jats("<article><body><p>x</p></body></article>") == []
+
+
+def test_importable_rules_and_header_fix_and_caps() -> None:
+    from asterism.documents import (
+        MAX_TABLE_ROWS,
+        MAX_TABLES,
+        importable_tables,
+        is_importable,
+        tables_of_jats,
+        unique_header,
+    )
+
+    ok = {"header": ["a", "b"], "rows": [["1", "2"], ["3", "4"]]}
+    assert is_importable(ok)
+    assert not is_importable({"header": ["a"], "rows": ok["rows"]})  # 列 1
+    assert not is_importable({"header": ["a", "b"], "rows": [["1", "2"]]})  # 行 1
+    assert not is_importable({"header": ["", " "], "rows": ok["rows"]})  # 見出しが全部空
+    assert unique_header(["x", "x", "", "x"]) == ["x", "x_2", "col_3", "x_3"]
+    out = importable_tables([ok, {"header": ["a"], "rows": []}] + [ok] * MAX_TABLES)
+    assert out["skipped"] == 1 and len(out["tables"]) == MAX_TABLES and out["capped"] == 1
+    # 行の上限
+    rows = "".join("<tr><td>a</td><td>b</td></tr>" for _ in range(MAX_TABLE_ROWS + 5))
+    head = "<tr><td>h1</td><td>h2</td></tr>"
+    (t,) = tables_of_jats(
+        f"<article><body><table-wrap><table><tbody>{head}{rows}</tbody></table></table-wrap></body></article>"
+    )
+    assert len(t["rows"]) == MAX_TABLE_ROWS and t["truncated"] is True

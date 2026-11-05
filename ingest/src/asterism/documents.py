@@ -472,6 +472,78 @@ def _docling_ref(node: object) -> str | None:
     return None
 
 
+def _docling_table_grid(data: object) -> tuple[list[list[str]], int]:
+    """Docling の ``tables[].data`` → ``(文字列の格子, 見出しの行数)``。決定論・セルが無ければ空。
+
+    ``grid``（結合セルは同じセルが広がって入っている）を優先し、無ければ ``table_cells`` を
+    オフセットに置く（結合セルは左上の値を広げる）。見出しの行 = 先頭から続く
+    ``column_header`` の印のある行、無ければ 1 行目。"""
+    if not isinstance(data, dict):
+        return [], 0
+    cells: list[list[dict]] = []
+    raw = data.get("grid")
+    if isinstance(raw, list) and raw and all(isinstance(r, list) for r in raw):
+        cells = [[c if isinstance(c, dict) else {} for c in r] for r in raw]
+    else:
+        flat = [c for c in data.get("table_cells") or [] if isinstance(c, dict)]
+        if not flat:
+            return [], 0
+
+        def off(c: dict, key: str, default: int) -> int:
+            v = c.get(key)
+            return v if isinstance(v, int) and v >= 0 else default
+
+        n_rows = data.get("num_rows") if isinstance(data.get("num_rows"), int) else 0
+        n_cols = data.get("num_cols") if isinstance(data.get("num_cols"), int) else 0
+        for c in flat:
+            r0, c0 = off(c, "start_row_offset_idx", 0), off(c, "start_col_offset_idx", 0)
+            n_rows = max(n_rows, off(c, "end_row_offset_idx", r0 + 1))
+            n_cols = max(n_cols, off(c, "end_col_offset_idx", c0 + 1))
+        cells = [[{} for _ in range(n_cols)] for _ in range(n_rows)]
+        for c in flat:
+            r0, c0 = off(c, "start_row_offset_idx", 0), off(c, "start_col_offset_idx", 0)
+            r1 = off(c, "end_row_offset_idx", r0 + max(1, off(c, "row_span", 1)))
+            c1 = off(c, "end_col_offset_idx", c0 + max(1, off(c, "col_span", 1)))
+            for r in range(r0, min(r1, n_rows)):
+                for k in range(c0, min(c1, n_cols)):
+                    cells[r][k] = c
+    grid = [[trim_collapse(str(c.get("text") or "")) for c in row] for row in cells]
+    width = max((len(r) for r in grid), default=0)
+    if width == 0:
+        return [], 0
+    grid = [r + [""] * (width - len(r)) for r in grid]
+    n_head = 0
+    for row in cells:
+        if row and any(c.get("column_header") for c in row):
+            n_head += 1
+        else:
+            break
+    return grid, n_head or 1
+
+
+def _append_table_wrap(
+    parent, table_id: str, caption: str, grid: list[list[str]], n_head: int
+) -> None:
+    """``<table-wrap id label caption><table><thead/><tbody/></table></table-wrap>`` を足す。"""
+    import xml.etree.ElementTree as ET
+
+    wrap = ET.SubElement(parent, "table-wrap", {"id": table_id})
+    cap = caption
+    m = _FIG_LABEL_RE.match(cap)
+    if m:
+        ET.SubElement(wrap, "label").text = m.group(1)
+        cap = cap[m.end() :].strip()
+    if cap or caption:
+        ET.SubElement(ET.SubElement(wrap, "caption"), "p").text = cap or caption
+    table = ET.SubElement(wrap, "table")
+    head = ET.SubElement(table, "thead")
+    body = ET.SubElement(table, "tbody")
+    for i, row in enumerate(grid):
+        tr = ET.SubElement(head if i < n_head else body, "tr")
+        for value in row:
+            ET.SubElement(tr, "th" if i < n_head else "td").text = value
+
+
 def docling_dict_to_jats(doc: dict) -> str:
     """Convert a Docling ``DoclingDocument.export_to_dict()`` into JATS XML (deterministic).
 
@@ -484,7 +556,9 @@ def docling_dict_to_jats(doc: dict) -> str:
     Reading order comes from ``body.children`` (followed recursively); section nesting
     from ``section_header`` levels (markdown-style); lists from list ``groups``; figures
     from ``pictures`` that carry a caption. Table grids are deferred — a table's caption
-    is kept as prose so it stays searchable / citable (ADR pdf-docling-conversion.md §7).
+    is kept as prose so it stays searchable / citable (ADR pdf-docling-conversion.md §7);
+    a table that carries cells is ALSO emitted as ``<table-wrap>`` (PR 13c) so
+    :func:`tables_of_jats` can offer it as data.
     """
     import xml.etree.ElementTree as ET
 
@@ -553,8 +627,9 @@ def docling_dict_to_jats(doc: dict) -> str:
                     seq.append(("figure", cap))
             elif kind == "tables":
                 cap = caption_text(it)
-                if cap:
-                    seq.append(("table", cap))
+                grid, n_head = _docling_table_grid(it.get("data"))
+                if cap or grid:
+                    seq.append(("table", cap, grid, n_head))
             elif kind == "texts":
                 if ref in caption_refs:
                     continue
@@ -589,7 +664,7 @@ def docling_dict_to_jats(doc: dict) -> str:
     if title_text:
         ET.SubElement(ET.SubElement(ameta, "title-group"), "article-title").text = title_text
 
-    counters = {"sec": 0, "fig": 0}
+    counters = {"sec": 0, "fig": 0, "tbl": 0}
     stack: list[tuple[int, ET.Element]] = []
 
     def container() -> ET.Element:
@@ -627,8 +702,13 @@ def docling_dict_to_jats(doc: dict) -> str:
                 cap = cap[m.end() :].strip()
             paragraph(ET.SubElement(fig, "caption"), cap or tok[1])
         elif head == "table":
-            # v1: keep the table caption as prose so it stays searchable / citable.
-            paragraph(container(), tok[1])
+            _, cap, grid, n_head = tok
+            # 見出しは今までどおり文として残す（searchable / citable・文の数と引用は変えない）
+            if cap:
+                paragraph(container(), cap)
+            if grid:  # セルがあれば、表そのものも table-wrap で残す（13c・取り込みの材料）
+                counters["tbl"] += 1
+                _append_table_wrap(container(), f"tbl{counters['tbl']}", cap, grid, n_head)
 
     return ET.tostring(article, encoding="unicode")
 
@@ -693,3 +773,134 @@ def derive_doc_id(xml_text: str, *, fallback: str) -> str:
         return doi.replace("/", "_")
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", fallback).strip("-")
     return slug or "doc"
+
+
+# --- 論文の表（13c） -----------------------------------------------------------------------
+# JATS の ``<table-wrap>``（JATS XML の論文・pandoc の docx・Docling の PDF が同じ形）から表を
+# 読む。決定論・AI は使わない。表のセルの文字列は CSV にして今の表の取り込みへ渡すだけ。
+
+#: 提案する表の上限と、1 表の行数の上限（超えたら切って注記）
+MAX_TABLES = 20
+MAX_TABLE_ROWS = 5000
+
+
+def _span(el, name: str) -> int:
+    try:
+        return max(1, min(int(el.get(name) or 1), 1000))
+    except ValueError:
+        return 1
+
+
+def _expand_rows(trs: list) -> list[list[str]]:
+    """``<tr>`` の並び → 文字列の格子。``rowspan``・``colspan`` は左上の値を広げる。"""
+    grid: list[list[str]] = []
+    pending: dict[tuple[int, int], str] = {}  # (行, 列) → rowspan で下に広がる値
+    for r, tr in enumerate(trs):
+        row: list[str] = []
+        col = 0
+        for cell in tr:
+            if cell.tag not in ("td", "th"):
+                continue
+            while (r, col) in pending:
+                row.append(pending.pop((r, col)))
+                col += 1
+            value = _text(cell)
+            rs, cs = _span(cell, "rowspan"), _span(cell, "colspan")
+            for k in range(cs):
+                row.append(value)
+                for dr in range(1, rs):
+                    pending[(r + dr, col + k)] = value
+            col += cs
+        while (r, col) in pending:
+            row.append(pending.pop((r, col)))
+            col += 1
+        grid.append(row)
+    return grid
+
+
+def _merge_header(rows: list[list[str]], width: int) -> list[str]:
+    """見出しが複数行なら、列ごとに重ならない値を空白でつなぐ。"""
+    out: list[str] = []
+    for k in range(width):
+        parts: list[str] = []
+        for row in rows:
+            v = row[k] if k < len(row) else ""
+            if v and v not in parts:
+                parts.append(v)
+        out.append(" ".join(parts))
+    return out
+
+
+def tables_of_jats(jats: bytes | str) -> list[dict]:
+    """JATS の ``table-wrap`` ごとに ``{"id", "label", "caption", "header", "rows"}``。
+
+    見出しは ``thead``（無ければ最初の行）。行の長さは header にそろえる（足りなければ空・
+    多ければ切る）。行は :data:`MAX_TABLE_ROWS` で切り、切ったら ``truncated: True``。
+    読めない XML・表の無い文書は空。"""
+    text = jats.decode("utf-8", "replace") if isinstance(jats, bytes) else jats
+    try:
+        root = _safe_parse(text)
+    except Exception:
+        return []
+    out: list[dict] = []
+    for n, wrap in enumerate(root.iter("table-wrap"), start=1):
+        table = wrap.find(".//table")
+        if table is None:
+            continue
+        head_trs = [tr for th in table.findall("thead") for tr in th.findall("tr")]
+        body_trs = [tr for tb in table.findall("tbody") for tr in tb.findall("tr")]
+        if not body_trs and not head_trs:
+            body_trs = table.findall("tr")
+        grid = _expand_rows(head_trs + body_trs)
+        n_head = len(head_trs)
+        if n_head == 0 and grid:
+            n_head = 1  # thead が無い表は最初の行が見出し
+        width = max((len(r) for r in grid[:n_head]), default=0)  # 列の数は見出しが決める
+        header = _merge_header(grid[:n_head], width)
+        rows = [(r + [""] * width)[:width] for r in grid[n_head:]]
+        label_el, cap_el = wrap.find("label"), wrap.find("caption")
+        item: dict = {
+            "id": wrap.get("id") or f"tbl{n}",
+            "label": _text(label_el) if label_el is not None else "",
+            "caption": _text(cap_el) if cap_el is not None else "",
+            "header": header,
+            "rows": rows[:MAX_TABLE_ROWS],
+        }
+        if len(rows) > MAX_TABLE_ROWS:
+            item["truncated"] = True
+        out.append(item)
+    return out
+
+
+def is_importable(table: dict) -> bool:
+    """データとして取り込める形か: 列 2 以上・データ行 2 以上・見出しが全部は空でない。"""
+    header = table.get("header") or []
+    return (
+        len(header) >= 2
+        and len(table.get("rows") or []) >= 2
+        and any(str(h).strip() for h in header)
+    )
+
+
+def unique_header(header: list[str]) -> list[str]:
+    """空の見出しは ``col_N``・重複は ``名前_2`` のように機械が直す。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for i, raw in enumerate(header, start=1):
+        base = str(raw).strip() or f"col_{i}"
+        name, n = base, 1
+        while name in seen:
+            n += 1
+            name = f"{base}_{n}"
+        seen.add(name)
+        out.append(name)
+    return out
+
+
+def importable_tables(tables: list[dict]) -> dict:
+    """取り込める表だけを（見出しを直して）上限まで。返り = ``{"tables", "skipped", "capped"}``
+    （``skipped`` = 形が合わず除いた数・``capped`` = 上限 :data:`MAX_TABLES` を超えた分の数）。"""
+    kept = [t for t in tables if is_importable(t)]
+    capped = max(0, len(kept) - MAX_TABLES)
+    fixed = [{**t, "header": unique_header(t["header"])} for t in kept[:MAX_TABLES]]
+    return {"tables": fixed, "skipped": len(tables) - len(kept), "capped": capped}
