@@ -2554,6 +2554,10 @@ _DATA_NO_REVERT = {
 }
 
 
+_KEPT_LINES = {
+    "ja": "ほかの論文が支えているので残しました",
+    "en": "kept because other papers support them",
+}
 _REVERT_FAILED = {"ja": "削除できませんでした", "en": "could not be deleted"}
 
 
@@ -2605,7 +2609,9 @@ async def revert_confirmed(
         )
     batch = commit.get("batch")
     theme_id = commit.get("theme_id")
-    undone: dict = {"lines": 0, "terms": 0, "questions": 0, "kept": [], "failed": []}
+    undone: dict = {
+        "lines": 0, "terms": 0, "questions": 0, "kept": [], "failed": [], "kept_lines": 0,
+    }  # fmt: skip
     minted = [str(x) for x in commit.get("minted") or []]
     failed_why = _REVERT_FAILED[lg]
 
@@ -2621,9 +2627,54 @@ async def revert_confirmed(
                 for r in t.get("confirmed") or []
                 if isinstance(r, dict) and r.get("batch")
             }
+    ev_removed = 0
+    done_ev: set[tuple[str, str, str, str]] = set()
+    kept_moves: list[tuple[tuple[str, str, str], dict]] = []  # 残した線と、引き継いだ commit
     if batches:
-        for ln in await crosswalk_runtime.list_alignments(client):
-            if ln.get("batch") not in batches:
+        mine = [
+            ln for ln in await crosswalk_runtime.list_alignments(client)
+            if ln.get("batch") in batches
+        ]  # fmt: skip
+        # ほかの論文が支える線は残し、来歴を支えた側へ移す（13d・話の読み込みは 1 回）
+        index = chat_sessions.supporter_index(root, current=session) if mine else {}
+        for ln in mine:
+            trip = (ln["source"], ln["relation"], ln["target"])
+            supporters = chat_sessions.supporting_commits(
+                index, trip, list(ln.get("evidence") or []), exclude_batches=batches
+            )
+            if supporters:
+                heir = supporters[0]  # いちばん早く支えた commit（at が読めないものは最後）
+                heir_at = chat_sessions.parse_at(heir["at"])
+                drafted = heir["drafted_by"]
+                if drafted not in crosswalk_runtime.DRAFTED_BY:
+                    # 古い記録（drafted_by 無し）: 論文の手番なら ai・それ以外は今の来歴のまま
+                    drafted = "ai" if heir["paper"] else None
+                # X が足した根拠 = 支えた commit のどれの根拠にも入っていないもの
+                theirs = {
+                    e for r in index.get(trip, []) if r["batch"] not in batches
+                    for e in r["evidence"]
+                }  # fmt: skip
+                stale = [str(e) for e in ln.get("evidence") or [] if e not in theirs]
+                try:
+                    await crosswalk_runtime.move_provenance(
+                        client, ln["source"], ln["target"], ln["relation"],
+                        batch=heir["batch"], drafted_by=drafted,
+                        at=heir_at.isoformat() if heir_at else None,
+                    )  # fmt: skip
+                    if stale:
+                        await crosswalk_runtime.remove_evidence(
+                            client, ln["source"], ln["target"], ln["relation"], stale
+                        )
+                except Exception:
+                    logger.warning("chat revert: keeping a supported line failed", exc_info=True)
+                    undone["failed"].append(
+                        {"what": await _line_name(client, ln, lg), "reason": failed_why}
+                    )
+                else:
+                    undone["kept_lines"] += 1
+                    kept_moves.append((trip, heir))
+                    done_ev.update((*trip, e) for e in stale)
+                    ev_removed += len(stale)
                 continue
             try:
                 await crosswalk_runtime.remove_alignment(
@@ -2635,11 +2686,13 @@ async def revert_confirmed(
                     {"what": await _line_name(client, ln, lg), "reason": failed_why}
                 )
                 continue
-            gone_lines.add((ln["source"], ln["relation"], ln["target"]))
+            gone_lines.add(trip)
     undone["lines"] = len(gone_lines)
+    if undone["kept_lines"]:
+        undone["kept_lines_reason"] = _KEPT_LINES[lg]
 
     # 1b. 既にある線に足した根拠の文 — 外すのは根拠だけ（線は消さない・13a）
-    undone["evidence"] = 0
+    undone["evidence"] = ev_removed
     supported: list[dict] = [sp for sp in commit.get("supported") or [] if isinstance(sp, dict)]
     for t in session["turns"]:
         c = t.get("commit")
@@ -2651,7 +2704,6 @@ async def revert_confirmed(
                 for sp in r.get("supported") or []
                 if isinstance(sp, dict)
             ]
-    done_ev: set[tuple[str, str, str, str]] = set()
     for sp in supported:
         src, rel, dst = str(sp.get("source")), str(sp.get("relation")), str(sp.get("target"))
         if (src, rel, dst) in gone_lines:  # 線ごと消えたなら根拠も一緒に消えている
@@ -2709,6 +2761,30 @@ async def revert_confirmed(
         drop = [n for n in new_q if n not in elsewhere]
         if drop:
             query_tools.remove_registry_query_tools_by_name(root, shared_vocab.REGISTRY_ID, drop)
+
+    # 2b. 残した線の記録 — X のテーマから外し、引き継いだ commit のテーマへ移す（13d）
+    if kept_moves:
+        data = themes.load_themes_file(root)
+        if data is not None:
+            changed = False
+            for trip, heir in kept_moves:
+                rec = {"from": trip[0], "relation": trip[1], "to": trip[2]}
+
+                def same(r: dict, trip: tuple[str, str, str] = trip) -> bool:
+                    return (r.get("from"), r.get("relation"), r.get("to")) == trip
+
+                for t in data["themes"]:
+                    rels = t.get("relations") or []
+                    has = any(same(r) for r in rels)
+                    if t.get("id") == heir.get("theme_id"):
+                        if not has:
+                            t["relations"] = [*rels, rec]
+                            changed = True
+                    elif t.get("id") == theme_id and has:
+                        t["relations"] = [r for r in rels if not same(r)]
+                        changed = True
+            if changed:
+                themes._save_themes(root, data)
 
     # 3. 用語 — ほかが使っていれば残す
     msg = chat_seed._KEPT[lg]
