@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.65.1](https://github.com/kumagallium/asterism/compare/v0.65.0...v0.65.1) - 2026-11-06
+
+- [docs] manual: v0.65.0 の節目とバッジ（表の出所・取り消しても根拠を残す） by @kumagallium in https://github.com/kumagallium/asterism/pull/791
+
 ## [v0.65.0](https://github.com/kumagallium/asterism/compare/v0.64.0...v0.65.0) - 2026-11-06
 
 - [docs] manual: v0.64.0 の節目とバッジ（論文を開く・論文の表） by @kumagallium in https://github.com/kumagallium/asterism/pull/787
