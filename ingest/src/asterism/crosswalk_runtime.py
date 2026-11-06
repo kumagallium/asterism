@@ -1250,6 +1250,62 @@ async def remove_evidence(
     await client.sparql_update(f"DELETE DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ {triples} }} }}")
 
 
+async def move_provenance(
+    client,
+    source: str,
+    target: str,
+    relation: str,
+    *,
+    batch: str,
+    drafted_by: str | None = None,
+    at: str | None = None,
+) -> bool:
+    """既にある線の来歴の meta（``batch`` / ``draftedBy`` / ``endedAtTime``）だけを書き換える
+    （13d: 足した手番を取り消すとき、ほかの論文が支える線を残して、来歴をその論文の手番へ移す）。
+    ``drafted_by`` / ``at`` が ``None`` なら今の値を変えない。``reason`` は足した手番のものなので
+    外す。根拠（``wasDerivedFrom``）・3 つ組・種類の記録はそのまま。来歴ノードが無ければ
+    ``False``（何も書かない）。"""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if drafted_by is not None and drafted_by not in DRAFTED_BY:
+        raise ValueError(f"drafted_by must be one of {DRAFTED_BY}, got {drafted_by!r}")
+    batch_text = (batch or "").strip()
+    if len(batch_text) > BATCH_MAX or any(ord(c) < 32 for c in batch_text):
+        raise ValueError(f"batch must be a single line of at most {BATCH_MAX} characters")
+    _check_iri(source)
+    _check_iri(target)
+    if at is not None and not re.fullmatch(r"[0-9T:.+\-Z]+", at):
+        raise ValueError(f"not a dateTime: {at!r}")
+    align_iri = _alignment_iri(source, relation, target)
+    res = await client.sparql_select(
+        f"SELECT ?a WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a a <{XW}Alignment> . "
+        f"FILTER(?a = <{align_iri}>) }} }} LIMIT 1"
+    )
+    rows = res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
+    if not rows:
+        return False
+    meta = [f"<{XW}batch>", f"<{XW}reason>"]
+    ins = []
+    if batch_text:
+        ins.append(f'<{XW}batch> "{_sparql_str(batch_text)}"')
+    if drafted_by is not None:
+        meta.append(f"<{XW}draftedBy>")
+        ins.append(f'<{XW}draftedBy> "{drafted_by}"')
+    if at is not None:
+        meta.append(f"<{_PROV}endedAtTime>")
+        ins.append(f'<{_PROV}endedAtTime> "{at}"^^<{_XSD}dateTime>')
+    update = (
+        f"DELETE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} "
+        f"WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} "
+        f"VALUES ?p {{ {' '.join(meta)} }} }}"
+    )
+    if ins:
+        joined = " ; ".join(ins)
+        update += f" ; INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> {joined} }} }}"
+    await client.sparql_update(update)
+    return True
+
+
 async def drop_evidence_in_graphs(client, graphs: list[str]) -> int:
     """指定の graph（論文の版 graph）にある文（``doco:Sentence``）を指す ``prov:wasDerivedFrom``
     を、ALIGNMENT_GRAPH から外す（13a: 論文を消すとき。関係そのものは残す）。graph が消える前に

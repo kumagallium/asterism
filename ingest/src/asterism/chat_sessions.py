@@ -236,6 +236,78 @@ def seed_of_draft(root: Path | str, draft_id: str) -> dict | None:
     return draft_seed_map(root).get(draft_id)
 
 
+def parse_at(value: Any) -> datetime | None:
+    """commit の ``at`` を日時として読む（``Z`` も ``+00:00`` も同じ・タイムゾーン無しは UTC）。
+    読めなければ ``None``。"""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        d = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=UTC)
+
+
+def supporter_index(
+    root: Path | str, *, current: dict | None = None
+) -> dict[tuple[str, str, str], list[dict[str, Any]]]:
+    """``(source, relation, target)`` → その線に根拠を足した commit の一覧（13d）。
+    全部の話の確認済みの手番の ``commit.supported`` から 1 回で作る（取り消し済みは入らない）。
+    ``current`` = まだ保存していない手元の話（同じ id の保存より優先）。各行 = ``{"batch",
+    "at", "drafted_by"（無ければ None）, "paper"（論文の手番か）, "theme_id",
+    "evidence"（足した IRI の集合）, "session_id", "turn_id"}``。同じ batch は 1 件にまとめる。"""
+    sessions = [s for s in _all(root) if not (current and s.get("id") == current.get("id"))]
+    if current is not None:
+        sessions.append(current)
+    index: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
+    for s in sessions:
+        for t in s.get("turns") or []:
+            c = t.get("commit")
+            if t.get("state") != "confirmed" or not isinstance(c, dict) or not c.get("batch"):
+                continue
+            batch = str(c["batch"])
+            for sp in c.get("supported") or []:
+                if not isinstance(sp, dict):
+                    continue
+                key = (str(sp.get("source")), str(sp.get("relation")), str(sp.get("target")))
+                row = index.setdefault(key, {}).setdefault(
+                    batch,
+                    {
+                        "batch": batch,
+                        "at": c.get("at") or t.get("at"),
+                        "drafted_by": None,
+                        "paper": False,
+                        "theme_id": c.get("theme_id"),
+                        "evidence": set(),
+                        "session_id": s.get("id"),
+                        "turn_id": t.get("id"),
+                    },
+                )
+                row["evidence"] |= {str(e) for e in sp.get("evidence") or []}
+                row["drafted_by"] = row["drafted_by"] or sp.get("drafted_by")
+                row["paper"] = row["paper"] or bool(t.get("paper"))
+    return {k: list(v.values()) for k, v in index.items()}
+
+
+def supporting_commits(
+    index: dict[tuple[str, str, str], list[dict[str, Any]]],
+    triple: tuple[str, str, str],
+    evidence: list[str],
+    *,
+    exclude_batches: set[str],
+) -> list[dict[str, Any]]:
+    """索引から、その線の根拠（``evidence`` のどれか）を足した commit を引く。``exclude_batches``
+    は除く。並びは ``at`` を日時として読んだ早い順（``at`` が読めないものは最後）。"""
+    want = set(evidence)
+    rows = [
+        r
+        for r in index.get(triple, [])
+        if r["batch"] not in exclude_batches and want & r["evidence"]
+    ]
+    far = datetime.max.replace(tzinfo=UTC)
+    return sorted(rows, key=lambda r: parse_at(r["at"]) or far)
+
+
 def turn_of_batch(root: Path | str, batch: str | None) -> dict[str, str] | None:
     """``<話の id>:<手番の id>`` の batch → ``{"session_id", "turn_id"}``。その手番が実際にある
     ときだけ（形が違う・話が無い・手番が無いなら ``None``）。"""

@@ -28,6 +28,13 @@ describe('論文の根拠の文（12c）', () => {
 })
 
 describe('取り消しの根拠の数（13a）', () => {
+  it('undone.kept_lines は 0 のとき無く、1 以上なら数が入る', () => {
+    const base = { lines: 1, terms: 0, questions: 0, kept: [] }
+    expect(undoneOf({ ...base, kept_lines: 2 })?.kept_lines).toBe(2)
+    expect(undoneOf({ ...base, kept_lines: 0 })).not.toHaveProperty('kept_lines')
+    expect(undoneOf(base)).not.toHaveProperty('kept_lines')
+  })
+
   it('undone.evidence は 0 のとき無く、1 以上なら数が入る', () => {
     const base = { lines: 0, terms: 0, questions: 0, kept: [] }
     expect(undoneOf({ ...base, evidence: 2 })?.evidence).toBe(2)

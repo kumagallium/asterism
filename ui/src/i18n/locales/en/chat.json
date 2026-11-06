@@ -49,6 +49,7 @@
     "undoAsk": "Undo the {{terms}} terms and {{lines}} relations this approval added",
     "undone": "Undone: {{lines}} relations, {{terms}} terms",
     "undoneEvidence": ", evidence sentences {{n}}",
+    "undoneKeptLines": "{{n}} relation(s) kept because other papers support them",
     "undoneKept": " (kept: {{names}})",
     "undoneFailed": "Could not undo: {{what}} ({{reason}})",
     "cardProposed": "Proposed for the knowledge graph · {{n}}",
