@@ -219,6 +219,13 @@ def _source_note(registry_root: Path, dataset_id: str) -> str | None:
     return None
 
 
+def _source_paper_of(meta: dict[str, Any]) -> dict[str, str] | None:
+    raw = meta.get("source_paper")
+    if not isinstance(raw, dict) or not isinstance(raw.get("dataset_id"), str):
+        return None
+    return {k: str(raw.get(k) or "") for k in ("dataset_id", "name", "label", "caption")}
+
+
 def list_entry_extras(meta: dict[str, Any]) -> dict[str, Any]:
     """``GET /api/datasets``（一覧）の 1 要素に足す 3 フィールド
     （契約メモ §3.4） — ``origin``/``stage``/``is_demo``。
@@ -409,6 +416,8 @@ async def dataset_summary(
         "license": license_value,
         "snapshot": _snapshot_of(meta),
         "source_note": _source_note(root, safe_id) if root is not None else None,
+        # 13e: 論文の表から取り込んだ出所（無ければ null）
+        "source_paper": _source_paper_of(meta),
         "classes": classes,
         "is_demo": safe_id == DEMO_DATASET_ID,
         "sample_notice": sample_notice(meta, is_demo=safe_id == DEMO_DATASET_ID),

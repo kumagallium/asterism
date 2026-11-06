@@ -43,7 +43,9 @@ def _setup(
         calls.append(("onto", dataset_id))
         return 1
 
-    async def meta(client: Any, dataset_id: str, artifacts: dict[str, str]) -> int:
+    async def meta(
+        client: Any, dataset_id: str, artifacts: dict[str, str], **kw: Any
+    ) -> int:
         calls.append(("meta", dataset_id))
         return 1
 

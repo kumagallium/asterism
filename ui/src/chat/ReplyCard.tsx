@@ -9,6 +9,7 @@ import { evidenceOf, type BindingDecision, type Decided, type Note, type Turn, t
 import { clipEvidence, evidenceSource } from './evidenceText'
 import { EvidenceLine } from './EvidenceLine'
 import { useOpenPaper } from './paperReaderContext'
+import { tableName } from './tableName'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ReplyAnswer, ReplyTable } from './chatApi'
@@ -246,13 +247,6 @@ function Reading({ progress, interrupted, from }: { progress?: string; interrupt
       </div>
     </div>
   )
-}
-
-/** 論文の表の名前。日本語の画面では `Table 2` を「表 2」に（それ以外の名前はそのまま・無ければ id）。 */
-function tableName(label: string, id: string, lang: string): string {
-  const m = /^\s*(?:table|tab\.?)\s*(\d+)\s*$/i.exec(label)
-  if (m && lang.startsWith('ja')) return `表 ${m[1]}`
-  return label.trim() || id
 }
 
 /** 13c: 論文の表の欄 — 表ごとに 1 行と「データとして取り込む」。押した表は新しい手番へ。 */

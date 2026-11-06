@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../i18n'
 import i18n from '../i18n'
 import type { ContentsLoad, ReplyTable } from './chatApi'
-import { ContentsPanel } from './ContentsPanel'
+import { ContentsPanel, FromPaperLine } from './ContentsPanel'
 import { UNPUBLISHED } from './contentsKey'
+import { PaperReaderContext } from './paperReaderContext'
 
 const table = (label: string, rows = 1): ReplyTable => ({
   kind: { iri: `k:${label}`, label },
@@ -31,6 +32,37 @@ afterEach(async () => {
 })
 
 describe('ContentsPanel', () => {
+  it('論文の表から取り込んだデータセット: 出所の 1 行が出て、押すと論文を開く（13e）', () => {
+    const sp = { dataset_id: 'paper-1', table_id: 'tbl2', label: 'Table 2', caption: '熱伝導率', name: '論文X' }
+    const data = load({ tables: [{ dataset: { id: 'a', label: 'データ A', source_paper: sp }, table: table('試料') }, { dataset: { id: 'a', label: 'データ A', source_paper: sp }, table: table('測定') }] })
+    const open = vi.fn()
+    const h = html(
+      <PaperReaderContext.Provider value={{ open }}>
+        <ContentsPanel target={{ dataset: 'a' }} state={{ status: 'ok', data }} />
+      </PaperReaderContext.Provider>,
+    )
+    expect(h.match(/data-testid="contents-from-paper"/g)).toHaveLength(1)
+    expect(h).toContain('論文「論文X」の表 2 から')
+    expect(h).toContain('data-testid="contents-open-paper"')
+    // 文脈が無ければ押せない文字のまま
+    const plain = html(<ContentsPanel target={{ dataset: 'a' }} state={{ status: 'ok', data }} />)
+    expect(plain).toContain('論文「論文X」の表 2 から')
+    expect(plain).not.toContain('contents-open-paper')
+  })
+  it('出所の行を押すと open が呼ばれる（13e）', () => {
+    const open = vi.fn()
+    const p = FromPaperLine({ text: '論文「X」の表 2 から', caption: '', open })
+    const button = (Array.isArray(p.props.children) ? p.props.children : [p.props.children]).find((c: unknown) => c && typeof c === 'object')
+    expect(button.props['data-testid']).toBe('contents-open-paper')
+    button.props.onClick()
+    expect(open).toHaveBeenCalledWith(null)
+    // open が無ければ押せない文字
+    expect(FromPaperLine({ text: 'x', caption: '', open: null }).props.children).toBe('x')
+  })
+  it('出所の無いデータセットは何も足さない', () => {
+    const h = html(<ContentsPanel target={{ term: 't' }} state={{ status: 'ok', data: load() }} />)
+    expect(h).not.toContain('contents-from-paper')
+  })
   it('何も押していない: 1 行の案内', () => {
     const h = html(<ContentsPanel target={null} state={{ status: 'idle' }} />)
     expect(h).toContain('data-testid="contents-panel"')

@@ -26,6 +26,7 @@ are both pure, deterministic functions of their input.
 from __future__ import annotations
 
 import logging
+import re
 import urllib.parse
 from collections.abc import Iterable, Mapping
 from typing import Protocol
@@ -51,6 +52,7 @@ SH = Namespace("http://www.w3.org/ns/shacl#")
 SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
 XSD = rdflib.XSD
 AST = Namespace(substrate.ASTERISM_NS)
+PROV = Namespace("http://www.w3.org/ns/prov#")
 
 # English label for each ``ast:`` predicate this module can emit. A dataset's
 # description graph carries an ``rdf:Property``/``rdfs:label`` pair for ONLY the
@@ -113,6 +115,7 @@ def _bind(graph: rdflib.Graph) -> None:
     graph.bind("rdf", RDF)
     graph.bind("xsd", XSD)
     graph.bind("ast", AST)
+    graph.bind("prov", PROV)
 
 
 def _is_droppable(value: object) -> bool:
@@ -229,6 +232,69 @@ def build_metadata_graph(
 
     _add_tbox(graph, used)
     return graph
+
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _clean_text(value: object) -> str:
+    """出所の文字列に入れる前の掃除。制御文字（タブ・改行以外の C0/C1・NUL など）を除き、
+    改行・タブは空白 1 つにまとめる。"""
+    text = _CONTROL_CHARS.sub("", str(value or ""))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _paper_table_name(label: str, table_id: str, lang: str) -> str:
+    """論文の表の名前（UI の ``tableName`` と同じ規則）。ja では ``Table 2`` を「表 2」に、
+    それ以外の名前（日本語の「表 2」も）はそのまま、無ければ id。"""
+    m = re.match(r"^\s*(?:table|tab\.?)\s*(\d+)\s*$", label, re.IGNORECASE)
+    if m and lang == "ja":
+        return f"表 {m.group(1)}"
+    return label.strip() or table_id
+
+
+def source_paper_text(source_paper: Mapping[str, object], lang: str) -> str:
+    """出所の 1 行。ja=「論文「X」の表 2（見出し）」／en=``Table 2 of the paper "X" (caption)``。"""
+    name = _clean_text(source_paper.get("name"))
+    table = _paper_table_name(
+        _clean_text(source_paper.get("label")), _clean_text(source_paper.get("table_id")), lang
+    )
+    caption = _clean_text(source_paper.get("caption"))
+    if lang == "ja":
+        text = f"論文「{name}」の{table}"
+        return f"{text}（{caption}）" if caption else text  # noqa: RUF001
+    text = f'{table} of the paper "{name}"'
+    return f"{text} ({caption})" if caption else text
+
+
+def add_source_paper(
+    graph: rdflib.Graph,
+    dataset_id: str,
+    source_paper: Mapping[str, object] | None,
+    *,
+    link_paper: bool = True,
+) -> bool:
+    """論文の表から取り込んだデータセットの出所を説明に足す（13e）。
+
+    ``dcterms:source`` の文字列（ja・en の言語タグ）はいつも足す（論文が消えても「どこから
+    来たか」は事実として残す）。``prov:wasDerivedFrom <論文のデータセット>`` は
+    ``link_paper`` が真のときだけ（呼び出し側が、論文が registry に生きているかで決める）。
+    足したら ``True``。出所が無い・論文の id が使えないときは何も足さず ``False``
+    （出所の無いデータセットは変わらない）。何度呼んでも同じ三つ組（graph は集合）。
+    """
+    if not isinstance(source_paper, Mapping):
+        return False
+    paper_id = str(source_paper.get("dataset_id") or "")
+    try:
+        paper = URIRef(substrate.dataset_iri(paper_id))
+    except ValueError:
+        return False
+    d = URIRef(substrate.dataset_iri(dataset_id))
+    if link_paper:
+        graph.add((d, PROV.wasDerivedFrom, paper))
+    for lang in ("ja", "en"):
+        graph.add((d, DCTERMS.source, Literal(source_paper_text(source_paper, lang), lang=lang)))
+    return True
 
 
 def _write_extra_section(

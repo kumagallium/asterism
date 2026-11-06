@@ -187,6 +187,18 @@ def _origins(raw: object) -> list[dict[str, Any]]:
     return out
 
 
+def _source_paper(raw: object) -> dict[str, str] | None:
+    """論文の表から取り込んだデータセットの出所（13e・``meta.source_paper``）を
+    ``{dataset_id, name, label, caption}`` に整える。無い・壊れていれば ``None``
+    （そのときは一覧の 1 件にこの項目を足さない）。"""
+    if not isinstance(raw, dict):
+        return None
+    dataset_id = raw.get("dataset_id")
+    if not isinstance(dataset_id, str) or not dataset_id.strip():
+        return None
+    return {k: str(raw.get(k) or "") for k in ("dataset_id", "name", "label", "caption")}
+
+
 def _registry_entries(
     reg: Path, descriptions: Mapping[str, str] | None = None
 ) -> list[dict[str, Any]]:
@@ -213,21 +225,23 @@ def _registry_entries(
             continue  # 共有のことば（registry/vocab-shared）はデータセットではない
         dataset_id = str(meta.get("id") or child.name)
         description = (descriptions or {}).get(dataset_id) or _ttl_description(child)
-        entries.append(
-            {
-                "id": dataset_id,
-                "name": str(meta.get("name") or child.name),
-                "description": description,
-                "source": "registry",
-                "promoted": bool(meta.get("promoted")),
-                "status": str(meta.get("status") or "active"),
-                "classes": [str(c) for c in (meta.get("classes") or [])],
-                "graph": meta.get("live_graph") or meta.get("canonical_graph"),
-                "triples": meta.get("triples_promoted"),
-                "promoted_at": meta.get("promoted_at"),
-                "origins": _origins(meta.get("source_origins")),
-            }
-        )
+        entry = {
+            "id": dataset_id,
+            "name": str(meta.get("name") or child.name),
+            "description": description,
+            "source": "registry",
+            "promoted": bool(meta.get("promoted")),
+            "status": str(meta.get("status") or "active"),
+            "classes": [str(c) for c in (meta.get("classes") or [])],
+            "graph": meta.get("live_graph") or meta.get("canonical_graph"),
+            "triples": meta.get("triples_promoted"),
+            "promoted_at": meta.get("promoted_at"),
+            "origins": _origins(meta.get("source_origins")),
+        }
+        source_paper = _source_paper(meta.get("source_paper"))
+        if source_paper:
+            entry["source_paper"] = source_paper
+        entries.append(entry)
     return entries
 
 
@@ -306,7 +320,10 @@ def find_datasets(
     the mapping falls back to its registry ``metadata.ttl``.
 
     Returns ``{"datasets": [...], "count": n, "truncated": bool}``; each dataset
-    carries ``tools[].name`` as the name the caller must actually send.
+    carries ``tools[].name`` as the name the caller must actually send. A dataset
+    imported from a table of a paper (13e) also carries ``source_paper``
+    ``{dataset_id, name, label, caption}`` so a number can be cited "from table N
+    of paper X"; datasets without one do not have the key.
     """
     if isinstance(keywords, str):
         keywords = [keywords]

@@ -348,3 +348,36 @@ async def test_answer_knowledge_question_unknown_name_is_not_found(monkeypatch, 
     )
     result = await mcp.call_tool("answer_knowledge_question", {"tool_name": "kq_nothing"})
     assert result.structured_content["found"] is False
+
+
+async def test_find_datasets_reports_source_paper(monkeypatch, tmp_path) -> None:
+    # 13e: 論文の表から取り込んだデータセットは source_paper を持つ（無いものは項目ごと無い）
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    sp = {
+        "dataset_id": "paper-22222222",
+        "table_id": "tbl2",
+        "label": "Table 2",
+        "caption": "Thermal conductivity",
+        "name": "Paper X",
+    }
+    for ds_id, extra in (("tbl-11111111", {"source_paper": sp}), ("plain-33333333", {})):
+        d = reg / ds_id
+        d.mkdir(parents=True)
+        (d / "meta.json").write_text(
+            json.dumps({"id": ds_id, "name": ds_id, "promoted": True, **extra}), encoding="utf-8"
+        )
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+    mcp = build_server(
+        Settings({}), oxigraph_client=_mock_client(lambda r: _sparql_select_response([]))
+    )
+    body = (await mcp.call_tool("find_datasets", {})).structured_content
+    assert body is not None
+    by_id = {d["id"]: d for d in body["datasets"]}
+    assert by_id["tbl-11111111"]["source_paper"] == {
+        "dataset_id": "paper-22222222",
+        "name": "Paper X",
+        "label": "Table 2",
+        "caption": "Thermal conductivity",
+    }
+    assert "source_paper" not in by_id["plain-33333333"]

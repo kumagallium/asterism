@@ -994,7 +994,8 @@ export type ContentsKey = { kind: string; dataset?: string } | { term: string } 
 
 /** データセットごとの表。 */
 export interface ContentsTable {
-  dataset: { id: string; label: string }
+  /** `source_paper`（13e）= 論文の表から取り込んだデータセットの出所。 */
+  dataset: { id: string; label: string; source_paper?: SourcePaper }
   table: ReplyTable
 }
 
@@ -1014,7 +1015,8 @@ export function contentsOf(v: unknown): ContentsLoad | null {
     if (!isObj(x) || !isObj(x.dataset)) return null
     const table = tableOf(x.table)
     if (!table) return null
-    tables.push({ dataset: { id: str(x.dataset.id), label: str(x.dataset.label, str(x.dataset.id)) }, table })
+    const sp = sourcePaperOf(x.dataset.source_paper)
+    tables.push({ dataset: { id: str(x.dataset.id), label: str(x.dataset.label, str(x.dataset.id)), ...(sp ? { source_paper: sp } : {}) }, table })
   }
   return { title: str(v.title), tables, more: typeof v.more === 'number' ? v.more : 0, note: typeof v.note === 'string' ? v.note : null }
 }

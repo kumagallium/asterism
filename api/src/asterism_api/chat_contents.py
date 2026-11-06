@@ -202,6 +202,19 @@ async def _dataset_targets(
     return graphs, [(dataset_id, k) for k in kinds], not graphs
 
 
+def _source_paper_of(root: Path, dataset_id: str) -> dict[str, str] | None:
+    """データセットの出所（``meta.source_paper``・13c）。無ければ None。
+
+    返り = ``{dataset_id, table_id, name, label, caption}``。"""
+    if not dataset_id:
+        return None
+    raw = (registry.load_meta(root, dataset_id) or {}).get("source_paper")
+    if not isinstance(raw, dict) or not isinstance(raw.get("dataset_id"), str):
+        return None
+    keys = ("dataset_id", "table_id", "name", "label", "caption")
+    return {k: str(raw.get(k) or "") for k in keys}
+
+
 async def build_contents(
     client: Any,
     root: Path | str,
@@ -293,6 +306,10 @@ async def build_contents(
                 schema = None
             did = str((schema or {}).get("dataset_id") or "")
         label = resolve_dataset_label(root, did) if did else ""
-        tables.append({"dataset": {"id": did, "label": label}, "table": table})
+        dataset_out: dict[str, Any] = {"id": did, "label": label}
+        source = _source_paper_of(root, did)
+        if source:  # 13e: 論文の表から取り込んだデータセットの出所
+            dataset_out["source_paper"] = source
+        tables.append({"dataset": dataset_out, "table": table})
     more = max(0, len(pairs) - MAX_TABLES) + skipped
     return {"title": title, "tables": tables, "more": more, "note": note}

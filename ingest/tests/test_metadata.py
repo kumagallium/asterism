@@ -658,3 +658,71 @@ async def test_meta_graphs_lists_only_meta_named_graphs() -> None:
     assert out == [meta_iri]
     assert substrate.META_GRAPH_BASE in client.queries[0]
     assert "STRSTARTS" in client.queries[0]
+
+
+# ----------------------------------------------------------------------------
+# 13e: 論文の表から取り込んだ出所
+# ----------------------------------------------------------------------------
+
+_SOURCE_PAPER = {
+    "dataset_id": "paper-22222222",
+    "table_id": "tbl2",
+    "label": "Table 2",
+    "caption": "熱伝導率",
+    "name": "論文X",
+}
+
+
+def test_add_source_paper_writes_derived_from_and_source_literals() -> None:
+    g = m.build_metadata_graph(None, "tbl-11111111")
+    assert m.add_source_paper(g, "tbl-11111111", _SOURCE_PAPER) is True
+    d = rdflib.URIRef(substrate.dataset_iri("tbl-11111111"))
+    assert (d, m.PROV.wasDerivedFrom, rdflib.URIRef(substrate.dataset_iri("paper-22222222"))) in g
+    texts = {(str(o), o.language) for o in g.objects(d, m.DCTERMS.source)}
+    assert ("論文「論文X」の表 2（熱伝導率）", "ja") in texts  # noqa: RUF001
+    assert ('Table 2 of the paper "論文X" (熱伝導率)', "en") in texts
+    # 何度足しても同じ（graph は集合）
+    m.add_source_paper(g, "tbl-11111111", _SOURCE_PAPER)
+    assert len(list(g.objects(d, m.DCTERMS.source))) == 2
+
+
+def test_add_source_paper_without_source_changes_nothing() -> None:
+    g = m.build_metadata_graph(None, "plain-33333333")
+    before = set(g)
+    assert m.add_source_paper(g, "plain-33333333", None) is False
+    assert m.add_source_paper(g, "plain-33333333", {"dataset_id": "../bad"}) is False
+    assert set(g) == before
+
+
+def test_add_source_paper_keeps_text_without_the_link_when_the_paper_is_gone() -> None:
+    g = m.build_metadata_graph(None, "tbl-11111111")
+    assert m.add_source_paper(g, "tbl-11111111", _SOURCE_PAPER, link_paper=False) is True
+    d = rdflib.URIRef(substrate.dataset_iri("tbl-11111111"))
+    assert (d, m.PROV.wasDerivedFrom, None) not in g
+    assert len(list(g.objects(d, m.DCTERMS.source))) == 2
+
+
+def test_source_paper_text_strips_control_chars_and_folds_newlines() -> None:
+    sp = {
+        "dataset_id": "paper-22222222",
+        "table_id": "tbl2",
+        "label": "Table \x002",
+        "caption": "熱伝導率\n\tの\x07表\x85",
+        "name": "論文\x00X\r\nY",
+    }
+    ja = m.source_paper_text(sp, "ja")
+    en = m.source_paper_text(sp, "en")
+    assert ja == "論文「論文X Y」の表 2（熱伝導率 の表）"  # noqa: RUF001
+    assert en == 'Table 2 of the paper "論文X Y" (熱伝導率 の表)'
+    for text in (ja, en):
+        assert not any(ord(c) < 32 or 0x7F <= ord(c) <= 0x9F for c in text)
+
+
+def test_source_paper_text_table_name_follows_the_ui_rule() -> None:
+    base = {"dataset_id": "p-1", "table_id": "tbl3", "caption": "", "name": "X"}
+    assert m.source_paper_text({**base, "label": "Table 2"}, "ja") == "論文「X」の表 2"
+    assert m.source_paper_text({**base, "label": "Tab. 2"}, "en") == 'Tab. 2 of the paper "X"'
+    # 日本語の名前は崩さない（en でもそのまま）
+    assert m.source_paper_text({**base, "label": "表 2"}, "en") == '表 2 of the paper "X"'
+    assert m.source_paper_text({**base, "label": "表 2"}, "ja") == "論文「X」の表 2"
+    assert m.source_paper_text({**base, "label": ""}, "ja") == "論文「X」のtbl3"

@@ -6,6 +6,9 @@ import { ChevronIcon } from '../icons'
 import type { Highlight } from './chatState'
 import { readOpen, writeOpen } from './localOpen'
 import { ReplyTableView } from './ReplyCard'
+import { tableName } from './tableName'
+import { useOpenPaper } from './paperReaderContext'
+import type { SourcePaper } from './chatApi'
 import { UNPUBLISHED, type ContentsTarget } from './contentsKey'
 import type { ContentsState } from './useContents'
 
@@ -37,6 +40,29 @@ function bodyOf(t: (k: string, o?: Record<string, unknown>) => string, loading: 
       </p>
     )
   return null
+}
+
+/** 13e: 論文の表から取り込んだデータセットの出所 — 「論文「X」の表 2 から」。押すと 13b の論文を開く。 */
+function FromPaper({ source }: { source: SourcePaper }) {
+  const { t, i18n } = useTranslation('chat')
+  const open = useOpenPaper(source.dataset_id)
+  const text = t('attach.fromPaper', { paper: source.name, table: tableName(source.label, source.table_id, i18n.language) })
+  return <FromPaperLine text={text} caption={source.caption} open={open} />
+}
+
+/** 出所の 1 行の見た目（フックを持たない・押したら `open(null)`）。`open` が null なら押せない文字。 */
+export function FromPaperLine({ text, caption, open }: { text: string; caption: string; open: ((focus: string | null) => void) | null }) {
+  return (
+    <p className="chat-note-line" data-testid="contents-from-paper" title={caption || undefined}>
+      {open ? (
+        <button type="button" className="link-btn" data-testid="contents-open-paper" onClick={() => open(null)}>
+          {text}
+        </button>
+      ) : (
+        text
+      )}
+    </p>
+  )
 }
 
 export function ContentsPanel({ target, state, name, onHighlight, onRetry }: ContentsPanelProps) {
@@ -90,9 +116,10 @@ export function ContentsPanel({ target, state, name, onHighlight, onRetry }: Con
             <p className="chat-note-line">{data.note ?? (target && typeof target === 'object' && 'session' in target ? t('contents.hint') : t('contents.empty'))}</p>
           ) : (
             <>
-              {data.tables.map((x) => (
+              {data.tables.map((x, i) => (
                 <div key={`${x.dataset.id}|${x.table.kind.iri}`} className="chat-contents-table" data-testid="contents-table">
                   {multi && <h4>{x.dataset.label}</h4>}
+                  {x.dataset.source_paper && data.tables.findIndex((y) => y.dataset.id === x.dataset.id) === i && <FromPaper source={x.dataset.source_paper} />}
                   <ReplyTableView table={x.table} onHighlight={onHighlight} />
                 </div>
               ))}
