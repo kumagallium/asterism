@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.65.0](https://github.com/kumagallium/asterism/compare/v0.64.0...v0.65.0) - 2026-11-06
+
+- [docs] manual: v0.64.0 の節目とバッジ（論文を開く・論文の表） by @kumagallium in https://github.com/kumagallium/asterism/pull/787
+- 13d: 取り消しで、ほかの論文が支える関係と根拠を残す by @kumagallium in https://github.com/kumagallium/asterism/pull/789
+- 13e: 取り込んだ表の出所を、データセットの説明と MCP に出す by @kumagallium in https://github.com/kumagallium/asterism/pull/790
+
 ## [v0.64.0](https://github.com/kumagallium/asterism/compare/v0.63.0...v0.64.0) - 2026-11-05
 
 - [docs] manual: v0.63.0 の節目とバッジ（論文の根拠の文を見る） by @kumagallium in https://github.com/kumagallium/asterism/pull/782
