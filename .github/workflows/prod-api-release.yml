@@ -110,7 +110,7 @@ jobs:
       # サーバ側は infra/dewy/verify-latest.sh が before-deploy-hook で検証する。
       - name: Install cosign
         if: ${{ inputs.source_tag == '' }}
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign image (keyless, OIDC)
         if: ${{ inputs.source_tag == '' }}
         run: cosign sign --yes "$IMAGE@${{ steps.build.outputs.digest }}"
