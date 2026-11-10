@@ -25,5 +25,6 @@ export function mapEdgeAppearance<T extends EdgeInput>(
   const label = state.hovered && data.label
     ? `${data.label}${data.proposed ? ` (${state.lang === 'ja' ? '提案' : 'proposed'})` : ''}`
     : ''
-  return { ...data, size: state.hovered ? size + 1 : size, color, label, zIndex: state.hovered ? 2 : state.on ? 1 : 0, forceLabel: state.hovered }
+  const emphasizedSize = state.on ? size * 1.2 : size
+  return { ...data, size: state.hovered ? emphasizedSize + 1 : emphasizedSize, color, label, zIndex: state.hovered ? 2 : state.on ? 1 : 0, forceLabel: state.hovered }
 }

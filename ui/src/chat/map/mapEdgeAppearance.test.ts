@@ -27,9 +27,21 @@ describe('確定・提案の線の描画', () => {
     expect(data.label).toBe('下げる')
   })
   it('選択・hoverは強調色、近傍外は薄色を優先し、提案の太さは維持する', () => {
-    expect(mapEdgeAppearance({ thin: true }, pal, { ...idle, on: true })).toMatchObject({ color: pal.edgeOn, size: 0.75, label: '' })
+    expect(mapEdgeAppearance({ thin: true }, pal, { ...idle, on: true })).toMatchObject({ color: pal.edgeOn, label: '' })
+    expect(mapEdgeAppearance({ thin: true }, pal, { ...idle, on: true }).size).toBeCloseTo(0.9)
     expect(mapEdgeAppearance({ thin: true }, pal, { ...idle, faded: true }).color).toBe(pal.faded)
     expect(mapEdgeAppearance({ thin: true }, pal, { ...idle, hovered: true, faded: true }).color).toBe(pal.edgeOn)
+  })
+  it('選択の強調でも確定・提案・根拠の線幅比と意味を保つ', () => {
+    const selected = { ...idle, on: true }
+    const fixed = mapEdgeAppearance({ size: 2, label: '確定' }, pal, selected)
+    const proposed = mapEdgeAppearance({ size: 2, thin: true, proposed: true, label: '提案' }, pal, selected)
+    const evidence = mapEdgeAppearance({ size: 2, thin: true, kind: 'evidence', label: '根拠' }, pal, selected)
+    expect(proposed.size / fixed.size).toBeCloseTo(0.75)
+    expect(evidence.size).toBeCloseTo(0.72)
+    expect(proposed.proposed).toBe(true)
+    expect(evidence.kind).toBe('evidence')
+    expect(fixed.label).toBe('')
   })
 })
 

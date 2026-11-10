@@ -9,6 +9,7 @@ import { bindMapEvents, buildMapGraph, layoutMap, mapNeighborhood, mapSignature,
 import type { MapNodeAttrs } from './mapModel'
 import { mapNodePrograms } from './mapNodePrograms'
 import { mapEdgeAppearance } from './mapEdgeAppearance'
+import { attachMapSelectionMarker } from './mapSelectionMarker'
 import { makeGraphLabelDrawer } from '../../graphLabels'
 
 /** 全体を見るときのカメラの引き（1 より大きいと余白が出て、端の名前が切れない）。 */
@@ -219,8 +220,8 @@ export function MapView({
         // 線の名前は hover 中の 1 本だけ出す（edgeReducer で他は ''）
         renderEdgeLabels: true,
         edgeLabelSize: 12,
-        nodeProgramClasses: mapNodePrograms(pal.paper, drawNodeLabel),
-        nodeHoverProgramClasses: mapNodePrograms(pal.paper, drawNodeLabel),
+        nodeProgramClasses: mapNodePrograms(pal.paper, drawNodeLabel, drawNodeLabel),
+        nodeHoverProgramClasses: mapNodePrograms(pal.paper, drawNodeLabel, drawNodeLabel),
         edgeLabelColor: { color: pal.label },
         edgeLabelFont: labelFont,
         defaultDrawEdgeLabel: makeEdgeLabelDrawer(pal),
@@ -228,6 +229,8 @@ export function MapView({
         labelSize: 12,
         labelFont,
         defaultDrawNodeLabel: drawNodeLabel,
+        // 選択印の周りには影や札を足さず、文字の紙色の下地だけを描く。
+        defaultDrawNodeHover: drawNodeLabel,
         labelRenderedSizeThreshold: 2,
         labelDensity: 1,
         labelGridCellSize: 100,
@@ -291,6 +294,7 @@ export function MapView({
       return
     }
     refreshRef.current = refresh
+    attachMapSelectionMarker(sigma, host, () => propsRef.current.selectedId, { fill: pal.entity, paper: pal.paper })
     // 端の点の名前が切れないよう、少し引いて始める（全体を見るも同じ）
     sigma.getCamera().setState({ x: 0.5, y: 0.5, ratio: FIT_RATIO })
     // 撮影と検証の道具のために、sigma を容器から引けるようにしておく（製品の動きには使わない）
