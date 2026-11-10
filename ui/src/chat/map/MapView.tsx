@@ -1,5 +1,6 @@
 // 全体の地図（丸＋横の文字）。sigma を素で作って壊す（NetworkView.tsx の NetworkCanvas と同じ流儀）。
 // データと配置は mapModel.ts の純関数。契約 pr11h-contract.md §3。
+import { subscribeAppearance } from '../../appearance'
 import Sigma from 'sigma'
 import type Graph from 'graphology'
 import { useEffect, useMemo, useRef } from 'react'
@@ -161,6 +162,7 @@ export function MapView({
   const hovEdgeRef = useRef<string | null>(null)
   const laidRef = useRef<{ sig: string; graph: Graph } | null>(null)
   const roRef = useRef<ResizeObserver | null>(null)
+  const themeUnsubscribeRef = useRef<(() => void) | null>(null)
   const propsRef = useRef({ focusIds, selectedId, highlightIds, removeIds, onSelect, lang })
   useEffect(() => {
     propsRef.current = { focusIds, selectedId, highlightIds, removeIds, onSelect, lang }
@@ -177,6 +179,8 @@ export function MapView({
       refreshRef.current?.()
       return
     }
+    themeUnsubscribeRef.current?.()
+    themeUnsubscribeRef.current = null
     // 形が変わった: 前の sigma を壊し、配置して作り直す
     roRef.current?.disconnect()
     roRef.current = null
@@ -208,7 +212,7 @@ export function MapView({
       em = computeEmphasis()
       sigma.refresh()
     }
-    const drawNodeLabel = makeGraphLabelDrawer(pal.paper)
+    const drawNodeLabel = makeGraphLabelDrawer(() => pal.paper)
     const labelFont = getComputedStyle(document.documentElement).fontFamily
     let sigma: Sigma
     try {
@@ -219,8 +223,8 @@ export function MapView({
         // 線の名前は hover 中の 1 本だけ出す（edgeReducer で他は ''）
         renderEdgeLabels: true,
         edgeLabelSize: 12,
-        nodeProgramClasses: mapNodePrograms(pal.paper, drawNodeLabel),
-        nodeHoverProgramClasses: mapNodePrograms(pal.paper, drawNodeLabel),
+        nodeProgramClasses: mapNodePrograms(() => pal.paper, drawNodeLabel),
+        nodeHoverProgramClasses: mapNodePrograms(() => pal.paper, drawNodeLabel),
         edgeLabelColor: { color: pal.label },
         edgeLabelFont: labelFont,
         defaultDrawEdgeLabel: makeEdgeLabelDrawer(pal),
@@ -293,6 +297,15 @@ export function MapView({
       return
     }
     refreshRef.current = refresh
+    themeUnsubscribeRef.current = subscribeAppearance(() => {
+      Object.assign(pal, readPalette())
+      sigma.setSettings({
+        labelColor: { color: pal.label },
+        edgeLabelColor: { color: pal.label },
+        defaultEdgeColor: pal.edge,
+      })
+      refresh()
+    })
     // 端の点の名前が切れないよう、少し引いて始める（全体を見るも同じ）
     sigma.getCamera().setState({ x: 0.5, y: 0.5, ratio: FIT_RATIO })
     // 撮影と検証の道具のために、sigma を容器から引けるようにしておく（製品の動きには使わない）
@@ -329,6 +342,8 @@ export function MapView({
   // 外すときだけ壊す
   useEffect(
     () => () => {
+      themeUnsubscribeRef.current?.()
+      themeUnsubscribeRef.current = null
       roRef.current?.disconnect()
       roRef.current = null
       sigmaRef.current?.kill()

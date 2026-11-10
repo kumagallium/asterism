@@ -2,6 +2,14 @@
 <html lang="ja" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <!-- CSS・React より前に端末の外観を決め、保存したライトでも初回の明滅を防ぐ。 -->
+    <script>
+      (() => {
+        let theme = 'dark';
+        try { if (localStorage.getItem('asterism.appearance') === 'light') theme = 'light'; } catch {}
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- This is an authored bilingual (JA primary, EN sublabels) UI. Browser page

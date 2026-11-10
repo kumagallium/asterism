@@ -1,6 +1,7 @@
 // 「全体グラフ」— 値でつなぐ網（契約メモ contract_network_view.md §3）。
 // 描画は sigma（WebGL）。データと配置は networkModel.ts の純関数、取得は networkApi.ts。
 // 配置は決定論（初期位置のハッシュ＋固定回数の ForceAtlas2）— 同じデータは同じ絵。
+import { subscribeAppearance } from './appearance'
 import Graph from 'graphology'
 import Sigma from 'sigma'
 import type { CameraState } from 'sigma/types'
@@ -63,12 +64,12 @@ interface Palette {
 function readPalette(): Palette {
   const roles: Record<string, string> = {}
   KIND_COLORS.forEach((c, i) => {
-    roles[`kind-${i}`] = c
+    roles[`kind-${i}`] = cssColor(`--graph-value-${i}`, c)
   })
   for (const [role, v] of Object.entries(ROLE_VAR)) roles[role] = cssColor(v, '#68778e')
   return {
     roles,
-    edge: cssColor('--border-strong', '#c1cdde'),
+    edge: cssColor('--graph-edge', '#687e9b'),
     edgeFaded: cssColor('--border', '#dce4ef'),
     nodeFaded: cssColor('--border-strong', '#c1cdde'),
     label: cssColor('--fg', '#16243b'),
@@ -110,6 +111,7 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
     const host = hostRef.current
     if (!host) return
     const pal = readPalette()
+    const drawLabel = makeGraphLabelDrawer(() => cssColor('--graph-paper', '#fbfcfe'))
     const sigma = new Sigma(graph, host, {
       renderEdgeLabels: false,
       zIndex: true,
@@ -117,7 +119,8 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
       labelRenderedSizeThreshold: 5,
       labelSize: 12,
       labelFont: getComputedStyle(document.documentElement).fontFamily,
-      defaultDrawNodeLabel: makeGraphLabelDrawer(cssColor('--surface', '#ffffff')),
+      defaultDrawNodeLabel: drawLabel,
+      defaultDrawNodeHover: drawLabel,
       labelDensity: 0.6,
       labelGridCellSize: 180,
       labelColor: { color: pal.label },
@@ -164,7 +167,7 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
         })
         if (ap.on) return { ...data, color: pal.label, zIndex: ap.zIndex }
         if (ap.faded) return { ...data, color: pal.edgeFaded, zIndex: ap.zIndex }
-        return data
+        return { ...data, color: pal.edge }
       },
     })
     const prev = cameraRef.current
@@ -179,7 +182,13 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
     sigma.on('clickNode', ({ node }) => onSelectRef.current(node))
     sigma.on('clickStage', () => onSelectRef.current(null))
     sigmaRef.current = sigma
+    const unsubscribe = subscribeAppearance(() => {
+      Object.assign(pal, readPalette())
+      sigma.setSettings({ labelColor: { color: pal.label }, defaultEdgeColor: pal.edge })
+      sigma.refresh()
+    })
     return () => {
+      unsubscribe()
       cameraRef.current = { graph, state: sigma.getCamera().getState() }
       sigma.kill()
       sigmaRef.current = null

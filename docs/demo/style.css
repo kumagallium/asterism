@@ -90,20 +90,19 @@ a {
   align-items: center;
   gap: 0.7rem;
 }
-.brand-dot {
-  width: 26px;
-  height: 26px;
-  border-radius: 9px;
-  background: var(--primary);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: 0.95rem;
+.brand {
+  display: block;
+  width: 138px;
+  flex-shrink: 0;
 }
-.brand-name {
-  font-weight: 700;
-  letter-spacing: 0.02em;
+.brand img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.brand:focus-visible {
+  outline: 2px solid #002869;
+  outline-offset: 4px;
 }
 .brand-sub {
   color: var(--muted);

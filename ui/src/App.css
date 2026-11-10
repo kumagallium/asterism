@@ -88,9 +88,10 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  color: var(--primary);
+  color: var(--brand-ink);
 }
 .brand-name {
+  color: var(--brand-ink);
   font-family: var(--font-display);
   font-size: 1.2rem;
   font-weight: 700;
@@ -600,8 +601,8 @@ input[type='password']:focus,
 textarea:focus {
   outline: none;
   border-color: var(--primary);
-  /* ブランドの紺色に合わせ、入力欄のフォーカスを明示する。 */
-  box-shadow: 0 0 0 3px rgba(0, 40, 105, 0.3);
+  /* 選択中の外観の主操作色で、入力欄のフォーカスを明示する。 */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
 .controls textarea,

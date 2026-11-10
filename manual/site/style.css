@@ -3,20 +3,20 @@
    scripts/build_manual_site.py が docs/manual/style.css へコピーする。 */
 
 :root{
+  color-scheme:dark;
+  --ground:#0b1220; --surface:#111d30; --surface-alt:#15243a; --sink:#1b2c45;
+  --ink:#e2eaf7; --body:#c4cfe0; --muted:#96a8c2; --faint:#8a9db8;
+  --line:#2a3b54; --line-strong:#425675;
+  --brand:#b7ccff; --brand-hover:#d3e0ff; --link:#b7ccff; --action:#ebc86e;
+  --shadow:0 1px 2px rgba(0,0,0,.2);
+}
+:root[data-theme="light"]{
+  color-scheme:light;
   --ground:#f5f7fa; --surface:#ffffff; --surface-alt:#f7f9fc; --sink:#edf1f6;
   --ink:#16243b; --body:#34445e; --muted:#566781; --faint:#60728a;
   --line:#dce4ef; --line-strong:#c1cdde;
-  --brand:#002869; --brand-hover:#001e52; --link:#002869;
+  --brand:#002869; --brand-hover:#001e52; --link:#002869; --action:#002869;
   --shadow:0 1px 2px rgba(15,35,66,.045);
-}
-@media (prefers-color-scheme: dark){
-  :root{
-    --ground:#101724; --surface:#182235; --surface-alt:#1d2a40; --sink:#233452;
-    --ink:#edf2ff; --body:#c7d3e8; --muted:#a0b1cd; --faint:#8498b7;
-    --line:#2e3e58; --line-strong:#475c7d;
-    --brand:#b7ccff; --brand-hover:#d3e0ff; --link:#b7ccff;
-    --shadow:0 1px 2px rgba(0,0,0,.2);
-  }
 }
 
 *{box-sizing:border-box}
@@ -36,8 +36,18 @@ nav.toc{align-self:start; font-size:.82rem; line-height:1.7}
   display:block; font-weight:700; color:var(--ink); text-decoration:none;
   font-size:.92rem; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line);
 }
-.toc-home picture{display:block; width:100%; max-width:144px; margin-bottom:8px}
+.toc-home .toc-logo{display:block; width:100%; max-width:144px; margin-bottom:8px}
 .toc-home img{display:block; width:100%; height:auto}
+.toc-home .logo-light{display:none}
+:root[data-theme="light"] .toc-home .logo-dark{display:none}
+:root[data-theme="light"] .toc-home .logo-light{display:block}
+.theme-switch{display:flex; align-items:center; gap:8px; margin:0 0 16px; color:var(--muted)}
+.theme-switch[hidden]{display:none}
+.theme-switch select{
+  font:inherit; color:var(--body); background:var(--surface); border:1px solid var(--line-strong);
+  border-radius:6px; min-height:36px; padding:4px 8px; cursor:pointer;
+}
+.theme-switch select:focus-visible{outline:2px solid var(--action); outline-offset:2px}
 .toc-home span{display:block; color:var(--muted); font-size:.78rem; font-weight:500}
 .toc-home:hover span{color:var(--brand-hover)}
 nav.toc h2{
@@ -50,7 +60,7 @@ nav.toc a{
   padding:3px 0 3px 12px; border-left:2px solid var(--line);
 }
 nav.toc a:hover{color:var(--ink); border-left-color:var(--brand)}
-nav.toc a.here{color:var(--ink); font-weight:700; border-left-color:var(--brand)}
+nav.toc a.here{color:var(--action); font-weight:700; border-left-color:var(--action)}
 nav.toc a:focus-visible{outline:2px solid var(--brand); outline-offset:2px; border-radius:2px}
 nav.toc a.toc-home{padding:0 0 12px; border-left:0}
 

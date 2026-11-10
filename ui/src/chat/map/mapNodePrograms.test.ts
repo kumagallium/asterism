@@ -44,4 +44,18 @@ describe('地図の記号とクリック範囲', () => {
     }
     expect(data.size).toBe(10)
   })
+  it('外観変更後の紙色を既存の内円に反映する', () => {
+    let paper = '#0a1424'
+    const programs = mapNodePrograms(() => paper) as unknown as Record<string, Array<new () => {
+      calls: [number, number, { color: string }][]
+      processVisibleItem(index: number, offset: number, data: unknown): void
+    }>>
+    const inner = new programs['map-dataset'][1]()
+    const data = { size: 10, color: '#b7ccff', x: 1, y: 2 }
+    inner.processVisibleItem(27, 3, data)
+    paper = '#fbfcfe'
+    inner.processVisibleItem(27, 3, data)
+    expect(inner.calls.map((call) => call[2].color)).toEqual(['#0a1424', '#fbfcfe'])
+  })
+
 })

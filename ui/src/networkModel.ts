@@ -544,10 +544,10 @@ export const ROLE_VAR: Record<string, string> = {
   [HUB_ROLE]: '--link',
 }
 
-/** 役割 → CSS の色（凡例用）。種類は固定の hex、ほかは CSS 変数。 */
+/** 役割 → CSS の色（凡例用）。canvas と同じ外観のトークンを参照する。 */
 export function roleCss(role: string): string {
   const m = /^kind-(\d+)$/.exec(role)
-  if (m && KIND_COLORS[Number(m[1])]) return KIND_COLORS[Number(m[1])]
+  if (m && KIND_COLORS[Number(m[1])]) return `var(--graph-value-${Number(m[1])}, ${KIND_COLORS[Number(m[1])]})`
   return `var(${ROLE_VAR[role] ?? ROLE_VAR[REST_ROLE]})`
 }
 

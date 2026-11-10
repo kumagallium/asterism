@@ -411,7 +411,7 @@ describe('種類の色と番号', () => {
     expect(new Set(rows.map((r) => kindMarker(r.role))).size).toBe(8)
     for (const r of rows) {
       expect(networkDisplayLabel('元の名前', r.role)).toBe(`${kindMarker(r.role)} 元の名前`)
-      expect(roleCss(r.role)).toBe(KIND_COLORS[Number(r.role.slice(5))])
+      expect(roleCss(r.role)).toBe(`var(--graph-value-${Number(r.role.slice(5))}, ${KIND_COLORS[Number(r.role.slice(5))]})`)
     }
   })
   it('固定の役割・未知の種類には番号を付けず、色は既存のfallbackを使う', () => {

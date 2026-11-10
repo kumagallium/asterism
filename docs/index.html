@@ -9,7 +9,7 @@
 <meta property="og:description" content="頭の中にある「データの見方」を、AI も読める知識に。オープンソースの意味論エンジン。" />
 <meta property="og:image" content="https://kumagallium.github.io/asterism/manual/screenshots/confirm.png" />
 <meta property="og:type" content="website" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='%23a9bfa6' stroke-width='1.4'%3E%3Cline x1='5' y1='7' x2='18' y2='12'/%3E%3Cline x1='5' y1='7' x2='9' y2='19'/%3E%3Cline x1='18' y1='12' x2='9' y2='19'/%3E%3C/g%3E%3Cg fill='%232f6b41'%3E%3Ccircle cx='5' cy='7' r='2.4'/%3E%3Ccircle cx='18' cy='12' r='2.4'/%3E%3Ccircle cx='9' cy='19' r='2.4'/%3E%3C/g%3E%3C/svg%3E" />
+<link rel="icon" type="image/svg+xml" href="manual/brand/favicon.svg" />
 <style>
   /* Asterism のトップページ（LP）。トークンはマニュアル（manual/style.css）と同じ forest テーマ。
      画像は scripts/build_manual_site.py が docs/manual/screenshots/ へ写したものを参照する。 */
@@ -53,7 +53,8 @@
   }
   header.top .wrap{display:flex; align-items:center; gap:24px; height:60px}
   .brand{display:flex; align-items:center; gap:10px; color:var(--ink); text-decoration:none; font-weight:700; font-size:1.12rem; letter-spacing:.01em}
-  .brand svg{color:var(--entity)}
+  .brand picture{display:block; width:138px; flex-shrink:0}
+  .brand img{display:block; width:100%; height:auto}
   nav.links{margin-left:auto; display:flex; gap:22px; font-size:.88rem}
   nav.links a{color:var(--muted); text-decoration:none; white-space:nowrap}
   nav.links a:hover{color:var(--ink)}
@@ -207,11 +208,10 @@
 <header class="top">
   <div class="wrap">
     <a class="brand" href="./" data-i18n-aria="aria_home" aria-label="Asterism トップ">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <g stroke="var(--line-strong)" stroke-width="1.4"><line x1="5" y1="7" x2="18" y2="12"/><line x1="5" y1="7" x2="9" y2="19"/><line x1="18" y1="12" x2="9" y2="19"/></g>
-        <g fill="currentColor"><circle cx="5" cy="7" r="2.4"/><circle cx="18" cy="12" r="2.4"/><circle cx="9" cy="19" r="2.4"/></g>
-      </svg>
-      asterism
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="manual/brand/logo-on-dark.svg" />
+        <img src="manual/brand/logo.svg" alt="Asterism" width="4603" height="1000" />
+      </picture>
     </a>
     <nav class="links" data-i18n-aria="aria_nav" aria-label="ページ内">
       <a class="opt" href="#what" data-i18n="nav_what">Asterism とは</a>
@@ -539,11 +539,10 @@
     <div class="cols">
       <div>
         <a class="brand" href="./">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <g stroke="var(--line-strong)" stroke-width="1.4"><line x1="5" y1="7" x2="18" y2="12"/><line x1="5" y1="7" x2="9" y2="19"/><line x1="18" y1="12" x2="9" y2="19"/></g>
-            <g fill="currentColor"><circle cx="5" cy="7" r="2.4"/><circle cx="18" cy="12" r="2.4"/><circle cx="9" cy="19" r="2.4"/></g>
-          </svg>
-          asterism
+          <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="manual/brand/logo-on-dark.svg" />
+        <img src="manual/brand/logo.svg" alt="Asterism" width="4603" height="1000" />
+      </picture>
         </a>
         <p style="margin:10px 0 0" data-i18n="ft_tag">研究データを、つながりに。</p>
       </div>

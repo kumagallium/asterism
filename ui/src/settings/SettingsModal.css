@@ -769,6 +769,9 @@
 
 /* 言語の切り替え（最初のタブの上・殻から移した）。 */
 .settings-lang {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
   display: flex;
   justify-content: flex-end;
   padding: var(--space-2) var(--space-6) 0;
@@ -885,4 +888,15 @@
     width: 44px;
     height: 44px;
   }
+}
+
+.settings-appearance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--body);
+}
+.settings-appearance select {
+  width: auto;
+  min-height: var(--control-height-sm);
 }

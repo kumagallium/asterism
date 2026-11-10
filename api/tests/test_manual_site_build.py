@@ -195,6 +195,7 @@ def test_brand_assets_and_theme_variants_are_included(tmp_path: Path, monkeypatc
     for name in ("index", "getting-started"):
         (source / "ja" / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
     (source / "site" / "style.css").write_text("/* test */", encoding="utf-8")
+    (source / "site" / "theme.js").write_text("// test", encoding="utf-8")
     monkeypatch.setattr(site, "REPO", tmp_path)
     monkeypatch.setattr(site, "SRC", source)
     monkeypatch.setattr(site, "GROUPS", [("はじめに", ["getting-started.md"])])
@@ -205,8 +206,13 @@ def test_brand_assets_and_theme_variants_are_included(tmp_path: Path, monkeypatc
         assert files[site.OUT / "brand" / name] == (brand / name).read_bytes()
     for name in ("index", "getting-started"):
         page = files[site.OUT / "ja" / f"{name}.html"]
-        assert 'media="(prefers-color-scheme: dark)" srcset="../brand/logo-on-dark.svg"' in page
+        assert '<html lang="ja" data-theme="dark">' in page
+        assert 'class="logo-dark" src="../brand/logo-on-dark.svg"' in page
+        assert 'id="manual-theme"' in page
+        assert 'src="../theme.js"' in page
+        assert "prefers-color-scheme" not in page
         assert 'src="../brand/logo.svg" alt="Asterism"' in page
         assert '<span>マニュアル</span>' in page
         assert 'href="../brand/favicon.svg"' in page
     assert 'href="brand/favicon.svg"' in files[site.OUT / "index.html"]
+    assert files[site.OUT / "theme.js"] == "// test"

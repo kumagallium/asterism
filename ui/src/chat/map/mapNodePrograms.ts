@@ -4,10 +4,10 @@ import type { NodeDisplayData } from 'sigma/types'
 import type { NodeLabelDrawingFunction } from 'sigma/rendering'
 import { makeGraphLabelDrawer } from '../../graphLabels'
 
-export function mapNodePrograms(paper: string, drawLabel: NodeLabelDrawingFunction = makeGraphLabelDrawer(paper)) {
+export function mapNodePrograms(paper: string | (() => string), drawLabel: NodeLabelDrawingFunction = makeGraphLabelDrawer(paper)) {
   class InnerCircle extends NodeCircleProgram {
     processVisibleItem(nodeIndex: number, offset: number, data: NodeDisplayData): void {
-      super.processVisibleItem(nodeIndex, offset, { ...data, size: data.size * 0.62, color: paper })
+      super.processVisibleItem(nodeIndex, offset, { ...data, size: data.size * 0.62, color: typeof paper === 'function' ? paper() : paper })
     }
   }
   class CenterCircle extends NodeCircleProgram {

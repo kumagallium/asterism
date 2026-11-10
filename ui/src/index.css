@@ -1,6 +1,8 @@
 /* ブランドの紺色を基調とする共通トークン。
  * 種類は色に加えて輪郭・ラベルで、注意とエラーは専用の状態色で示す。 */
 :root {
+  color-scheme: light;
+  --brand-ink: #002869;
   /* 紺色ブランドの明るい基調。本文には --body、補助情報には
    * --muted / --faint を使い、読みやすさを保つ。 */
   --bg: #f5f7fa; /* 作業面を邪魔しない青灰色 */
@@ -47,6 +49,14 @@
   --graph-edge: #687e9b;
   --graph-edge-proposed: #8193ab;
   --graph-paper: #fbfcfe;
+  --graph-value-0: #002869;
+  --graph-value-1: #355e98;
+  --graph-value-2: #557ba5;
+  --graph-value-3: #454a82;
+  --graph-value-4: #73749b;
+  --graph-value-5: #3b687b;
+  --graph-value-6: #6b7f98;
+  --graph-value-7: #576178;
 
   /* Dark "sky" zone (used sparingly) */
   --sky: #132744;
@@ -174,7 +184,8 @@ button:not([class]):hover:not(:disabled) {
   border-color: var(--primary-hover);
 }
 
-button:focus-visible {
+button:focus-visible,
+select:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
