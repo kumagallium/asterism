@@ -1,11 +1,11 @@
 {
-  "version": "0.65.1",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at cbdef4846995e1a7fd9bd7e70b70de77f570777c -->\n\n## What's Changed\n* [docs] manual: v0.65.0 の節目とバッジ（表の出所・取り消しても根拠を残す） by @kumagallium in https://github.com/kumagallium/asterism/pull/791\n* fix(site): トップの LP を今の画面に合わせる — 切れた画像 6 枚を直す by @kumagallium in https://github.com/kumagallium/asterism/pull/793\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.65.0...v0.65.1",
-  "pub_date": "2026-11-09T00:54:11Z",
+  "version": "0.66.0",
+  "notes": "Asterism のロゴと画面全体を、三つ星の A と紺色を基準に揃えました。\n\n- **濃紺のダーク表示を標準に**。青白い文字・データと、淡い金色の主操作を組み合わせました。\n- **設定からライト表示へ切り替え**。選んだ外観は端末に記憶され、グラフの位置・拡大率・選択を保ったまま切り替わります。\n- **グラフの役割を見分けやすく**。用語・データの種類・データセットを点の形で区別し、値のつながりには番号も表示します。\n- **アプリとマニュアルの一貫性を改善**。ロゴのサイズ、文字、余白、操作の大きさ、起動画面を揃え、マニュアルにも外観の切り替えを追加しました。\n\n配布対象: macOS Apple Silicon。\n\n[外観の切り替え方](https://kumagallium.github.io/asterism/manual/ja/settings.html#外観を変える) · [変更 PR #797](https://github.com/kumagallium/asterism/pull/797) · [全変更](https://github.com/kumagallium/asterism/compare/v0.65.1...v0.66.0)",
+  "pub_date": "2026-11-10T15:13:15Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVFsUFVud0pXRSt0NFM3TkZsMkxZUXZUbDZaLzNCYmVTd3NibkNHdTJDbVBpMHBraFVwRGxpVEhnUjJRbTFMMUJoR2tiVTVGNkwwc1ZvcWVLZVNSeEE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MTg1NjUwCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6ClRrVWEyZGZyMTVYK1JhcFFqTTBMeXM3TkRTclJlOFAyWXdmNk9XQitSWjBsdWlGdFk0RzBRZEJrSzMybDFIMTVxZDM5WjkwU1VVYWMwY3JQZFBDMUNBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.65.1/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVdiV0N3T1pKeFZFQyt3THk3OFphYUJpek5VR1lhQkdyTkRUUVUvZk9qYnltaTlzL0dVZmlEbzN1bnZkelZOaWt5RklRNzNZSG0rd05aMTZZa01uOHc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzIzNTk0CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmVseUJtT0xxbnVhbHc4bzRaTFV0ZjByVm5naHNHSkNjV1hJR1FzbVQvYnhaWVFiczMrYkRFMkhEb1dNMzk2c0EyZzRMZW1iVHY2QkJCYmJlcWlTaEFRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.66.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
