@@ -3,7 +3,7 @@ import { EMPTY_SKY } from '../../sky/skyApi'
 import type { DraftSky, SkyData, SkyDataset, SkyTerm } from '../../sky/skyApi'
 import { draftNodeId, hubNodeId, kindId, termId } from '../../sky/skyLayout'
 import { selectionOfNode } from '../chatState'
-import { buildMapGraph, datasetNodeId, kindSize, layoutMap, mapNeighborhood, mapSelection, mapSignature, relationLabel, safeResize, syncMapAttributes, termSize } from './mapModel'
+import { buildMapGraph, DATASET_SIZE, datasetNodeId, kindSize, layoutMap, mapNeighborhood, mapSelection, mapSignature, relationLabel, safeResize, syncMapAttributes, termSize } from './mapModel'
 
 const term = (slug: string, label: string, members: SkyTerm['members'] = []): SkyTerm => ({
   iri: `urn:t:${slug}`,
@@ -151,6 +151,12 @@ describe('buildMapGraph', () => {
 })
 
 describe('大きさ', () => {
+  it('データセットの記号は半径8で、元の選択契約を維持する', () => {
+    const graph = buildMapGraph(sky, [], [], 'ja')
+    expect(DATASET_SIZE).toBe(8)
+    expect(graph.getNodeAttribute(datasetNodeId('ds1'), 'size')).toBe(8)
+    expect(mapSelection(graph, datasetNodeId('ds1'))).toBeNull()
+  })
   it('kindSize は 3〜12 で件数に単調', () => {
     const counts = [0, 1, 10, 100, 1000, 100000]
     const s = counts.map(kindSize)

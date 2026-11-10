@@ -113,7 +113,10 @@ export function ChatPane(p: ChatPaneProps) {
         ) : p.loading ? (
           <p className="chat-note-line">{t('list.loading')}</p>
         ) : turns.length === 0 && !p.sending && !p.pendingUser ? (
-          <p className="chat-empty">{t('empty.first')}</p>
+          <div className="chat-empty">
+            <h2>{t('empty.title')}</h2>
+            <p>{t('empty.first')}</p>
+          </div>
         ) : (
           turns.map((turn) => (
             <div key={turn.id} id={`turn-${turn.id}`} className="chat-turn">

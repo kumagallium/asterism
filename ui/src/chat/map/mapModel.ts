@@ -37,8 +37,10 @@ export interface MapEdgeAttrs {
   relation?: string
   /** 関係の表示名（concept の線だけ。hover で出す。形ではないので signature・線の鍵には入れない）。 */
   label?: string
-  /** 提案の薄い線。 */
+  /** 描画する線幅を細くする（確定した根拠線にも使う）。 */
   thin?: boolean
+  /** 未承認の提案。線幅とは独立した意味状態。 */
+  proposed?: boolean
 }
 
 /** 件数の固定の対数の半径（1 件 5・10 件 7・100 件 9・1,000 件 12・1 万件以上 13）。11f の札の図から引き継いだ式。 */
@@ -57,7 +59,7 @@ export function termSize(members: number, degree: number): number {
 
 export const HUB_SIZE = 8
 /** データセット（表の名前）の丸。種類をまとめる要で、押しても 1 枚は出ない。 */
-export const DATASET_SIZE = 6
+export const DATASET_SIZE = 8
 export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
 
 /** 関係の短い表示名。この辞書が正本（sky.json のキーは参照しない）。
@@ -129,7 +131,7 @@ export function buildMapGraph(
         size: kindSize(k.count),
         role: 'entity',
       })
-      addEdge(did, kid, { kind: 'dataset', ...(proposed ? { thin: true } : {}) }, false)
+      addEdge(did, kid, { kind: 'dataset', ...(proposed ? { thin: true, proposed: true } : {}) }, false)
     }
   }
 
@@ -155,7 +157,7 @@ export function buildMapGraph(
     for (const m of t.members) {
       const kid = kindId(m.dataset_id, m.iri)
       if (!g.hasNode(kid)) continue
-      addEdge(id, kid, { kind: 'member', relation: m.relation }, false)
+      addEdge(id, kid, { kind: 'member', relation: m.relation, ...(g.getNodeAttribute(kid, 'proposed') ? { proposed: true } : {}) }, false)
     }
   }
 
@@ -163,7 +165,7 @@ export function buildMapGraph(
   for (const d of datasets) {
     if (!d.document || !d.evidence_terms) continue
     const did = datasetNodeId(d.id)
-    for (const iri of d.evidence_terms) addEdge(did, termId(iri), { kind: 'evidence', thin: true }, false)
+    for (const iri of d.evidence_terms) addEdge(did, termId(iri), { kind: 'evidence', thin: true, ...(g.getNodeAttribute(did, 'proposed') ? { proposed: true } : {}) }, false)
   }
 
   // 用語どうしの知識の線
@@ -216,7 +218,7 @@ export function buildMapGraph(
       const real = REAL_RELATION[r.rel]
       // 薄い提案の線だけ、既にある本物の線と同じ関係なら張らない
       if (state === 'thin' && real && conceptSeen.has(`${a}>${b}>${real}`)) continue
-      addEdge(a, b, { kind: 'draft', relation: r.rel, thin: state === 'thin' }, true)
+      addEdge(a, b, { kind: 'draft', relation: r.rel, thin: state === 'thin', proposed: state === 'thin' }, true)
     }
   }
 

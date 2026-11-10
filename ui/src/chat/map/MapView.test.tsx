@@ -4,6 +4,7 @@ import { EMPTY_SKY } from '../../sky/skyApi'
 import { bindMapEvents, buildMapGraph } from './mapModel'
 
 vi.mock('sigma', () => ({ default: class {} }))
+vi.mock('./mapNodePrograms', () => ({ mapNodePrograms: () => ({}) }))
 
 import { MapView } from './MapView'
 

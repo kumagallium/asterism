@@ -15,6 +15,8 @@ import type { NetworkNodeKind, NetworkResponse } from './networkApi'
 import {
   REST_ROLE,
   KIND_COLORS,
+  kindMarker,
+  networkDisplayLabel,
   ROLE_VAR,
   KIND_COLOR_COUNT,
   edgeAppearance,
@@ -34,6 +36,7 @@ import {
 } from './networkModel'
 import type { NetworkNodeAttrs } from './networkModel'
 import './network.css'
+import { makeGraphLabelDrawer } from './graphLabels'
 
 export interface NetworkViewProps {
   /** 「このページを開く」（1 件のページ）。 */
@@ -62,7 +65,7 @@ function readPalette(): Palette {
   KIND_COLORS.forEach((c, i) => {
     roles[`kind-${i}`] = c
   })
-  for (const [role, v] of Object.entries(ROLE_VAR)) roles[role] = cssColor(v, '#888888')
+  for (const [role, v] of Object.entries(ROLE_VAR)) roles[role] = cssColor(v, '#68778e')
   return {
     roles,
     edge: cssColor('--border-strong', '#c1cdde'),
@@ -112,6 +115,9 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
       zIndex: true,
       // 名前は重ならないものだけ出す（格子の升ごとに大きい点から）。値の点は大きめなので優先される。
       labelRenderedSizeThreshold: 5,
+      labelSize: 12,
+      labelFont: getComputedStyle(document.documentElement).fontFamily,
+      defaultDrawNodeLabel: makeGraphLabelDrawer(cssColor('--surface', '#ffffff')),
       labelDensity: 0.6,
       labelGridCellSize: 180,
       labelColor: { color: pal.label },
@@ -133,6 +139,7 @@ function NetworkCanvas({ graph, height, selectedId, focusId, focusTick, onSelect
         const out: Record<string, unknown> = {
           ...data,
           color: ap.faded ? pal.nodeFaded : (pal.roles[ap.role] ?? pal.roles[REST_ROLE]),
+          label: networkDisplayLabel(a.label, ap.role),
           zIndex: ap.zIndex,
         }
         if (ap.forceLabel) out.forceLabel = true
@@ -260,6 +267,7 @@ function Legend({ resp, roles, focused, onToggle, onClear, expanded, onExpandedC
                 onClick={() => onToggle(r.key)}
               >
                 <span className="network-swatch" style={dot(r.role)} />
+                {kindMarker(r.role) && <span>{kindMarker(r.role)}</span>}
                 {q
                   ? t('legend_kind_qualified', { name: shownName, qualifier: q, count })
                   : `${shownName} ${count}`}

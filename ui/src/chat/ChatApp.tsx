@@ -997,7 +997,12 @@ export function ChatApp() {
                 ariaLabel={t('map.aria')}
                 fitLabel={t('map.fit')}
               />
-              <p className="chat-map-legend">{t('map.legend')}</p>
+              <div className="chat-map-legend">
+                <span><span className="chat-legend-symbol chat-legend-symbol--term" aria-hidden="true">○</span>{t('map.legend.term')}</span>
+                <span><span className="chat-legend-symbol chat-legend-symbol--kind" aria-hidden="true">●</span>{t('map.legend.kind')}</span>
+                <span><span className="chat-legend-symbol chat-legend-symbol--dataset" aria-hidden="true">⊙</span>{t('map.legend.dataset')}</span>
+                <span className="chat-legend-proposal">{t('map.legend.proposal')}</span>
+              </div>
               <div className="chat-rtabs chat-subtabs" role="tablist" aria-label={t('sentences.tabs')}>
                 <button type="button" role="tab" data-testid="tab-sentences" aria-selected={subTab === 'sentences'} className={`chat-tab${subTab === 'sentences' ? ' active' : ''}`} onClick={() => chooseSub('sentences')}>
                   {t('sentences.tab')}

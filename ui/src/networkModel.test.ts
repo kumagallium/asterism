@@ -24,6 +24,8 @@ import {
   neighborhoodOf,
   searchNodes,
   KIND_COLORS,
+  kindMarker,
+  networkDisplayLabel,
   kindDisplayName,
   roleCss,
   roleOf,
@@ -401,31 +403,33 @@ describe('loadLaidOutNetwork（API をモック）', () => {
   })
 })
 
-describe('種類の色', () => {
-  const lab = (hex: string): [number, number, number] => {
-    const lin = (i: number) => {
-      const c = parseInt(hex.slice(i, i + 2), 16) / 255
-      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-    }
-    const [r, g, b] = [lin(1), lin(3), lin(5)]
-    const x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
-    const y = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    const z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
-    const f = (v: number) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116)
-    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))]
-  }
-  const dist = (a: string, b: string) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]))
-  // index.css の --link / --muted / --faint（ハブ・値・そのほか）
-  const fixed = ['#356794', '#566781', '#6a7c96']
-  it('8 色が互いに、またハブ・値・灰とも見分けられる距離（Lab 25 以上）にある', () => {
+describe('種類の色と番号', () => {
+  it('8 種類の番号が凡例とノードの表示名で一致する', () => {
     expect(KIND_COLORS).toHaveLength(8)
-    const all = [...KIND_COLORS, ...fixed]
-    for (let i = 0; i < KIND_COLORS.length; i++)
-      for (let j = i + 1; j < all.length; j++) expect(dist(all[i], all[j])).toBeGreaterThanOrEqual(25)
+    const kinds = Array.from({ length: 8 }, (_, i) => ({ class_iri: `urn:kind:${i}`, class_label: `種類${i}`, count: 8 - i }))
+    const rows = legendKindRows(kinds, assignKindRoles(kinds), new Set())
+    expect(new Set(rows.map((r) => kindMarker(r.role))).size).toBe(8)
+    for (const r of rows) {
+      expect(networkDisplayLabel('元の名前', r.role)).toBe(`${kindMarker(r.role)} 元の名前`)
+      expect(roleCss(r.role)).toBe(KIND_COLORS[Number(r.role.slice(5))])
+    }
   })
-  it('凡例の色: 種類は固定色、ほかは CSS 変数', () => {
-    expect(roleCss('kind-3')).toBe(KIND_COLORS[3])
+  it('固定の役割・未知の種類には番号を付けず、色は既存のfallbackを使う', () => {
+    for (const role of ['hub', 'value', REST_ROLE, 'kind-8', 'kind--1', 'unknown']) {
+      expect(kindMarker(role)).toBe('')
+      expect(networkDisplayLabel('元の名前', role)).toBe('元の名前')
+    }
+    expect(roleCss('kind-8')).toBe('var(--faint)')
     expect(roleCss('hub')).toBe('var(--link)')
+  })
+  it('番号は元データ・検索・選択用ラベルを変更しない', () => {
+    const response = fixture()
+    const g = buildNetworkGraph(response)
+    const before = response.nodes[1].label
+    networkDisplayLabel(g.getNodeAttribute('s2', 'label'), g.getNodeAttribute('s2', 'role'))
+    expect(response.nodes[1].label).toBe(before)
+    expect(g.getNodeAttribute('s2', 'label')).toBe('Vega')
+    expect(searchNodes(g, 'vega')).toEqual(['s2'])
   })
 })
 
