@@ -16,7 +16,7 @@
 
 | # | ワークストリーム | 状態 | 担当 | 参照 |
 |---|---|---|---|---|
-| — | **ロゴと紺色ブランド・UI 全体の統一** | 🟢 ローカル実装（`feat/asterism-brand-refresh`）。共通の文字・余白・操作寸法、紺系＋輪郭/番号を反映。追加試作として、選択点の上に小さな星を添え、直結する関係線を強調。公開・配布は未実施。 | Codex | [`brand-identity.md`](architecture/brand-identity.md) |
+| — | **ロゴと紺色ブランド・UI 全体の統一** | 🟢 ローカル実装（`feat/asterism-brand-refresh`）。採用ロゴのサイズを画面に合わせ、共通の文字・余白・操作寸法へ統一。グラフも紺系＋輪郭/番号で識別し、提案線と文字の可読性を修正。公開・配布は未実施。 | Codex | [`brand-identity.md`](architecture/brand-identity.md) |
 | — | **取り込み元の切り替えと MCP クライアント（呼ぶ側）** | 🟡 **A1（クライアントの核・`/api/mcp-servers`・設定タブ「MCP サーバ」・fastmcp を本体依存に・CI に `../mcp`）実装・検査 green（2026-10-23・branch `feat/source-switch-mcp-client`）**。利用者裁定 3 点（2026-10-23）: 相手の索引は v1＝書かない・stdio の起動は単一ユーザー限定＋画面で有効化・送り込みは ✓ の後・表だけ・既定オン。**A2（📎 の 2 択・`source_homes`→`origins`→`source_origins`・被りの通知・`attach-from-source`）も実装・偽の stdio サーバで実機確認（`docs/examples/source-switch/`・スクリーンショット済み）**。**A3（✓ の後の送り込み・`source_push.py`）も実装・偽の家で実機確認**。残＝Graphium の実物での記録。Graphium 側の道具（`list_media`／`get_media_file`／`add_material`）は別セッション。 | CC | `architecture/source-switch-mcp-client.md` |
 | — | **星図ホームと 2 つの入口（UI 全面再設計: 名詞 4 つ・ナビ 5 つ・常設 2 入口・星図・ひとこと決める・テーマ 6 段）** | 🟢 **段階 1（名詞と導線・#717）＋段階 2（星図・branch `feat/sky-chart`・#717 の上）実装・検査 green（2026-10-19）**。利用者裁定 A（2026-10-19）: ホーム＝紙の星図・「質問する」と「知りたいこと」は別画面＋橋 2 本・データから作る 7 段は骨格そのまま。残＝段階 2 星図（API は branch `feat/sky-chart` で並行）・段階 3 ひとこと決める＋決めたこと・段階 4 テーマ・段階 5 閉じた形の拡張・段階 6 出会いの表・段階 7 Starrydata の作り直し。設計パネル（3 案 × 3 レンズ）と触れるモックは AI for Science 側 `ui-redesign-2026-10-19/`、見た目の正は `docs/design/sky-chart-mock/`。 **2026-10-22 追記: ゼロベース（§2.4g）＝11a〜11d 実装済み（#734〜#737）・11f／11e は PR 作成中。** | CC | `architecture/sky-chart-two-entries.md` |
 | — | **上位構造「星座の名前」（共有のことば・種類どうしの線・問い（CQ）・「ことば」画面・作る UI の流れ）** | 🟢 **PR 1（runtime + api・#697）＋ PR 2（UI「ことば」・#700）＋ PR 3（作る UI の流れ・#704）実装・3 本とも main にマージ済み（2026-10-13）**＝`asterism.shared_vocab`・線の kind／循環／scope／broken・`for_terms` と名前 upsert・`schema_summary.shared_terms`・`/api/vocab/*`。残＝利用者の画面確認・種類のページの「問い」一覧からの「ことばへ写す」（宣言ツールから写す API が要る）。ADR 起案＋利用者裁定 6 点・反証 10 件反映＝B 案（人が鋳造する TBox 専用の共有語 `sv:` ＋ 既存 alignment graph への種類どうしの線 ＋ 共有語に CQ 必須 ＋ 左ナビ「作る」= データセット／つながり／ことば ＋ 流れは双方向: 「ことば」で問いから語を置ける・⑥ためす に自分の問い・④問②の ☑ を③へ移し④は問①だけ）。handoff = `handoff_to_claude_code_upper_structure_shared_terms.md`（AI for Science 直下）。 | CC | `architecture/upper-structure-shared-terms.md` |
@@ -86,7 +86,7 @@
 
 ## 更新 log
 
-- 2026-11-10: **選択した点に星を添える試作**（`feat/asterism-brand-refresh`）。白と紺の画面、○●⊙の意味と元の配置を保ち、選択点の上に小さな六尖星を表示。直結する線を 1.2 倍に強調し、既存の選択ラベルの強い影を除去。星は拡大・移動・タブ切り替えに追従し、解除で消える。実ブラウザの 1280px / 390px で確認。UI 1,141 テスト・マニュアル等 33 テスト、build/lint/生成物同期検査と独立レビューが成功。ローカル試作であり、公開・配布は未実施。記録は `reports/constellation-selection/README.md`。
+- 2026-11-10: **夜空の意図を明暗テーマの相談として修正**（`feat/asterism-brand-refresh`）。選択星マーカーと追加の線幅強調を取り消し、比較用の濃紺ダーク入口 `ui/previews/night.html` を作成。ロゴ・文字・グラフ・入力・設定を同系色の暗面に合わせ、星の装飾は追加しない。製品既定テーマ・永続設定・公開/配布は未変更。比較記録は `reports/night-theme/README.md`。
 
 - 2026-11-10: **UI 全体の視覚的な一貫性を再設計**（`feat/asterism-brand-refresh`）。ユーザーの追加指示に従い、前回維持した緑のノードを紺へ変更。用語○/データ種類●/データセット⊙、全体グラフの種類番号①〜⑧を導入。ロゴ26px/文字14.5px、ナビ220px、ヘッダー64px、操作36px、本文14〜15px、補足12pxと余白8/16/24pxを基準化。提案状態と根拠線の細さを分離し、ラベルと線の重なりを解消。実ブラウザで1280px・1024px・390pxを確認。UI 1,136 テスト、マニュアル等 33 テスト、build/lint/i18n・ブランド/マニュアル同期検査が成功。記録は `reports/design-coherence/README.md`。手元のコードとマニュアルへの反映で、公開・配布は未実施。
 

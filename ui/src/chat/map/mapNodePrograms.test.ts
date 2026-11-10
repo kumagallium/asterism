@@ -15,26 +15,16 @@ vi.mock('sigma/rendering', () => {
 })
 
 import { mapNodePrograms } from './mapNodePrograms'
-import { createNodeCompoundProgram, drawDiscNodeHover } from 'sigma/rendering'
+import { createNodeCompoundProgram } from 'sigma/rendering'
 
 describe('地図の記号とクリック範囲', () => {
-  it('地図専用のhover drawerを渡せば○と⊙でも影を描かない', () => {
-    const drawLabel = vi.fn()
-    const drawHover = vi.fn()
-    vi.mocked(createNodeCompoundProgram).mockClear()
-    mapNodePrograms('#fbfcfe', drawLabel, drawHover)
-    expect(vi.mocked(createNodeCompoundProgram).mock.calls).toHaveLength(2)
-    for (const call of vi.mocked(createNodeCompoundProgram).mock.calls) {
-      expect(call[2]).toBe(drawHover)
-    }
-  })
-  it('compound の通常ラベルも共通drawer、hoverは既定drawerを使う', () => {
+  it('compound の通常・hoverラベルとも紙色の共通drawerを使う', () => {
     const drawLabel = vi.fn()
     vi.mocked(createNodeCompoundProgram).mockClear()
     mapNodePrograms('#fbfcfe', drawLabel)
     for (const call of vi.mocked(createNodeCompoundProgram).mock.calls) {
       expect(call[1]).toBe(drawLabel)
-      expect(call[2]).toBe(drawDiscNodeHover)
+      expect(call[2]).toBe(drawLabel)
     }
   })
   it('○ と ⊙ の内円は紙色、中心点は元の色で、全層が同じ picking index を保つ', () => {

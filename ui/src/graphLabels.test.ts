@@ -25,4 +25,14 @@ describe('グラフの文字の地', () => {
     expect(ctx.fillRect).not.toHaveBeenCalled()
     expect(ctx.fillText).not.toHaveBeenCalled()
   })
+  it('暗い紙色でも背景と文字色をテーマから受け取る', () => {
+    const ctx = context()
+    const colors: string[] = []
+    ctx.fillRect.mockImplementation(() => { colors.push(ctx.fillStyle) })
+    ctx.fillText.mockImplementation(() => { colors.push(ctx.fillStyle) })
+    makeGraphLabelDrawer('#0a1424')(ctx as unknown as CanvasRenderingContext2D,
+      { x: 20, y: 30, size: 8, label: '世界の国', color: '#a3b4cd' },
+      { ...settings, labelColor: { color: '#e8edf6' } })
+    expect(colors).toEqual(['#0a1424', '#e8edf6'])
+  })
 })

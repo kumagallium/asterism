@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja" translate="no" data-theme="night-preview">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- This is an authored bilingual (JA primary, EN sublabels) UI. Browser page
+         translation rewrites text nodes and breaks React's DOM reconciliation
+         (white-screen "removeChild" crash), so we opt out of machine translation. -->
+    <meta name="google" content="notranslate" />
+    <!-- lang="ja" above and the title below are the pre-JS state: App.tsx sets
+         both from the chosen language in a layout effect, i.e. before the first
+         paint, so an English reader never gets a painted frame declared as ja.
+         Kept byte-identical to common.json `docTitle` (ja): this string is what
+         the tab, the history entry and a no-JS load show. -->
+    <!-- 既定を変えず、同じアプリを濃紺の面で比較する開発用入口。 -->
+    <link rel="stylesheet" href="/previews/night.css" />
+    <title>Asterism — 研究データをつながったデータに</title>
+    <!-- UI fonts: Hanken Grotesk (UI/display, Latin),
+         Zen Kaku Gothic New / Noto Sans JP (Japanese gothic), IBM Plex Mono
+         (numbers / IDs / code). See ui/src/index.css design tokens. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
