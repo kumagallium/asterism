@@ -16,7 +16,7 @@
 
 | # | ワークストリーム | 状態 | 担当 | 参照 |
 |---|---|---|---|---|
-| — | **ロゴと紺色ブランド・UI 全体の統一** | 🟢 リリース準備（`feat/asterism-brand-refresh`）。三つ星 A と共通寸法・グラフ表現に統一。濃紺＋淡い金を既定とし、設定からライトへ切替・端末保存。マニュアル/起動画面も反映。実画面と自動検査後、tagpr で配布する。 | Codex | [`brand-identity.md`](architecture/brand-identity.md) |
+| — | **ロゴと紺色ブランド・UI 全体の統一** | ✅ **v0.66.0**（実装 #797・リリース #798）。三つ星 A、共通寸法・グラフ表現、濃紺＋淡い金の既定外観とライト切替・端末保存を採用。マニュアル/起動画面/掲載ロゴも反映。別運用の Web サーバは接続タイムアウトのため未更新。 | Codex | [`brand-identity.md`](architecture/brand-identity.md) |
 | — | **取り込み元の切り替えと MCP クライアント（呼ぶ側）** | 🟡 **A1（クライアントの核・`/api/mcp-servers`・設定タブ「MCP サーバ」・fastmcp を本体依存に・CI に `../mcp`）実装・検査 green（2026-10-23・branch `feat/source-switch-mcp-client`）**。利用者裁定 3 点（2026-10-23）: 相手の索引は v1＝書かない・stdio の起動は単一ユーザー限定＋画面で有効化・送り込みは ✓ の後・表だけ・既定オン。**A2（📎 の 2 択・`source_homes`→`origins`→`source_origins`・被りの通知・`attach-from-source`）も実装・偽の stdio サーバで実機確認（`docs/examples/source-switch/`・スクリーンショット済み）**。**A3（✓ の後の送り込み・`source_push.py`）も実装・偽の家で実機確認**。残＝Graphium の実物での記録。Graphium 側の道具（`list_media`／`get_media_file`／`add_material`）は別セッション。 | CC | `architecture/source-switch-mcp-client.md` |
 | — | **星図ホームと 2 つの入口（UI 全面再設計: 名詞 4 つ・ナビ 5 つ・常設 2 入口・星図・ひとこと決める・テーマ 6 段）** | 🟢 **段階 1（名詞と導線・#717）＋段階 2（星図・branch `feat/sky-chart`・#717 の上）実装・検査 green（2026-10-19）**。利用者裁定 A（2026-10-19）: ホーム＝紙の星図・「質問する」と「知りたいこと」は別画面＋橋 2 本・データから作る 7 段は骨格そのまま。残＝段階 2 星図（API は branch `feat/sky-chart` で並行）・段階 3 ひとこと決める＋決めたこと・段階 4 テーマ・段階 5 閉じた形の拡張・段階 6 出会いの表・段階 7 Starrydata の作り直し。設計パネル（3 案 × 3 レンズ）と触れるモックは AI for Science 側 `ui-redesign-2026-10-19/`、見た目の正は `docs/design/sky-chart-mock/`。 **2026-10-22 追記: ゼロベース（§2.4g）＝11a〜11d 実装済み（#734〜#737）・11f／11e は PR 作成中。** | CC | `architecture/sky-chart-two-entries.md` |
 | — | **上位構造「星座の名前」（共有のことば・種類どうしの線・問い（CQ）・「ことば」画面・作る UI の流れ）** | 🟢 **PR 1（runtime + api・#697）＋ PR 2（UI「ことば」・#700）＋ PR 3（作る UI の流れ・#704）実装・3 本とも main にマージ済み（2026-10-13）**＝`asterism.shared_vocab`・線の kind／循環／scope／broken・`for_terms` と名前 upsert・`schema_summary.shared_terms`・`/api/vocab/*`。残＝利用者の画面確認・種類のページの「問い」一覧からの「ことばへ写す」（宣言ツールから写す API が要る）。ADR 起案＋利用者裁定 6 点・反証 10 件反映＝B 案（人が鋳造する TBox 専用の共有語 `sv:` ＋ 既存 alignment graph への種類どうしの線 ＋ 共有語に CQ 必須 ＋ 左ナビ「作る」= データセット／つながり／ことば ＋ 流れは双方向: 「ことば」で問いから語を置ける・⑥ためす に自分の問い・④問②の ☑ を③へ移し④は問①だけ）。handoff = `handoff_to_claude_code_upper_structure_shared_terms.md`（AI for Science 直下）。 | CC | `architecture/upper-structure-shared-terms.md` |
@@ -52,7 +52,7 @@
 
 ## 直近の一手（順）
 
-- **ブランドの統一**: 実画面・CI を確認し、リリース依頼に沿って tagpr と配布資産・更新フィード・公開マニュアルまで確認する。SVG 正本と生成手順は `brand/README.md`。
+- **ブランドの統一**: v0.66.0 に反映。別運用の Web サーバは接続復旧後に Caddy を再ビルドする。SVG 正本と生成手順は `brand/README.md`。
 
 1. ~~関数ライブラリ v0 / #14 step0 RML 出力 / #15 materialize 人間ゲート~~ ✅ 完了。
 2. ~~**#18 汎用クエリ層**（土台 + escape + Ask-view UX + 実 LLM dogfood）~~ ✅ **完了**。新オントロジー Ask の鍵が揃った。
@@ -85,6 +85,8 @@
 - 線形・限定の作業（例: Asterism 改名 change-set）は通常実行で十分。
 
 ## 更新 log
+
+- 2026-11-10: **ブランド刷新を v0.66.0 として公開**（#797・#798）。全 UI 1,145 テスト、GitHub の全検査と macOS 検証ビルド成功後にマージ。マニュアルに外観選択の節目と版バッジを追加。配布ファイル・署名・更新フィードは Desktop Release が生成する。別運用の Web サーバは SSH/HTTPS とも接続タイムアウトで未更新。
 
 - 2026-11-10: **濃紺＋淡い金を製品の既定に採用、リリース準備**。設定上部でダーク／ライトを切り替え、端末ごとに保存。グラフの位置・拡大率・選択を維持したまま色を更新。ロゴ色と操作色を分け、マニュアルにも外観切替、起動画面にも共通配色を反映。星の選択マーカーは採用しない。利用者のリリース依頼により、統合・検査後に公開する。
 
