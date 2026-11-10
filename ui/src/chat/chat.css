@@ -4,13 +4,13 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 240px minmax(360px, 560px) minmax(0, 1fr);
+  grid-template-columns: 220px minmax(360px, 1.15fr) minmax(320px, 1fr);
   background: var(--bg);
   font-family: var(--font-ui);
   color: var(--fg);
 }
 .chat-app.is-folded {
-  grid-template-columns: 56px minmax(360px, 560px) minmax(0, 1fr);
+  grid-template-columns: 56px minmax(360px, 1.15fr) minmax(320px, 1fr);
 }
 .chat-app [hidden] {
   display: none !important;
@@ -30,11 +30,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3);
+  padding: var(--space-4);
 }
 .chat-list-inner--folded {
   align-items: center;
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-4) var(--space-3);
 }
 .chat-list-spacer {
   flex: 1;
@@ -43,13 +43,33 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: var(--control-height-sm);
+}
+.chat-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--brand-ink);
 }
 .chat-brand-name {
-  font-weight: 700;
-  font-size: 0.95rem;
+  display: block;
+  flex: none;
+  max-width: 100%;
+  color: var(--brand-ink);
 }
 .chat-new {
   align-self: stretch;
+  min-height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
 }
 .chat-rows {
   flex: 1;
@@ -63,8 +83,8 @@
   display: flex;
 }
 .chat-icon-btn {
-  width: 32px;
-  height: 32px;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -106,6 +126,7 @@
   color: var(--fg);
   background: none;
   border: none;
+  min-height: var(--control-height);
 }
 .chat-row-title {
   flex: 1;
@@ -117,7 +138,7 @@
 .chat-row-badge {
   flex: none;
   padding: 0 0.5em;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   color: var(--accent-strong);
   background: var(--accent-soft);
   border-radius: 999px;
@@ -187,7 +208,14 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-5) var(--space-6);
+}
+.chat-scroll > *,
+.chat-foot > * {
+  width: 100%;
+  max-width: 680px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .chat-turn {
   display: flex;
@@ -195,17 +223,28 @@
   gap: var(--space-2);
 }
 .chat-empty {
-  margin: auto 0;
+  margin: auto;
   text-align: center;
-  font-size: 0.9rem;
-  line-height: 1.7;
   color: var(--muted);
+}
+.chat-empty h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-title);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.chat-empty p {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.8;
+  white-space: pre-line;
 }
 .chat-foot {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-5) var(--space-3);
+  padding: var(--space-2) var(--space-6) var(--space-4);
 }
 .chat-foot .promote-err {
   font-size: 0.8rem;
@@ -228,7 +267,7 @@
 .chat-bubble {
   max-width: 85%;
   padding: 0.55rem 0.9rem;
-  font-size: 0.92rem;
+  font-size: 15px;
   line-height: 1.6;
   color: var(--fg);
   background: var(--primary-soft);
@@ -262,7 +301,7 @@
 .chat-ai-text {
   margin: 0;
   padding-top: 0.2rem;
-  font-size: 0.92rem;
+  font-size: 15px;
   line-height: 1.7;
   color: var(--body);
   word-break: break-word;
@@ -323,7 +362,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
 }
 .chat-card[data-state='reverted'] {
   color: var(--muted);
@@ -370,7 +409,7 @@
 /* 12b: 関係の行の下の根拠の文（小さく 1 行・長ければ省略・全文は title） */
 .chat-evidence {
   margin-top: 1px;
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 .chat-evidence-text {
@@ -382,10 +421,10 @@
 /* 12c: 根拠の文の出所（論文名 · 節）と「ほか n 件」 */
 .chat-evidence-src {
   display: block;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 .chat-evidence-more {
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
 }
 .chat-sentences-more {
   list-style: none;
@@ -462,6 +501,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  background: var(--surface);
 }
 .chat-right-scroll {
   flex: 1;
@@ -477,7 +517,7 @@
   position: relative;
   overflow: hidden;
   background: var(--paper);
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--radius);
 }
 .chat-map-fit {
@@ -490,15 +530,34 @@
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
+  min-height: var(--control-height-sm);
 }
 .chat-map-fit:hover {
   color: var(--fg);
 }
 .chat-map-legend {
-  margin: var(--space-1) 0 var(--space-2);
+  margin: var(--space-3) 0 var(--space-4);
   font-size: 0.76rem;
   color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  line-height: 1.6;
+}
+.chat-map-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.chat-legend-symbol {
+  font-size: var(--text-lg);
+}
+.chat-legend-symbol--term { color: var(--graph-term); }
+.chat-legend-symbol--kind { color: var(--graph-kind); }
+.chat-legend-symbol--dataset { color: var(--graph-dataset); }
+.chat-legend-proposal {
+  flex-basis: 100%;
 }
 .chat-contents {
   display: flex;
@@ -587,24 +646,27 @@
   gap: var(--space-1);
 }
 .chat-tab {
-  padding: 0.35em 1.1em;
+  padding: 0 var(--space-3);
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--muted);
   background: none;
   border: none;
-  border-radius: 999px;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  min-height: var(--control-height);
 }
 .chat-tab.active {
-  color: var(--fg);
-  background: var(--primary-soft);
+  color: var(--primary);
+  background: transparent;
+  border-bottom-color: var(--primary);
 }
 .chat-scrim {
   position: fixed;
   inset: 0;
   z-index: 19;
   padding: 0;
-  background: rgba(20, 35, 22, 0.28);
+  background: rgba(15, 35, 66, 0.28);
   border: none;
   border-radius: 0;
 }
@@ -636,10 +698,10 @@
   max-width: 88%;
 }
 .chat-app.is-tabs .chat-scroll {
-  padding: var(--space-3);
+  padding: var(--space-4);
 }
 .chat-app.is-tabs .chat-foot {
-  padding: var(--space-2) var(--space-3) var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-4);
 }
 @media (prefers-reduced-motion: reduce) {
   .chat-app.is-tabs .chat-list {
@@ -653,20 +715,20 @@
 .chat-by-machine {
   display: inline-block;
   color: var(--accent-strong);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   border: 1px solid var(--accent);
   border-radius: 4px;
   padding: 0 5px;
   white-space: nowrap;
 }
 .chat-note--info {
-  opacity: 0.8;
+  color: var(--muted);
 }
 .chat-note--ai_failed {
   font-weight: 500;
 }
 
-/* ── 入力欄（11g）: 1 つの丸い枠。中に 1〜8 行に伸びる textarea と下の行（クリップ・丸い送るボタン） ── */
+/* ── 入力欄（11g）: 角丸の枠に1〜8行のtextareaと操作をまとめる ── */
 .chat-composer {
   display: flex;
   flex-direction: column;
@@ -676,9 +738,9 @@
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
@@ -697,10 +759,10 @@
   min-height: 24px;
   max-height: 208px;
   margin: 0;
-  padding: 0.7rem 0.9rem 0.25rem;
+  padding: 12px 16px 4px;
   font: inherit;
-  font-size: 0.95rem;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 24px;
   color: var(--fg);
   background: transparent;
   border: none;
@@ -727,8 +789,8 @@
 }
 .chat-send {
   flex: none;
-  width: 32px;
-  height: 32px;
+  width: var(--control-height);
+  height: var(--control-height);
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -736,11 +798,11 @@
   color: var(--primary-fg);
   background: var(--primary);
   border: none;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   transition: background-color 0.15s;
 }
 .chat-send:hover:not(:disabled) {
-  background: #356040;
+  background: var(--primary-hover);
 }
 .chat-send:disabled {
   color: var(--muted);
@@ -768,7 +830,7 @@
 .chat-composer-hint {
   margin: 0;
   padding: 0 0.7rem;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 @media (hover: none) {
@@ -797,7 +859,7 @@
   font-size: 0.8rem;
 }
 .chat-note--shape {
-  opacity: 0.8;
+  color: var(--muted);
 }
 .chat-note--ingest_stop,
 .chat-note--attach_failed {
@@ -971,8 +1033,11 @@
 .chat-rtabs {
   display: flex;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-4);
   border-bottom: 1px solid var(--border);
+  min-height: 64px;
+  align-items: stretch;
+  flex-shrink: 0;
 }
 .chat-questions {
   display: flex;
@@ -1026,7 +1091,8 @@ button.chat-question-title:hover {
   color: var(--muted);
 }
 .chat-question.is-proposed {
-  opacity: 0.55;
+  background: var(--primary-softer);
+  border-left: 2px dashed var(--border-strong);
 }
 
 /* 問いの「答えて」は静かなリンク（行が増えても塗りのボタンが並ばない）。送ったあとは薄く */
@@ -1053,6 +1119,8 @@ button.chat-question-title:hover {
 /* 「文」「データ」のタブ・文の一覧・範囲の札（PR 11o）。.chat-rtabs の規則を再利用 */
 .chat-subtabs {
   border-top: 1px solid var(--border);
+  min-height: 48px;
+  padding: 0;
 }
 .chat-sentences-panel {
   display: flex;
@@ -1088,7 +1156,7 @@ button.chat-question-title:hover {
   margin-top: -2px;
 }
 .chat-sentences-row.is-thin .chat-sentences-text {
-  opacity: 0.55;
+  color: var(--muted);
 }
 .chat-sentences-row.is-lit .chat-sentences-text {
   font-weight: 600;
@@ -1176,7 +1244,7 @@ button.chat-question-title:hover {
 .source-picker-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 35, 22, 0.32);
+  background: rgba(15, 35, 66, 0.32);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1304,7 +1372,7 @@ button.chat-question-title:hover {
 }
 .chat-reader-draft {
   margin-left: var(--space-2);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-weight: normal;
 }
 
@@ -1339,4 +1407,20 @@ button.chat-question-title:hover {
 .chat-paper-table .btn,
 .chat-paper-table .link-btn {
   flex-shrink: 0;
+}
+
+@media (pointer: coarse) {
+  .chat-icon-btn,
+  .chat-send,
+  .chat-tab,
+  .chat-map-fit,
+  .chat-new,
+  .chat-row-main {
+    min-height: 44px;
+  }
+  .chat-icon-btn,
+  .chat-send {
+    width: 44px;
+    height: 44px;
+  }
 }

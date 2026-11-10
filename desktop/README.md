@@ -101,16 +101,21 @@ resolution instead (fast iteration).
 
 ## Icon
 
-`icon.svg` is the source (1024 canvas, centered 824px squircle + the favicon
-mark). Regenerate the full set after editing it:
+`icon.svg` は `brand/source/mark.svg` と `brand/colors.json` から生成する
+OS 用アイコン（1024px のキャンバス、白い角丸背景と紺色のマーク）。
+正本を編集したら、リポジトリのルートから全サイズを再生成する:
 
 ```bash
-rsvg-convert -w 1024 -h 1024 icon.svg -o /tmp/icon-1024.png
-npx tauri icon /tmp/icon-1024.png -o src-tauri/icons
+python3 scripts/sync_brand.py
+rsvg-convert -w 1024 -h 1024 desktop/icon.svg -o /tmp/asterism-icon-1024.png
+cd desktop
+npm ci
+npx tauri icon /tmp/asterism-icon-1024.png -o src-tauri/icons
 ```
 
-(Do NOT render the raw `ui/public/favicon.svg` with qlmanage — it does not
-upscale SVGs and drops the blur filters, which produced the blank-icon bug.)
+`src-tauri/icons/` の PNG・ICNS・ICO を一緒にコミットする。
+起動画面のロゴも `sync_brand.py` の対象。素材の由来と使い分けは
+[`brand/README.md`](../brand/README.md) を参照。
 
 ## Auto-update
 

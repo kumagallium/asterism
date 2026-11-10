@@ -1,0 +1,43 @@
+/* 濃紺＋金の比較入口専用。面・本文・グラフは night.css のまま維持する。 */
+:root[data-theme="night-preview"][data-accent="gold-preview"] {
+  --brand-ink-preview: #b7ccff;
+  --primary: #ebc86e;
+  --primary-hover: #f5d991;
+  --primary-fg: #222014;
+  --primary-soft: #342f20;
+  --primary-softer: #29271f;
+  --accent: #93b3de;
+  --accent-strong: #b7ccff;
+  --accent-soft: #172b43;
+  --warn-fg: #ffba91;
+  --warn-bg: #38271f;
+  --warn-border: #865b43;
+}
+
+/* ブランドは青白、主操作と現在地は金として役割を分ける。 */
+:root[data-theme="night-preview"][data-accent="gold-preview"] .chat-brand,
+:root[data-theme="night-preview"][data-accent="gold-preview"] .chat-brand-name,
+:root[data-theme="night-preview"][data-accent="gold-preview"] .brand,
+:root[data-theme="night-preview"][data-accent="gold-preview"] .brand-mark,
+:root[data-theme="night-preview"][data-accent="gold-preview"] .brand-name {
+  color: var(--brand-ink-preview);
+}
+
+:root[data-theme="night-preview"][data-accent="gold-preview"] .chat-new {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+:root[data-theme="night-preview"][data-accent="gold-preview"] .chat-new:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+
+/* 情報の青系アクセントに、明るい面向けの固定色を残さない。 */
+:root[data-theme="night-preview"][data-accent="gold-preview"] .btn--accent {
+  color: var(--primary-fg);
+}
+
+:root[data-theme="night-preview"][data-accent="gold-preview"] .btn--accent:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}

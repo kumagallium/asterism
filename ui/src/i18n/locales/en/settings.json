@@ -1,4 +1,5 @@
 {
+  "appearance": {"label": "Appearance", "dark": "Dark", "light": "Light"},
   "title": "Settings",
   "open": "Settings",
   "close": "Close",

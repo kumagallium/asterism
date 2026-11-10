@@ -1,0 +1,78 @@
+/* 開発サーバーの /previews/night.html 専用。既定入口・設定・保存値には触れない。 */
+:root[data-theme="night-preview"] {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --surface: #111d30;
+  --surface-alt: #0e192a;
+  --surface-sink: #17243a;
+  --paper: #0a1424;
+  --fg: #e8edf6;
+  --body: #c4cfe0;
+  --muted: #9dafc8;
+  --faint: #8d9fb8;
+  --border: #24344d;
+  --border-strong: #3c516f;
+  --primary: #b7ccff;
+  --primary-hover: #d3e0ff;
+  --primary-fg: #10213e;
+  --primary-soft: #1e3153;
+  --primary-softer: #172842;
+  --accent: #d8ab70;
+  --accent-strong: #f0c38c;
+  --accent-soft: #332b24;
+  --entity: #b7ccff;
+  --entity-soft: #192c49;
+  --activity: #93b3de;
+  --activity-soft: #172b43;
+  --graph-kind: #c8d9ff;
+  --graph-term: #91aed6;
+  --graph-dataset: #a3b4cd;
+  --graph-proposed: #6e85a4;
+  --graph-edge: #61799a;
+  --graph-edge-proposed: #516680;
+  --graph-paper: #0a1424;
+  --sky: #172842;
+  --sky-fg: #edf2fc;
+  --prov-result: #e5a298;
+  --success-fg: #b5cdee;
+  --success-bg: #192c43;
+  --success-border: #3c5878;
+  --error-fg: #ffb5aa;
+  --error-bg: #382329;
+  --error-border: #82505a;
+  --info-fg: #a9d4f7;
+  --info-bg: #152c42;
+  --info-border: #375d7e;
+  --warn-fg: #f0c38c;
+  --warn-bg: #332b24;
+  --warn-border: #79603e;
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 16%);
+  --shadow: 0 1px 2px rgb(0 0 0 / 20%), 0 10px 28px rgb(0 0 0 / 22%);
+}
+
+/* 明るい面向けに固定されているボタンの文字とhoverを暗い面に合わせる。 */
+:root[data-theme="night-preview"] .btn--activity,
+:root[data-theme="night-preview"] .btn--activity:hover:not(:disabled),
+:root[data-theme="night-preview"] .app-error-btn {
+  color: var(--primary-fg);
+}
+
+:root[data-theme="night-preview"] .btn--activity:hover:not(:disabled) {
+  background: #b6cdf0;
+  border-color: #b6cdf0;
+}
+
+:root[data-theme="night-preview"] .btn--accent {
+  color: #281e13;
+}
+
+:root[data-theme="night-preview"] .btn--accent:hover:not(:disabled) {
+  background: #edc38d;
+  border-color: #edc38d;
+}
+
+/* 夜の比較ではローディングも平面で保つ。 */
+:root[data-theme="night-preview"] .skeleton {
+  background: var(--surface-sink);
+  animation: none;
+}

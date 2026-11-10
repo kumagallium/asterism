@@ -30,7 +30,7 @@ export interface ComposerProps {
   focusKey?: number
 }
 
-/** 1 行の高さ（0.95rem × 1.6）・上下の余白・伸びる上限（8 行）。 */
+/** 1 行の高さ（CSS の line-height: 24px）・上下の余白・伸びる上限（8 行）。 */
 const LINE_PX = 24
 const PAD_PX = 16
 const MAX_LINES = 8

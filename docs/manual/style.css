@@ -1,22 +1,22 @@
 /* Asterism ユーザーマニュアル（GitHub Pages 版）のスタイル。
-   トークンは ui/src/index.css の forest テーマに合わせている（docs/design/ui-guidelines.md §3）。
+   アプリと共通の紺色を基調に、明暗それぞれの読みやすさを保つ。
    scripts/build_manual_site.py が docs/manual/style.css へコピーする。 */
 
 :root{
-  --ground:#eef3ec; --surface:#ffffff; --surface-alt:#f5f9f3; --sink:#e5ede3;
-  --ink:#16241a; --body:#33453a; --muted:#54695b; --faint:#84987f;
-  --line:#d5e0d2; --line-strong:#bccdb9;
-  --entity:#2f6b41; --link:#2d5c86; --accent:#a3661f; --accent-soft:#f4e6d4;
-  --shadow:0 1px 2px rgba(22,36,26,.05), 0 8px 24px -16px rgba(22,36,26,.35);
+  color-scheme:dark;
+  --ground:#0b1220; --surface:#111d30; --surface-alt:#15243a; --sink:#1b2c45;
+  --ink:#e2eaf7; --body:#c4cfe0; --muted:#96a8c2; --faint:#8a9db8;
+  --line:#2a3b54; --line-strong:#425675;
+  --brand:#b7ccff; --brand-hover:#d3e0ff; --link:#b7ccff; --action:#ebc86e;
+  --shadow:0 1px 2px rgba(0,0,0,.2);
 }
-@media (prefers-color-scheme: dark){
-  :root{
-    --ground:#0f1610; --surface:#18211a; --surface-alt:#1d2820; --sink:#131c15;
-    --ink:#e9f1e8; --body:#c3d3c5; --muted:#98ab9a; --faint:#748a76;
-    --line:#2b382c; --line-strong:#3f4f40;
-    --entity:#7cc491; --link:#88b6e0; --accent:#e0a862; --accent-soft:#33261a;
-    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
-  }
+:root[data-theme="light"]{
+  color-scheme:light;
+  --ground:#f5f7fa; --surface:#ffffff; --surface-alt:#f7f9fc; --sink:#edf1f6;
+  --ink:#16243b; --body:#34445e; --muted:#566781; --faint:#60728a;
+  --line:#dce4ef; --line-strong:#c1cdde;
+  --brand:#002869; --brand-hover:#001e52; --link:#002869; --action:#002869;
+  --shadow:0 1px 2px rgba(15,35,66,.045);
 }
 
 *{box-sizing:border-box}
@@ -25,30 +25,44 @@ body{
   font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
   font-size:15px; line-height:1.9; -webkit-font-smoothing:antialiased;
 }
-.wrap{max-width:1140px; margin:0 auto; padding:40px 24px 96px}
-.cols{display:grid; grid-template-columns:minmax(0,1fr); gap:40px}
-@media (min-width:1000px){ .cols{grid-template-columns:220px minmax(0,1fr); gap:56px} }
+.wrap{max-width:1140px; margin:0 auto; padding:32px 24px 64px}
+.cols{display:grid; grid-template-columns:minmax(0,1fr); gap:24px}
+@media (min-width:1000px){ .cols{grid-template-columns:220px minmax(0,1fr); gap:24px} }
 
 /* --- sidebar --- */
 nav.toc{align-self:start; font-size:.82rem; line-height:1.7}
 @media (min-width:1000px){ nav.toc{position:sticky; top:32px; max-height:calc(100vh - 64px); overflow-y:auto} }
 .toc-home{
   display:block; font-weight:700; color:var(--ink); text-decoration:none;
-  font-size:.92rem; margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid var(--line);
+  font-size:.92rem; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line);
 }
-.toc-home:hover{color:var(--entity)}
+.toc-home .toc-logo{display:block; width:100%; max-width:144px; margin-bottom:8px}
+.toc-home img{display:block; width:100%; height:auto}
+.toc-home .logo-light{display:none}
+:root[data-theme="light"] .toc-home .logo-dark{display:none}
+:root[data-theme="light"] .toc-home .logo-light{display:block}
+.theme-switch{display:flex; align-items:center; gap:8px; margin:0 0 16px; color:var(--muted)}
+.theme-switch[hidden]{display:none}
+.theme-switch select{
+  font:inherit; color:var(--body); background:var(--surface); border:1px solid var(--line-strong);
+  border-radius:6px; min-height:36px; padding:4px 8px; cursor:pointer;
+}
+.theme-switch select:focus-visible{outline:2px solid var(--action); outline-offset:2px}
+.toc-home span{display:block; color:var(--muted); font-size:.78rem; font-weight:500}
+.toc-home:hover span{color:var(--brand-hover)}
 nav.toc h2{
-  font-size:.68rem; letter-spacing:.12em; color:var(--faint);
-  margin:18px 0 6px; font-weight:500; border:none; padding:0;
+  font-size:.75rem; letter-spacing:.12em; color:var(--faint);
+  margin:24px 0 8px; font-weight:500; border:none; padding:0;
 }
 nav.toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px}
 nav.toc a{
   display:block; color:var(--muted); text-decoration:none;
   padding:3px 0 3px 12px; border-left:2px solid var(--line);
 }
-nav.toc a:hover{color:var(--ink); border-left-color:var(--entity)}
-nav.toc a.here{color:var(--ink); font-weight:700; border-left-color:var(--entity)}
-nav.toc a:focus-visible{outline:2px solid var(--entity); outline-offset:2px; border-radius:2px}
+nav.toc a:hover{color:var(--ink); border-left-color:var(--brand)}
+nav.toc a.here{color:var(--action); font-weight:700; border-left-color:var(--action)}
+nav.toc a:focus-visible{outline:2px solid var(--brand); outline-offset:2px; border-radius:2px}
+nav.toc a.toc-home{padding:0 0 12px; border-left:0}
 
 /* --- text --- */
 main{min-width:0}
@@ -65,11 +79,12 @@ p{margin:14px 0}
 p.caption{color:var(--muted); font-size:.82rem; margin:-8px 0 22px}
 strong{color:var(--ink); font-weight:700}
 a{color:var(--link)}
+a:hover{color:var(--brand-hover)}
 ul,ol{padding-left:1.3em; margin:14px 0}
 li{margin:6px 0}
 li::marker{color:var(--faint)}
 code{
-  font-family:"SF Mono",Menlo,Consolas,monospace; font-size:.86em;
+  font-family:"SF Mono",Menlo,Consolas,monospace; font-size:max(12px,.86em);
   background:var(--surface-alt); border:1px solid var(--line);
   border-radius:4px; padding:.1em .35em; color:var(--ink);
 }
@@ -82,12 +97,12 @@ pre code{background:none; border:none; padding:0; font-size:1em}
 /* --- figures & screenshots --- */
 figure{
   margin:24px 0; background:var(--surface); border:1px solid var(--line);
-  border-radius:12px; padding:20px 16px; box-shadow:var(--shadow); overflow-x:auto;
+  border-radius:12px; padding:16px; box-shadow:var(--shadow); overflow-x:auto;
 }
 figure a{display:block; line-height:0}
 figure img{display:block; width:100%; height:auto; border-radius:4px}
-figure a:hover img{outline:2px solid var(--entity); outline-offset:2px}
-figure a:focus-visible img{outline:2px solid var(--entity); outline-offset:2px}
+figure a:hover img{outline:2px solid var(--brand); outline-offset:2px}
+figure a:focus-visible img{outline:2px solid var(--brand); outline-offset:2px}
 
 /* --- tables --- */
 .tablewrap{
@@ -115,11 +130,11 @@ footer{
 .badge{
   display:inline-block; vertical-align:middle; margin-left:.45em;
   padding:.05em .6em; border-radius:999px; white-space:nowrap;
-  font-size:.68rem; font-weight:600; line-height:1.65; letter-spacing:.01em;
-  color:var(--entity); background:var(--surface-alt); border:1px solid var(--line-strong);
+  font-size:.75rem; font-weight:600; line-height:1.65; letter-spacing:.01em;
+  color:var(--brand); background:var(--surface-alt); border:1px solid var(--line-strong);
 }
-h1 .badge{font-size:.72rem; vertical-align:.35em}
-h2 .badge,h3 .badge{font-size:.64rem; vertical-align:.25em}
+h1 .badge{font-size:.75rem; vertical-align:.35em}
+h2 .badge,h3 .badge{font-size:.75rem; vertical-align:.25em}
 td .badge,li .badge{margin-left:.35em}
 
 /* --- 機能ロードマップ: 版と日付の列は折り返さない（本文の列に幅を渡す） --- */

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
 import { getAppDataInfo } from '../appdata'
+import { AppearanceSelect } from './AppearanceSelect'
 import { LanguageToggle } from '../i18n/LanguageToggle'
 import { AboutTab } from './AboutTab'
 import { ConnectTab } from './ConnectTab'
@@ -162,6 +163,7 @@ export function SettingsModal({
         </header>
         {/* 言語の切り替えはここ（殻には置かない）。 */}
         <div className="settings-lang">
+          <AppearanceSelect />
           <LanguageToggle />
         </div>
         <nav className="settings-tabs">

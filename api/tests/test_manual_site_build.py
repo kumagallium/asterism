@@ -179,3 +179,40 @@ def test_badge_without_text_is_dropped_not_leaked() -> None:
     assert site.heading_slug('見出し <Badge type="tip" />') == "見出し"
     # コードスパンの中の Badge 風の文字列は、アンカーにもタイトルにも残る
     assert site.heading_slug('設定 `<Badge text="x" />` の説明') == "設定-Badge-text-x-の説明"
+
+
+def test_brand_assets_and_theme_variants_are_included(tmp_path: Path, monkeypatch) -> None:
+    """ロゴの正本が生成物と同期し、明暗の表示とアイコンから参照されること。"""
+    site = _load_builder()
+    brand = tmp_path / "brand"
+    brand.mkdir()
+    names = ("logo.svg", "logo-on-dark.svg", "favicon.svg")
+    for name in names:
+        (brand / name).write_bytes(f"<svg>{name}</svg>".encode())
+    source = tmp_path / "manual"
+    for name in ("ja", "site", "figures", "screenshots"):
+        (source / name).mkdir(parents=True)
+    for name in ("index", "getting-started"):
+        (source / "ja" / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
+    (source / "site" / "style.css").write_text("/* test */", encoding="utf-8")
+    (source / "site" / "theme.js").write_text("// test", encoding="utf-8")
+    monkeypatch.setattr(site, "REPO", tmp_path)
+    monkeypatch.setattr(site, "SRC", source)
+    monkeypatch.setattr(site, "GROUPS", [("はじめに", ["getting-started.md"])])
+
+    files = site.build()
+
+    for name in names:
+        assert files[site.OUT / "brand" / name] == (brand / name).read_bytes()
+    for name in ("index", "getting-started"):
+        page = files[site.OUT / "ja" / f"{name}.html"]
+        assert '<html lang="ja" data-theme="dark">' in page
+        assert 'class="logo-dark" src="../brand/logo-on-dark.svg"' in page
+        assert 'id="manual-theme"' in page
+        assert 'src="../theme.js"' in page
+        assert "prefers-color-scheme" not in page
+        assert 'src="../brand/logo.svg" alt="Asterism"' in page
+        assert '<span>マニュアル</span>' in page
+        assert 'href="../brand/favicon.svg"' in page
+    assert 'href="brand/favicon.svg"' in files[site.OUT / "index.html"]
+    assert files[site.OUT / "theme.js"] == "// test"

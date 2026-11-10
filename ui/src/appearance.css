@@ -1,0 +1,85 @@
+/* 承認済みの濃紺の面・青白い情報・淡い金の操作。 */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --brand-ink: #b7ccff;
+  --bg: #0b1220;
+  --surface: #111d30;
+  --surface-alt: #0e192a;
+  --surface-sink: #17243a;
+  --paper: #0a1424;
+  --fg: #e8edf6;
+  --body: #c4cfe0;
+  --muted: #9dafc8;
+  --faint: #8d9fb8;
+  --border: #24344d;
+  --border-strong: #3c516f;
+  --primary: #ebc86e;
+  --primary-hover: #f5d991;
+  --primary-fg: #222014;
+  --primary-soft: #342f20;
+  --primary-softer: #29271f;
+  --accent: #93b3de;
+  --accent-strong: #b7ccff;
+  --accent-soft: #172b43;
+  --entity: #b7ccff;
+  --entity-soft: #192c49;
+  --activity: #93b3de;
+  --activity-soft: #172b43;
+  --graph-kind: #c8d9ff;
+  --graph-term: #91aed6;
+  --graph-dataset: #a3b4cd;
+  --graph-proposed: #6e85a4;
+  --graph-edge: #61799a;
+  --graph-edge-proposed: #516680;
+  --graph-paper: #0a1424;
+  --graph-value-0: #b7ccff;
+  --graph-value-1: #95b9ef;
+  --graph-value-2: #a0c7ed;
+  --graph-value-3: #b6b8f0;
+  --graph-value-4: #c6bbeb;
+  --graph-value-5: #8fc4d4;
+  --graph-value-6: #b0c5de;
+  --graph-value-7: #a7b6d0;
+
+  --sky: #172842;
+  --sky-fg: #edf2fc;
+  --prov-result: #e5a298;
+  --success-fg: #b5cdee;
+  --success-bg: #192c43;
+  --success-border: #3c5878;
+  --error-fg: #ffb5aa;
+  --error-bg: #382329;
+  --error-border: #82505a;
+  --info-fg: #a9d4f7;
+  --info-bg: #152c42;
+  --info-border: #375d7e;
+  --warn-fg: #ffba91;
+  --warn-bg: #38271f;
+  --warn-border: #865b43;
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 16%);
+  --shadow: 0 1px 2px rgb(0 0 0 / 20%), 0 10px 28px rgb(0 0 0 / 22%);
+}
+
+/* 明るい面向けの塗りボタンにも、その面に合う文字色を与える。 */
+:root[data-theme="dark"] .btn--activity,
+:root[data-theme="dark"] .btn--activity:hover:not(:disabled),
+:root[data-theme="dark"] .btn--accent,
+:root[data-theme="dark"] .app-error-btn {
+  color: var(--primary-fg);
+}
+:root[data-theme="dark"] .btn--activity:hover:not(:disabled),
+:root[data-theme="dark"] .btn--accent:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+:root[data-theme="dark"] .chat-new {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+:root[data-theme="dark"] .chat-new:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+:root[data-theme="dark"] .skeleton {
+  background: var(--surface-sink);
+  animation: none;
+}

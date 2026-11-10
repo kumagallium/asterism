@@ -13,7 +13,8 @@ bullet/numbered lists, pipe tables, fenced code, images, links, ``**bold**`` and
 inline code), so the converter is written here rather than pulling in a markdown
 dependency — the same "self-contained repo" rule the rest of the tooling follows.
 Figures are self-contained SVGs (``manual/figures/*.svg`` carry their own styles
-and both themes), so a rendered page needs no JavaScript at all.
+and both themes), so the manual remains readable without JavaScript.
+An optional theme selector saves the reader's choice in this browser.
 
 Relative links survive the projection unchanged: ``manual/ja/x.md`` refers to
 ``../figures/y.svg`` and ``../screenshots/z.png``, and the generated
@@ -359,7 +360,15 @@ def title_of(md: str) -> str:
 
 def sidebar(current: str, titles: dict[str, str]) -> str:
     parts = ['<nav class="toc" aria-label="目次">',
-             '<a class="toc-home" href="index.html">Asterism マニュアル</a>']
+             '<a class="toc-home" href="index.html">'
+             '<span class="toc-logo">'
+             '<img class="logo-dark" src="../brand/logo-on-dark.svg" alt="Asterism" width="4603" height="1000">'
+             '<img class="logo-light" src="../brand/logo.svg" alt="Asterism" width="4603" height="1000">'
+             '</span><span>マニュアル</span></a>',
+             '<label class="theme-switch" hidden>外観 '
+             '<select id="manual-theme" aria-label="マニュアルの外観">'
+             '<option value="dark">ダーク</option><option value="light">ライト</option>'
+             '</select></label>']
     for group, names in GROUPS:
         parts.append(f"<h2>{html.escape(group)}</h2><ol>")
         for name in names:
@@ -373,11 +382,13 @@ def sidebar(current: str, titles: dict[str, str]) -> str:
 
 
 PAGE = """<!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Asterism マニュアル</title>
+<link rel="icon" type="image/svg+xml" href="../brand/favicon.svg">
+<script src="../theme.js"></script>
 <link rel="stylesheet" href="../style.css">
 </head>
 <body class="page-{page}">
@@ -414,10 +425,12 @@ def build() -> dict[Path, str | bytes]:
             source=name,
         )
 
-    files[OUT / "style.css"] = (SRC / "site" / "style.css").read_text(encoding="utf-8")
+    for asset in ("style.css", "theme.js"):
+        files[OUT / asset] = (SRC / "site" / asset).read_text(encoding="utf-8")
     files[OUT / "index.html"] = (
         '<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">'
         '<meta http-equiv="refresh" content="0; url=ja/index.html">'
+        '<link rel="icon" type="image/svg+xml" href="brand/favicon.svg">'
         '<title>Asterism マニュアル</title></head>'
         '<body><p><a href="ja/index.html">Asterism マニュアル</a></p></body></html>\n'
     )
@@ -425,6 +438,9 @@ def build() -> dict[Path, str | bytes]:
         for asset in sorted((SRC / sub).iterdir()):
             if asset.is_file() and not asset.name.startswith("."):
                 files[OUT / sub / asset.name] = asset.read_bytes()
+    # 正本のブランド資産を公開先へコピーし、--check でも内容の同期を検査する。
+    for name in ("logo.svg", "logo-on-dark.svg", "favicon.svg"):
+        files[OUT / "brand" / name] = (REPO / "brand" / name).read_bytes()
     return files
 
 

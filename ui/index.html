@@ -2,6 +2,14 @@
 <html lang="ja" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <!-- CSS・React より前に端末の外観を決め、保存したライトでも初回の明滅を防ぐ。 -->
+    <script>
+      (() => {
+        let theme = 'dark';
+        try { if (localStorage.getItem('asterism.appearance') === 'light') theme = 'light'; } catch {}
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- This is an authored bilingual (JA primary, EN sublabels) UI. Browser page
@@ -13,8 +21,8 @@
          paint, so an English reader never gets a painted frame declared as ja.
          Kept byte-identical to common.json `docTitle` (ja): this string is what
          the tab, the history entry and a no-JS load show. -->
-    <title>asterism — 研究データをつながったデータに</title>
-    <!-- Forest design system fonts: Hanken Grotesk (UI/display, Latin),
+    <title>Asterism — 研究データをつながったデータに</title>
+    <!-- UI fonts: Hanken Grotesk (UI/display, Latin),
          Zen Kaku Gothic New / Noto Sans JP (Japanese gothic), IBM Plex Mono
          (numbers / IDs / code). See ui/src/index.css design tokens. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

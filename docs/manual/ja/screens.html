@@ -1,21 +1,23 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>画面別の導線リファレンス — Asterism マニュアル</title>
+<link rel="icon" type="image/svg+xml" href="../brand/favicon.svg">
+<script src="../theme.js"></script>
 <link rel="stylesheet" href="../style.css">
 </head>
 <body class="page-screens">
 <div class="wrap">
 <div class="cols">
-<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="workspace.html">見る</a></li><li><a href="graph.html">知識グラフ</a></li><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">話・用語・標準用語</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="ai-requirements.html">AI の要件</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a class="here" href="screens.html">画面別の導線リファレンス</a></li></ol><h2>更新を知る</h2><ol><li><a href="roadmap.html">機能ロードマップ</a></li><li><a href="release-history.html">リリース履歴</a></li></ol></nav>
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html"><span class="toc-logo"><img class="logo-dark" src="../brand/logo-on-dark.svg" alt="Asterism" width="4603" height="1000"><img class="logo-light" src="../brand/logo.svg" alt="Asterism" width="4603" height="1000"></span><span>マニュアル</span></a><label class="theme-switch" hidden>外観 <select id="manual-theme" aria-label="マニュアルの外観"><option value="dark">ダーク</option><option value="light">ライト</option></select></label><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="workspace.html">見る</a></li><li><a href="graph.html">知識グラフ</a></li><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">話・用語・標準用語</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="ai-requirements.html">AI の要件</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a class="here" href="screens.html">画面別の導線リファレンス</a></li></ol><h2>更新を知る</h2><ol><li><a href="roadmap.html">機能ロードマップ</a></li><li><a href="release-history.html">リリース履歴</a></li></ol></nav>
 <main>
 <h1 id="画面別の導線リファレンス">画面別の導線リファレンス</h1>
 <p>操作の場所をまとめます。詳しい使い方は、各節の章へのリンクを参照してください。</p>
 <h2 id="3-つの領域">3 つの領域</h2>
 <p>画面は左・中央・右の 3 領域だけです。ナビもページもありません。</p>
-<div class="tablewrap"><table><thead><tr><th>領域</th><th>何がある</th></tr></thead><tbody><tr><td>左: チャットの一覧</td><td>「新しいチャット」・各チャットの「…」（名前を修正・消す）・下の ⚙（設定）。「チャットの一覧を開閉」でたためる</td></tr><tr><td>中央: チャット</td><td>入力欄（1 つの丸い枠。クリップで表を添え、丸い送るボタンか Enter で送る。Shift+Enter で改行）。人の文は右の吹き出し、AI の文は地の文。知識グラフへの提案は差し込みの札で、「承認」「公開」「取り消す」がある</td></tr><tr><td>右: 知識グラフ・問い</td><td>一番上のタブ「知識グラフ」「問い N / M」。知識グラフは、青＝用語・緑＝データの種類・薄い＝提案（承認前）の全体の図と、その下の「関係」「データ」のタブ（押した点について言っていることの行と、実際の行の表）。「値のつながり」はデータの右上にある。問いのタブは承認した問いの一覧</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>領域</th><th>何がある</th></tr></thead><tbody><tr><td>左: チャットの一覧</td><td>「新しいチャット」・各チャットの「…」（名前を修正・消す）・下の ⚙（設定）。「チャットの一覧を開閉」でたためる</td></tr><tr><td>中央: チャット</td><td>入力欄（1 つの丸い枠。クリップで表を添え、丸い送るボタンか Enter で送る。Shift+Enter で改行）。人の文は右の吹き出し、AI の文は地の文。知識グラフへの提案は差し込みの札で、「承認」「公開」「取り消す」がある</td></tr><tr><td>右: 知識グラフ・問い</td><td>一番上のタブ「知識グラフ」「問い N / M」。知識グラフは、○ 輪郭円＝用語・● 塗り円＝データの種類・「(提案)」付き＝承認前の全体の図と、その下の「関係」「データ」のタブ（押した点について言っていることの行と、実際の行の表）。「値のつながり」はデータの右上にある。問いのタブは承認した問いの一覧</td></tr></tbody></table></div>
 <p>狭い画面（375px）では、「チャット」「知識グラフ」「問い」のタブで切り替え、左は ≡ でシートになります。</p>
 <h2 id="チャットの見かた">チャットの見かた</h2>
 <div class="tablewrap"><table><thead><tr><th>もの</th><th>見え方</th></tr></thead><tbody><tr><td>あなたの文</td><td>右寄せの吹き出し。表を添えたときは、クリップの印と名前が付く</td></tr><tr><td>AI の文</td><td>吹き出しの無い地の文。考えている間は 3 つの点</td></tr><tr><td>知識グラフへの提案</td><td>文の下の札。上の行は「知識グラフへの提案 · N 件」（承認後は「承認済み · 日時」、取り消すと「取り消し済み」）、下の行は「承認」（表を公開するときは「公開」）と「取り消す」</td></tr><tr><td>入力欄</td><td>1 つの丸い枠。書くほど行が伸びる。左下の クリップで表を添え、右下の丸い送るボタンで送る。枠の下に「Enter で送る・Shift+Enter で改行」</td></tr></tbody></table></div>

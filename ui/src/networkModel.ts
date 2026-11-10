@@ -519,18 +519,23 @@ export async function loadLaidOutNetwork(
   return { graph, response }
 }
 
-/** 件の種類の 8 色。ガイドラインの意味色（warn・success・accent など）は注意／状態の意味を持つので
- *  流用せず、互いに見分けられる別のパレットを使う（色相を散らし、ハブの青・値の灰とも離す）。 */
+/** 種類は紺と青灰で描き、番号を併記して色に依存せず区別する。 */
 export const KIND_COLORS: string[] = [
-  '#1b9e77', // 緑
-  '#e08a00', // 橙
-  '#c2579b', // 桃
-  '#7b4fc9', // 紫
-  '#d6452c', // 朱
-  '#a3a100', // 黄緑
-  '#00a6c8', // 水色
-  '#7a4a1e', // 茶
+  '#002869', '#355e98', '#557ba5', '#454a82',
+  '#73749b', '#3b687b', '#6b7f98', '#576178',
 ]
+
+/** 色の席と共通の種類番号。範囲外・固定の役割には付けない。 */
+export function kindMarker(role: string): string {
+  const m = /^kind-([0-7])$/.exec(role)
+  return m ? '①②③④⑤⑥⑦⑧'[Number(m[1])] : ''
+}
+
+/** API・検索・選択用の名前を変えず、描画する名前にだけ番号を付ける。 */
+export function networkDisplayLabel(label: string, role: string): string {
+  const marker = kindMarker(role)
+  return marker ? `${marker} ${label}` : label
+}
 
 /** 色の役割 → 色トークン（index.css の CSS 変数）。種類以外の固定色。 */
 export const ROLE_VAR: Record<string, string> = {
@@ -539,10 +544,10 @@ export const ROLE_VAR: Record<string, string> = {
   [HUB_ROLE]: '--link',
 }
 
-/** 役割 → CSS の色（凡例用）。種類は固定の hex、ほかは CSS 変数。 */
+/** 役割 → CSS の色（凡例用）。canvas と同じ外観のトークンを参照する。 */
 export function roleCss(role: string): string {
   const m = /^kind-(\d+)$/.exec(role)
-  if (m && KIND_COLORS[Number(m[1])]) return KIND_COLORS[Number(m[1])]
+  if (m && KIND_COLORS[Number(m[1])]) return `var(--graph-value-${Number(m[1])}, ${KIND_COLORS[Number(m[1])]})`
   return `var(${ROLE_VAR[role] ?? ROLE_VAR[REST_ROLE]})`
 }
 

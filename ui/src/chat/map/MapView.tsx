@@ -1,5 +1,6 @@
 // 全体の地図（丸＋横の文字）。sigma を素で作って壊す（NetworkView.tsx の NetworkCanvas と同じ流儀）。
 // データと配置は mapModel.ts の純関数。契約 pr11h-contract.md §3。
+import { subscribeAppearance } from '../../appearance'
 import Sigma from 'sigma'
 import type Graph from 'graphology'
 import { useEffect, useMemo, useRef } from 'react'
@@ -7,6 +8,9 @@ import type { DraftSky, SkyData, SkyDataset } from '../../sky/skyApi'
 import type { PointSel } from '../chatState'
 import { bindMapEvents, buildMapGraph, layoutMap, mapNeighborhood, mapSignature, safeResize, syncMapAttributes } from './mapModel'
 import type { MapNodeAttrs } from './mapModel'
+import { mapNodePrograms } from './mapNodePrograms'
+import { mapEdgeAppearance } from './mapEdgeAppearance'
+import { makeGraphLabelDrawer } from '../../graphLabels'
 
 /** 全体を見るときのカメラの引き（1 より大きいと余白が出て、端の名前が切れない）。 */
 const FIT_RATIO = 1.15
@@ -54,12 +58,14 @@ interface Palette {
   entityThin: string
   accent: string
   edge: string
+  edgeProposed: string
   edgeOn: string
   faded: string
   label: string
   /** 線の名前の札の地と枠。 */
   surface: string
   border: string
+  paper: string
 }
 
 type EdgeLabelCtx = CanvasRenderingContext2D
@@ -108,23 +114,25 @@ function makeEdgeLabelDrawer(pal: Palette) {
 }
 
 function readPalette(): Palette {
-  const activity = cssColor('--activity', '#3b6fb6')
-  const entity = cssColor('--entity', '#2f8f5b')
-  const dataset = cssColor('--muted', '#54695b')
-  const border = cssColor('--border-strong', '#c7d4c4')
+  const activity = cssColor('--graph-term', '#526f9a')
+  const entity = cssColor('--graph-kind', '#002869')
+  const dataset = cssColor('--graph-dataset', '#68778e')
+  const border = cssColor('--border-strong', '#c1cdde')
   return {
     activity,
     entity,
     dataset,
-    activityThin: withAlpha(activity, 0.55),
-    entityThin: withAlpha(entity, 0.55),
-    accent: cssColor('--accent', '#d6452c'),
-    edge: border,
-    edgeOn: cssColor('--fg', '#16241a'),
-    faded: withAlpha(cssColor('--border-strong', '#c7d4c4'), 0.9),
-    label: cssColor('--fg', '#16241a'),
+    activityThin: cssColor('--graph-proposed', '#8193ab'),
+    entityThin: cssColor('--graph-proposed', '#8193ab'),
+    accent: cssColor('--accent', '#002869'),
+    edge: cssColor('--graph-edge', '#687e9b'),
+    edgeProposed: cssColor('--graph-edge-proposed', '#8193ab'),
+    edgeOn: cssColor('--fg', '#16243b'),
+    faded: withAlpha(cssColor('--border-strong', '#c1cdde'), 0.9),
+    label: cssColor('--fg', '#16243b'),
     surface: cssColor('--surface', '#ffffff'),
     border,
+    paper: cssColor('--graph-paper', '#fbfcfe'),
   }
 }
 
@@ -154,9 +162,10 @@ export function MapView({
   const hovEdgeRef = useRef<string | null>(null)
   const laidRef = useRef<{ sig: string; graph: Graph } | null>(null)
   const roRef = useRef<ResizeObserver | null>(null)
-  const propsRef = useRef({ focusIds, selectedId, highlightIds, removeIds, onSelect })
+  const themeUnsubscribeRef = useRef<(() => void) | null>(null)
+  const propsRef = useRef({ focusIds, selectedId, highlightIds, removeIds, onSelect, lang })
   useEffect(() => {
-    propsRef.current = { focusIds, selectedId, highlightIds, removeIds, onSelect }
+    propsRef.current = { focusIds, selectedId, highlightIds, removeIds, onSelect, lang }
   })
 
   useEffect(() => {
@@ -170,6 +179,8 @@ export function MapView({
       refreshRef.current?.()
       return
     }
+    themeUnsubscribeRef.current?.()
+    themeUnsubscribeRef.current = null
     // 形が変わった: 前の sigma を壊し、配置して作り直す
     roRef.current?.disconnect()
     roRef.current = null
@@ -201,6 +212,8 @@ export function MapView({
       em = computeEmphasis()
       sigma.refresh()
     }
+    const drawNodeLabel = makeGraphLabelDrawer(() => pal.paper)
+    const labelFont = getComputedStyle(document.documentElement).fontFamily
     let sigma: Sigma
     try {
       sigma = new Sigma(graph, host, {
@@ -209,13 +222,18 @@ export function MapView({
         enableEdgeEvents: true,
         // 線の名前は hover 中の 1 本だけ出す（edgeReducer で他は ''）
         renderEdgeLabels: true,
-        edgeLabelSize: 11,
+        edgeLabelSize: 12,
+        nodeProgramClasses: mapNodePrograms(() => pal.paper, drawNodeLabel),
+        nodeHoverProgramClasses: mapNodePrograms(() => pal.paper, drawNodeLabel),
         edgeLabelColor: { color: pal.label },
-        edgeLabelFont: 'inherit',
+        edgeLabelFont: labelFont,
         defaultDrawEdgeLabel: makeEdgeLabelDrawer(pal),
         zIndex: true,
         labelSize: 12,
-        labelFont: 'inherit',
+        labelFont,
+        defaultDrawNodeLabel: drawNodeLabel,
+        // hover も同じ紙色で描き、暗い面で白い地や影を出さない。
+        defaultDrawNodeHover: drawNodeLabel,
         labelRenderedSizeThreshold: 2,
         labelDensity: 1,
         labelGridCellSize: 100,
@@ -230,12 +248,17 @@ export function MapView({
           const isFocus = p.focusIds.has(id)
           const isRemove = p.removeIds.has(id) || a.remove === true
           const base = a.role === 'entity' ? pal.entity : a.role === 'dataset' ? pal.dataset : pal.activity
-          const thin = a.role === 'entity' ? pal.entityThin : a.role === 'dataset' ? withAlpha(pal.dataset, 0.55) : pal.activityThin
+          const thin = a.role === 'entity' ? pal.entityThin : pal.activityThin
           let color = a.proposed ? thin : base
           if (isRemove) color = pal.accent
           // この話の点は前に出す（名前は重なりの規則に任せる。必ず出すのは選んだ点と hover の近傍だけ。
           // この話の名前は下の「この話の周り」で全部読める）
-          const out: Record<string, unknown> = { ...data, type: 'circle', color, zIndex: isFocus ? 2 : 0 }
+          const out: Record<string, unknown> = {
+            ...data,
+            type: a.role === 'entity' ? 'map-filled' : a.role === 'dataset' ? 'map-dataset' : 'map-outline',
+            label: a.proposed ? `${a.label} (${p.lang === 'ja' ? '提案' : 'proposed'})` : a.label,
+            color, zIndex: isFocus ? 2 : 0,
+          }
           // データセットの丸（表の名前）は星座の見出し。名前を必ず出す
           if (a.type === 'dataset') out.forceLabel = true
           if (em) {
@@ -255,21 +278,16 @@ export function MapView({
           return out
         },
         edgeReducer: (edge, data) => {
-          // 論文から用語への根拠の線は細く
-          if (data.kind === 'evidence') data = { ...data, size: 0.6 }
-          // 線の名前は hover 中の線だけ。その線は濃く少し太く
           const hovered = edge === hovEdgeRef.current
-          // forceLabel: sigma は両端の名前が出ている線しか名前を描かない。hover 中の線は必ず描く
-          if (hovered) return { ...data, color: pal.edgeOn, size: ((data.size as number | undefined) ?? 1) + 1, zIndex: 2, forceLabel: true }
-          data = { ...data, label: '' }
           const em = emphasis()
-          if (!em) return data
           const [s, t] = graph.extremities(edge)
           const p = propsRef.current
-          const on =
+          const on = !!em && (
             (em.active !== null && (s === em.active || t === em.active)) ||
             (p.highlightIds !== null && (p.highlightIds.has(s) || p.highlightIds.has(t)))
-          return on ? { ...data, color: pal.edgeOn, zIndex: 1 } : { ...data, color: pal.faded, zIndex: 0 }
+          )
+          // hover 中だけ名前を出す。提案の印も描画時だけ足す。
+          return mapEdgeAppearance(data, pal, { hovered, on, faded: !!em && !on, lang: p.lang })
         },
       })
     } catch {
@@ -279,6 +297,15 @@ export function MapView({
       return
     }
     refreshRef.current = refresh
+    themeUnsubscribeRef.current = subscribeAppearance(() => {
+      Object.assign(pal, readPalette())
+      sigma.setSettings({
+        labelColor: { color: pal.label },
+        edgeLabelColor: { color: pal.label },
+        defaultEdgeColor: pal.edge,
+      })
+      refresh()
+    })
     // 端の点の名前が切れないよう、少し引いて始める（全体を見るも同じ）
     sigma.getCamera().setState({ x: 0.5, y: 0.5, ratio: FIT_RATIO })
     // 撮影と検証の道具のために、sigma を容器から引けるようにしておく（製品の動きには使わない）
@@ -315,6 +342,8 @@ export function MapView({
   // 外すときだけ壊す
   useEffect(
     () => () => {
+      themeUnsubscribeRef.current?.()
+      themeUnsubscribeRef.current = null
       roRef.current?.disconnect()
       roRef.current = null
       sigmaRef.current?.kill()

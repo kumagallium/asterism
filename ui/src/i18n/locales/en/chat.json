@@ -82,7 +82,8 @@
     "decide": "Decide"
   },
   "empty": {
-    "first": "Write what you want to know, or attach a data table (CSV, Excel) or a paper (PDF, Word). Questions are answered from the data you added; what you want to know grows in the knowledge graph to the right"
+    "title": "Start with what you want to know",
+    "first": "Write a question, or attach a table or paper.\nKnowledge confirmed in conversation connects to your knowledge graph."
   },
   "error": {
     "badShape": "The server's reply was not in the expected shape",
@@ -201,7 +202,12 @@
   "map": {
     "fit": "Fit all",
     "aria": "Knowledge graph of terms and data",
-    "legend": "Blue = term · Green = kind of data · Grey = dataset · Faint = proposal not yet approved",
+    "legend": {
+      "term": "Term",
+      "kind": "Kind of data",
+      "dataset": "Dataset",
+      "proposal": "Faint nodes and lines are proposals awaiting approval"
+    },
     "empty": "Nothing yet. Write a question or attach a table and the knowledge graph grows here"
   },
   "contents": {

@@ -1,8 +1,8 @@
-// Small inline stroke icons (no icon-library dependency). 24×24 viewBox,
-// inherit currentColor so they take the surrounding text color. Matches the
-// forest design kit (design_handoff_asterism_ux/prototype/kit.jsx).
+// 小さな線画アイコンは 24×24 の viewBox と currentColor を共通に使う。
+// ブランドロゴは正本から生成したパスを使い、周囲の紺色トークンを継承する。
 
 import type { ReactNode } from 'react'
+import { BRAND_MARK_PATH, BRAND_MARK_VIEWBOX, BRAND_WORDMARK_PATH, BRAND_WORDMARK_VIEWBOX } from './brand/assets'
 
 type IconProps = { className?: string; size?: number }
 
@@ -310,16 +310,21 @@ export function DotIcon({ className, size = 12 }: IconProps) {
   )
 }
 
-/** Brand mark — three stars connected (the asterism). */
+/** 承認済みの左右対称三つ星 A。名前を伴う装飾アイコンとして使う。 */
 export function BrandMark({ className, size = 26 }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <line x1="5" y1="7" x2="18" y2="12" stroke="var(--border-strong)" strokeWidth="1.4" />
-      <line x1="5" y1="7" x2="9" y2="19" stroke="var(--border-strong)" strokeWidth="1.4" />
-      <line x1="18" y1="12" x2="9" y2="19" stroke="var(--border-strong)" strokeWidth="1.4" />
-      <circle cx="5" cy="7" r="2.4" fill="currentColor" />
-      <circle cx="18" cy="12" r="2.4" fill="currentColor" />
-      <circle cx="9" cy="19" r="2.4" fill="currentColor" />
+    <svg width={size} height={size} viewBox={BRAND_MARK_VIEWBOX} fill="currentColor" className={className} aria-hidden="true" focusable="false">
+      <path d={BRAND_MARK_PATH} />
+    </svg>
+  )
+}
+
+/** 承認済みロゴタイプ 01。フォント環境によらず同じ字形を表示する。 */
+export function BrandWordmark({ className, size = 22, label = 'Asterism' }: IconProps & { label?: string }) {
+  const [, , width, height] = BRAND_WORDMARK_VIEWBOX.split(/\s+/).map(Number)
+  return (
+    <svg width={size * width / height} height={size} viewBox={BRAND_WORDMARK_VIEWBOX} fill="currentColor" className={className} role="img" aria-label={label} focusable="false">
+      <path d={BRAND_WORDMARK_PATH} />
     </svg>
   )
 }

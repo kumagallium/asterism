@@ -34,7 +34,7 @@
   "legend_bundle": "束（同じ相手にだけつながる件の群れ・大きさは件数）",
   "legend_hub": "つながりのハブ",
   "legend_size": "点の大きさは、つながりの数（束は中の件数）です",
-  "legend_kinds_hint": "種類を押すと、その種類だけに色が付きます（{{max}} 種類まで）",
+  "legend_kinds_hint": "青灰色と①〜⑧の番号で種類を対応させています。種類を押すと、その種類を強調します（{{max}} 種類まで）",
   "legend_kind_title": "押すと、この種類だけに色が付きます",
   "legend_kind_qualified": "{{name}}（{{qualifier}}）{{count}}",
   "legend_kind_max": "{{max}} 種類まで選べます",

@@ -1,4 +1,5 @@
 {
+  "appearance": {"label": "外観", "dark": "ダーク", "light": "ライト"},
   "title": "設定",
   "open": "設定",
   "close": "閉じる",
