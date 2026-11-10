@@ -110,8 +110,8 @@ function makeEdgeLabelDrawer(pal: Palette) {
 function readPalette(): Palette {
   const activity = cssColor('--activity', '#3b6fb6')
   const entity = cssColor('--entity', '#2f8f5b')
-  const dataset = cssColor('--muted', '#54695b')
-  const border = cssColor('--border-strong', '#c7d4c4')
+  const dataset = cssColor('--muted', '#566781')
+  const border = cssColor('--border-strong', '#c1cdde')
   return {
     activity,
     entity,
@@ -120,9 +120,9 @@ function readPalette(): Palette {
     entityThin: withAlpha(entity, 0.55),
     accent: cssColor('--accent', '#d6452c'),
     edge: border,
-    edgeOn: cssColor('--fg', '#16241a'),
-    faded: withAlpha(cssColor('--border-strong', '#c7d4c4'), 0.9),
-    label: cssColor('--fg', '#16241a'),
+    edgeOn: cssColor('--fg', '#16243b'),
+    faded: withAlpha(cssColor('--border-strong', '#c1cdde'), 0.9),
+    label: cssColor('--fg', '#16243b'),
     surface: cssColor('--surface', '#ffffff'),
     border,
   }

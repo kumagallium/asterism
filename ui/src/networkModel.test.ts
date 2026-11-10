@@ -416,7 +416,7 @@ describe('種類の色', () => {
   }
   const dist = (a: string, b: string) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]))
   // index.css の --link / --muted / --faint（ハブ・値・そのほか）
-  const fixed = ['#356794', '#54695b', '#728579']
+  const fixed = ['#356794', '#566781', '#6a7c96']
   it('8 色が互いに、またハブ・値・灰とも見分けられる距離（Lab 25 以上）にある', () => {
     expect(KIND_COLORS).toHaveLength(8)
     const all = [...KIND_COLORS, ...fixed]

@@ -36,3 +36,21 @@ def test_manual_site_is_regenerated() -> None:
         "  python scripts/build_manual_site.py\n"
         "を実行して、生成物も一緒にコミットしてください。\n\n" + proc.stdout + proc.stderr
     )
+
+
+def test_brand_assets_are_synchronized() -> None:
+    """同じロゴの UI・起動画面・マニュアル用 SVG が古いままになっていないか。"""
+    synchronizer = _REPO_ROOT / "scripts" / "sync_brand.py"
+    if not synchronizer.exists():
+        return
+    proc = subprocess.run(
+        [sys.executable, str(synchronizer), "--check"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, (
+        "ブランド素材が正本と同期していません。\n"
+        "  python scripts/sync_brand.py\n"
+        "を実行し、マニュアルも再生成してください。\n\n" + proc.stdout + proc.stderr
+    )

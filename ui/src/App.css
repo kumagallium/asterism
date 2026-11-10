@@ -600,9 +600,8 @@ input[type='password']:focus,
 textarea:focus {
   outline: none;
   border-color: var(--primary);
-  /* 現行トークン --primary (#3f6f49) ベースのリング。旧パレット #4b7a52 の
-     薄いリング (0.15) は視認できず WCAG 2.4.7 を満たさなかった。 */
-  box-shadow: 0 0 0 3px rgba(63, 111, 73, 0.3);
+  /* ブランドの紺色に合わせ、入力欄のフォーカスを明示する。 */
+  box-shadow: 0 0 0 3px rgba(0, 40, 105, 0.3);
 }
 
 .controls textarea,
@@ -1085,8 +1084,8 @@ textarea:focus {
    引き受ける（グローバルの button:hover は class 無しボタン限定にしたため）。
    変種（--ghost 等）の hover は後続の各規則が同特異度・後勝ちで上書きする。 */
 .btn:hover:not(:disabled) {
-  background-color: #356040;
-  border-color: #356040;
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 .btn--ghost {
   background: var(--surface);
@@ -1103,7 +1102,7 @@ textarea:focus {
   border-color: transparent;
 }
 .btn--soft:hover:not(:disabled) {
-  background: #dceadb;
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface));
   border-color: transparent;
 }
 .btn--accent {
@@ -1395,7 +1394,7 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  background: var(--surface, #f7f8f6);
+  background: var(--surface, #ffffff);
 }
 .app-error-card {
   max-width: 32rem;
@@ -4071,7 +4070,7 @@ tr.kz-cols-dropped td {
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: rgb(22 36 26 / 45%);
+  background: rgb(15 35 66 / 45%);
 }
 .shape-overlay-panel {
   display: flex;
@@ -4083,7 +4082,7 @@ tr.kz-cols-dropped td {
   padding: var(--space-3);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 12px 40px rgb(22 36 26 / 25%);
+  box-shadow: 0 12px 40px rgb(15 35 66 / 25%);
 }
 .shape-overlay-head {
   display: flex;

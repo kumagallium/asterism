@@ -45,8 +45,10 @@
   gap: var(--space-2);
 }
 .chat-brand-name {
-  font-weight: 700;
-  font-size: 0.95rem;
+  display: block;
+  flex: none;
+  max-width: 100%;
+  color: var(--primary);
 }
 .chat-new {
   align-self: stretch;
@@ -604,7 +606,7 @@
   inset: 0;
   z-index: 19;
   padding: 0;
-  background: rgba(20, 35, 22, 0.28);
+  background: rgba(15, 35, 66, 0.28);
   border: none;
   border-radius: 0;
 }
@@ -740,7 +742,7 @@
   transition: background-color 0.15s;
 }
 .chat-send:hover:not(:disabled) {
-  background: #356040;
+  background: var(--primary-hover);
 }
 .chat-send:disabled {
   color: var(--muted);
@@ -1176,7 +1178,7 @@ button.chat-question-title:hover {
 .source-picker-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 35, 22, 0.32);
+  background: rgba(15, 35, 66, 0.32);
   display: flex;
   align-items: flex-start;
   justify-content: center;

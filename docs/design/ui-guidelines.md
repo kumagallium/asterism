@@ -5,12 +5,14 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 
 トークンの定義元は **`ui/src/index.css` の `:root`**（CSS 変数）。色・余白・角丸・影・タイプはすべてここ。**生の値をコンポーネントに直書きせず、必ず CSS 変数を使う。**
 
+ロゴの正本は [`brand/source/`](../../brand/source/)。左右対称の三つ星 A とロゴタイプ 01 を使用し、本文フォントは既存のままにする。配布用素材と UI 用パスは [`scripts/sync_brand.py`](../../scripts/sync_brand.py) で同期する。編集・生成手順は [`brand/README.md`](../../brand/README.md) を参照。
+
 ---
 
 ## 1. 原則
 
-- **forest 単一テーマ**（緑）。カラー探索や他テーマは持たない。
-- **意味色は固定**：データ＝`--entity`（緑）／ 処理・つながり＝`--activity`（=`--link`、青）。PROV-DM 準拠で全画面一貫。
+- **紺色 `#002869` の単一ブランド**。アプリとマニュアルでロゴと共通の紺色を使い、カラー探索や他テーマは持たない。
+- **意味色は固定**：データ＝`--entity`（緑）／ 処理・つながり＝`--activity`（=`--link`、青）。PROV-DM 準拠で全画面一貫。ブランド色の変更に連動させず、成功・エラー・警告の状態色も維持する。
 - **日本語ファースト**。英語は小さな補助ラベル（mono・faint）。専門語は消さず `details`／点線ヒントで必要な人にだけ。
 - **視認性優先**：本文は薄いグレーにしない。段落は `--body`、見出しは `--fg`。`--muted`/`--faint` はラベル・補助のみ。
 - **引用できる事実**が主役。決定論・型付きツールが事実を出し、AI は補助（ルーティング等）。
@@ -18,7 +20,7 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 ## 2. IA / ナビ
 
 - フラットなオブジェクト軸ナビ（グループ見出し無し）：**ホーム / 知りたいこと / データ / 見る / 質問する**（下段は「たたむ」と設定だけ。SPARQL「開発者向け」は設定の「このサーバ」の末尾。アクティビティは「データ › 記録」）。ADR [`sky-chart-two-entries.md`](../architecture/sky-chart-two-entries.md) §2.2（2026-10-19・2026-10-20 改訂）。
-- **2 入口**: ホームの「答えられる問い N / M」の行の右に「＋ データを置く」（`.btn`・緑）「？ 知りたいことを書く」（`.btn--activity`・青）。上部バーには置かない（左ナビと重なる・2026-10-20）。これが「グローバル作成ボタン無し」の唯一の例外。ほかの作成はインライン（データ一覧の「新しいデータセット」タイル等）。
+- **2 入口**: ホームの「答えられる問い N / M」の行の右に「＋ データを置く」（`.btn`・紺）「？ 知りたいことを書く」（`.btn--activity`・青）。上部バーには置かない（左ナビと重なる・2026-10-20）。これが「グローバル作成ボタン無し」の唯一の例外。ほかの作成はインライン（データ一覧の「新しいデータセット」タイル等）。
 - 「つながり（crosswalk）」は「データ」の中の pill タブ。「データを追加（workbench）」「全体像（map）」「全体グラフ（network）」はナビに出さない（前者は 2 入口・一覧から、後 2 つはホームから）。
 - 画面の名詞は 4 つ: **データセット／テーマ／問い／用語**（標準のものは「標準用語」）。関係は名詞にせず文（「A は B の一種」「同じもの」「量は○○」）。「線」「共有のことば」「共通の言葉」「接地」は使わない。
 
@@ -26,17 +28,22 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 
 | 用途 | 変数 | 値 |
 |---|---|---|
-| 画面背景 | `--bg` | #eef3ec |
+| 画面背景 | `--bg` | #f1f4fa |
 | カード/パネル | `--surface` | #ffffff |
-| 薄い面（入力/コード） | `--surface-alt` | #f4f8f1 |
-| 沈んだ面（タブ列/表頭） | `--surface-sink` | #eaf0e8 |
-| 星図の地（紙の星図・canvas の背景） | `--paper` | #f7f9f4 |
-| 見出し・強調 | `--fg` | #16241a |
-| **本文（段落）** | `--body` | #33453a |
-| 補助テキスト | `--muted` | #54695b |
-| キャプション/プレースホルダ | `--faint` | #728579 |
-| ボーダー / 強ボーダー | `--border` / `--border-strong` | #dde6da / #c7d4c4 |
-| 主要アクション/選択 | `--primary` (+`-soft`/`-softer`/`-fg`) | #3f6f49 |
+| 薄い面（入力/コード） | `--surface-alt` | #f6f8fc |
+| 沈んだ面（タブ列/表頭） | `--surface-sink` | #eaf0f8 |
+| 星図の地（紙の星図・canvas の背景） | `--paper` | #f8fafd |
+| 見出し・強調 | `--fg` | #16243b |
+| **本文（段落）** | `--body` | #34445e |
+| 補助テキスト | `--muted` | #566781 |
+| キャプション/プレースホルダ | `--faint` | #6a7c96 |
+| ボーダー / 強ボーダー | `--border` / `--border-strong` | #dce4ef / #c1cdde |
+| 主要アクション/選択 | `--primary` | #002869 |
+| 主要アクションのホバー | `--primary-hover` | #001e52 |
+| 選択背景/薄いボタン | `--primary-soft` | #e5ecfa |
+| さらに薄いブランド背景 | `--primary-softer` | #f0f4fc |
+| 主要アクション上の文字 | `--primary-fg` | #ffffff |
+| 濃色の星空/その上の文字 | `--sky` / `--sky-fg` | #132744 / #edf2fc |
 | アクセント（注意/eyebrow） | `--accent` (+`-soft`) | #b3722b |
 | データ系（PROV entity） | `--entity` (+`-soft`) | #3a7a4c |
 | 処理・つながり（PROV activity / link） | `--activity`＝`--link` (+`-soft`) | #356794 |
@@ -57,7 +64,7 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 ## 5. 角丸・影・タイプ
 
 - 角丸：カード `--radius`(12) / ボタン・入力・小カード `--radius-sm`(8) / 大アイコンチップ `--radius-lg`(16) / ピル `999px`。
-- 影：`--shadow-soft`（カード常用）/ `--shadow`（浮かせる/選択）。
+- 影：共通の RGB は `15, 35, 66`。`--shadow-soft`（カード常用）=`0 1px 2px rgba(15, 35, 66, 0.045)`、`--shadow`（浮かせる/選択）=`0 1px 2px rgba(15, 35, 66, 0.05), 0 10px 28px rgba(15, 35, 66, 0.07)`。
 - フォント：`--font-ui`（Hanken Grotesk＋Zen Kaku/Noto Sans JP のゴシック）。**数値・ID・コード・CURIE は `--font-mono`**（IBM Plex Mono）。明朝は使わない。
 - 実寸の目安：画面大見出し 1.5rem/700、セクション見出し 0.9rem/700(`--fg`)、本文 0.8–0.9rem(`--body`)、回答本文 1.12rem/1.85、キャプション 0.66–0.76rem、英語補助 0.62–0.66rem(mono/faint)。
 - **かんたん層（`.kz-*`）だけは強弱を 1 段ずつ上げる**：カード見出し 1.25rem/700、画面の 1 文 0.95rem(`--body`)、ゾーン見出し 0.8rem/700(`--accent-strong`)、注記 0.875rem。行長は列（880px）で決め、段落ごとの max-width は足さない。理由と全体像は ADR [`kantan-mode-two-tier-ux.md`](../architecture/kantan-mode-two-tier-ux.md) の K23。
@@ -68,8 +75,8 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 - **カード**：`.card`（surface/border/`--radius`/`--shadow-soft`/`--space-5`）。セクションを束ねて**メリハリ**を出す単位。
 - **セクション見出し**：`.ds-subhead`（`--fg`・0.9rem・上 `--space-6`）。カード先頭の見出しは自動で上マージン 0。
 - **ボタン**：
-  - 主要＝緑塗り（既定の `<button>`）。`.btn--primary/--accent/--ghost/--soft/--link/--danger`、`.btn--sm`。
-  - **戻る/二次ナビは「静かなテキストリンク」**（`.vocab-back`：bg/border 無し・`--muted`、hover で `--fg`）。濃い緑のボタンにしない。
+  - 主要＝紺塗り（既定の `<button>`）。`.btn--primary/--accent/--ghost/--soft/--link/--danger`、`.btn--sm`。
+  - **戻る/二次ナビは「静かなテキストリンク」**（`.vocab-back`：bg/border 無し・`--muted`、hover で `--fg`）。濃い紺のボタンにしない。
   - 詳細画面の戻りは**カードの外**に置く（`.ds-detail-wrap`）。
 - **チップ/ピル**：`.status-pill--{pub,draft,design}`、用途別 chip（entity/link/accent/neutral）。
 - **タブ**：`.ds-tabs`（`--surface-sink` のピル列）＋ `.ds-tab`（選択＝白＋`--shadow-soft`）。
@@ -85,7 +92,7 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 
 ## 8. 落とし穴（必読）
 
-- **グローバル `button:hover` の緑漏れ**：`button:hover:not(:disabled){background:#356040}` の詳細度(0,2,1)が、custom `<button>` の `:hover`(0,2,0) に勝つ。custom ボタンは `:hover:not(:disabled)` か `.x.active:hover`（≥0,3,0）で背景を明示し緑漏れを防ぐ。
+- **グローバル `button:hover` の塗り漏れ**：広い `button:hover:not(:disabled){background:var(--primary-hover)}` は詳細度(0,2,1)が custom `<button>` の `:hover`(0,2,0) に勝ち、静かなボタンまで紺色に塗る。現行のグローバル規則は `button:not([class]):hover:not(:disabled)` に限定する。`.btn:hover:not(:disabled)` は `var(--primary-hover)` を使い、変種ボタンは後続の各規則で自分の背景を明示する。
 - **全幅**：`.app-content` に `max-width` を付けない（右に余白が出る）。一覧グリッドは `repeat(auto-fill, minmax(300px,1fr))` で埋める。
 - **mock/live**：`isMockMode`（`VITE_DEMO_MODE`）でゲート。本番は `live`＋demo-agent 稼働で「mock」表記が消える。Claude Preview は常に mock 強制。
 - 生成コードを実行しない／決定論・型付きツール優先（プロダクト原則。`CLAUDE.md` 参照）。

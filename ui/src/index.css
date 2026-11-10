@@ -1,33 +1,27 @@
-/* Design tokens — "forest" direction (adopted), the refined forest-green light
- * theme shared across the Asterism UX redesign (design_handoff_asterism_ux,
- * kit.jsx FOREST). Provenance colors follow PROV-DM: data = entity (green),
- * process = activity (blue). Legacy token names are kept as aliases so existing
- * views inherit the refined palette without per-rule edits. */
+/* ブランドの紺色を基調とする共通トークン。
+ * 来歴の entity（緑）・activity（青）と状態色は独立して維持する。 */
 :root {
-  /* Base — v2 (kit.jsx T): legibility-first refinement. Body copy gets its own
-   * darker token (--body) so paragraphs read clearly; --muted/--faint stay for
-   * secondary/tertiary text only. */
-  --bg: #eef3ec; /* green-tinted off-white */
+  /* 紺色ブランドの明るい基調。本文には --body、補助情報には
+   * --muted / --faint を使い、読みやすさを保つ。 */
+  --bg: #f1f4fa; /* 紺色を淡く含む背景 */
   --surface: #ffffff; /* cards / panels */
-  --surface-alt: #f4f8f1; /* faint fill: inputs, code blocks, soft panels */
-  --surface-sink: #eaf0e8; /* sunken fill: tab tracks, table headers */
-  --paper: #f7f9f4; /* 星図の地（紙の星図。夜空の暗色は使わない） */
-  --fg: #16241a; /* headings / strong text */
-  --body: #33453a; /* paragraph copy — much darker than the old muted */
-  --muted: #54695b; /* secondary text */
-  /* captions / placeholders / IDs (use sparingly). 旧 #869a8c は白面 2.99:1 で
-     WCAG の 3:1 すら満たさず、0.6rem 前後の小さなキャプション/ID が読みづらかった。
-     全ての地色（白/alt/sink/bg）で 3.4:1 以上を確保しつつ、--muted (5.5:1) との
-     階層と "控えめ" な性格は保つ最小の濃色化。 */
-  --faint: #728579;
-  --border: #dde6da; /* standard soft border */
-  --border-strong: #c7d4c4; /* stronger border for inputs */
+  --surface-alt: #f6f8fc; /* faint fill: inputs, code blocks, soft panels */
+  --surface-sink: #eaf0f8; /* sunken fill: tab tracks, table headers */
+  --paper: #f8fafd; /* 星図の地（紙の星図。夜空の暗色は使わない） */
+  --fg: #16243b; /* headings / strong text */
+  --body: #34445e; /* paragraph copy — much darker than the old muted */
+  --muted: #566781; /* secondary text */
+  /* キャプション・プレースホルダー・ID 用の控えめな文字色。 */
+  --faint: #6a7c96;
+  --border: #dce4ef; /* standard soft border */
+  --border-strong: #c1cdde; /* stronger border for inputs */
 
   /* Brand */
-  --primary: #3f6f49; /* forest green */
+  --primary: #002869; /* ロゴと共通の紺色 */
+  --primary-hover: #001e52;
   --primary-fg: #ffffff;
-  --primary-soft: #e6efe4; /* selected background / soft button */
-  --primary-softer: #eef4ec; /* faint primary tint (info bands) */
+  --primary-soft: #e5ecfa; /* selected background / soft button */
+  --primary-softer: #f0f4fc; /* faint primary tint (info bands) */
   --secondary: var(--primary-soft); /* legacy alias → primary-soft */
 
   /* Accent — warm amber (eyebrows, highlights, caution); darker for contrast */
@@ -47,8 +41,8 @@
   --link-soft: var(--activity-soft);
 
   /* Dark "sky" zone (used sparingly) */
-  --sky: #1c2a1f;
-  --sky-fg: #eef4ec;
+  --sky: #132744;
+  --sky-fg: #edf2fc;
 
   /* Legacy provenance aliases (CitationCard / ProvenanceTrace) */
   --prov-activity: var(--activity);
@@ -95,8 +89,8 @@
   --radius-lg: 16px; /* large icon chips */
 
   /* Elevation */
-  --shadow-soft: 0 1px 2px rgba(20, 35, 22, 0.045);
-  --shadow: 0 1px 2px rgba(20, 35, 22, 0.05), 0 10px 28px rgba(20, 35, 22, 0.07);
+  --shadow-soft: 0 1px 2px rgba(15, 35, 66, 0.045);
+  --shadow: 0 1px 2px rgba(15, 35, 66, 0.05), 0 10px 28px rgba(15, 35, 66, 0.07);
   /* Legacy aliases */
   --shadow-1: var(--shadow-soft);
   --shadow-2: var(--shadow);
@@ -152,15 +146,15 @@ button {
     box-shadow 0.18s;
 }
 
-/* 濃緑のホバーは「既定の primary 塗りボタン」だけに。
+/* 濃色のホバーは「既定の primary 塗りボタン」だけに。
    class 付きの静かなボタン（ナビ・タブ・ピル・カード型 button 等）は自前の
    背景を持つが、旧セレクタ button:hover:not(:disabled) (0,2,1) は多くの
    コンポーネント hover 規則 (0,2,0) に勝ってしまい、アプリ全域で
-   「ホバーすると濃緑に塗り潰されて文字が沈む」事故を起こしていた
+   「ホバーすると濃色に塗り潰されて文字が沈む」事故を起こしていた
    （引用カード・設定タブ・モード切替ピル・⋯メニュー等 15 箇所超）。 */
 button:not([class]):hover:not(:disabled) {
-  background-color: #356040;
-  border-color: #356040;
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 button:focus-visible {

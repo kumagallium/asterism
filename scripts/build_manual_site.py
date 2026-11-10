@@ -359,7 +359,11 @@ def title_of(md: str) -> str:
 
 def sidebar(current: str, titles: dict[str, str]) -> str:
     parts = ['<nav class="toc" aria-label="目次">',
-             '<a class="toc-home" href="index.html">Asterism マニュアル</a>']
+             '<a class="toc-home" href="index.html">'
+             '<picture><source media="(prefers-color-scheme: dark)" '
+             'srcset="../brand/logo-on-dark.svg">'
+             '<img src="../brand/logo.svg" alt="Asterism" width="4603" height="1000">'
+             '</picture><span>マニュアル</span></a>']
     for group, names in GROUPS:
         parts.append(f"<h2>{html.escape(group)}</h2><ol>")
         for name in names:
@@ -378,6 +382,7 @@ PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Asterism マニュアル</title>
+<link rel="icon" type="image/svg+xml" href="../brand/favicon.svg">
 <link rel="stylesheet" href="../style.css">
 </head>
 <body class="page-{page}">
@@ -418,6 +423,7 @@ def build() -> dict[Path, str | bytes]:
     files[OUT / "index.html"] = (
         '<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">'
         '<meta http-equiv="refresh" content="0; url=ja/index.html">'
+        '<link rel="icon" type="image/svg+xml" href="brand/favicon.svg">'
         '<title>Asterism マニュアル</title></head>'
         '<body><p><a href="ja/index.html">Asterism マニュアル</a></p></body></html>\n'
     )
@@ -425,6 +431,9 @@ def build() -> dict[Path, str | bytes]:
         for asset in sorted((SRC / sub).iterdir()):
             if asset.is_file() and not asset.name.startswith("."):
                 files[OUT / sub / asset.name] = asset.read_bytes()
+    # 正本のブランド資産を公開先へコピーし、--check でも内容の同期を検査する。
+    for name in ("logo.svg", "logo-on-dark.svg", "favicon.svg"):
+        files[OUT / "brand" / name] = (REPO / "brand" / name).read_bytes()
     return files
 
 

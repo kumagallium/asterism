@@ -4,7 +4,7 @@
 >
 > **このリポジトリで作業するセッション（Claude Code / Cowork / 人）は、開始時に本書を読み、作業後に状態を更新すること。** 手順は [`CLAUDE.md`](../CLAUDE.md) 参照。
 
-最終更新: 2026-10-23
+最終更新: 2026-11-10
 
 ## 北極星
 
@@ -16,6 +16,7 @@
 
 | # | ワークストリーム | 状態 | 担当 | 参照 |
 |---|---|---|---|---|
+| — | **ロゴと紺色ブランドの統一** | 🟢 ローカル実装・検査済み（`feat/asterism-brand-refresh`）。採用した三つ星 A＋ロゴタイプ 01 を UI・favicon・起動画面・OS アイコン・マニュアルへ反映。基調色 `#002869`。公開・配布は未実施。 | Codex | [`brand-identity.md`](architecture/brand-identity.md) |
 | — | **取り込み元の切り替えと MCP クライアント（呼ぶ側）** | 🟡 **A1（クライアントの核・`/api/mcp-servers`・設定タブ「MCP サーバ」・fastmcp を本体依存に・CI に `../mcp`）実装・検査 green（2026-10-23・branch `feat/source-switch-mcp-client`）**。利用者裁定 3 点（2026-10-23）: 相手の索引は v1＝書かない・stdio の起動は単一ユーザー限定＋画面で有効化・送り込みは ✓ の後・表だけ・既定オン。**A2（📎 の 2 択・`source_homes`→`origins`→`source_origins`・被りの通知・`attach-from-source`）も実装・偽の stdio サーバで実機確認（`docs/examples/source-switch/`・スクリーンショット済み）**。**A3（✓ の後の送り込み・`source_push.py`）も実装・偽の家で実機確認**。残＝Graphium の実物での記録。Graphium 側の道具（`list_media`／`get_media_file`／`add_material`）は別セッション。 | CC | `architecture/source-switch-mcp-client.md` |
 | — | **星図ホームと 2 つの入口（UI 全面再設計: 名詞 4 つ・ナビ 5 つ・常設 2 入口・星図・ひとこと決める・テーマ 6 段）** | 🟢 **段階 1（名詞と導線・#717）＋段階 2（星図・branch `feat/sky-chart`・#717 の上）実装・検査 green（2026-10-19）**。利用者裁定 A（2026-10-19）: ホーム＝紙の星図・「質問する」と「知りたいこと」は別画面＋橋 2 本・データから作る 7 段は骨格そのまま。残＝段階 2 星図（API は branch `feat/sky-chart` で並行）・段階 3 ひとこと決める＋決めたこと・段階 4 テーマ・段階 5 閉じた形の拡張・段階 6 出会いの表・段階 7 Starrydata の作り直し。設計パネル（3 案 × 3 レンズ）と触れるモックは AI for Science 側 `ui-redesign-2026-10-19/`、見た目の正は `docs/design/sky-chart-mock/`。 **2026-10-22 追記: ゼロベース（§2.4g）＝11a〜11d 実装済み（#734〜#737）・11f／11e は PR 作成中。** | CC | `architecture/sky-chart-two-entries.md` |
 | — | **上位構造「星座の名前」（共有のことば・種類どうしの線・問い（CQ）・「ことば」画面・作る UI の流れ）** | 🟢 **PR 1（runtime + api・#697）＋ PR 2（UI「ことば」・#700）＋ PR 3（作る UI の流れ・#704）実装・3 本とも main にマージ済み（2026-10-13）**＝`asterism.shared_vocab`・線の kind／循環／scope／broken・`for_terms` と名前 upsert・`schema_summary.shared_terms`・`/api/vocab/*`。残＝利用者の画面確認・種類のページの「問い」一覧からの「ことばへ写す」（宣言ツールから写す API が要る）。ADR 起案＋利用者裁定 6 点・反証 10 件反映＝B 案（人が鋳造する TBox 専用の共有語 `sv:` ＋ 既存 alignment graph への種類どうしの線 ＋ 共有語に CQ 必須 ＋ 左ナビ「作る」= データセット／つながり／ことば ＋ 流れは双方向: 「ことば」で問いから語を置ける・⑥ためす に自分の問い・④問②の ☑ を③へ移し④は問①だけ）。handoff = `handoff_to_claude_code_upper_structure_shared_terms.md`（AI for Science 直下）。 | CC | `architecture/upper-structure-shared-terms.md` |
@@ -51,6 +52,8 @@
 
 ## 直近の一手（順）
 
+- **ブランドの統一**: ローカルの実画面と差分を確認し、別途マージ・配布する。SVG 正本と生成手順は `brand/README.md`。
+
 1. ~~関数ライブラリ v0 / #14 step0 RML 出力 / #15 materialize 人間ゲート~~ ✅ 完了。
 2. ~~**#18 汎用クエリ層**（土台 + escape + Ask-view UX + 実 LLM dogfood）~~ ✅ **完了**。新オントロジー Ask の鍵が揃った。
 3. ~~**#20 starrydata 脱結合 P2**（ヘルパ抽出 / identity descriptor / 定数 import 撤去 / datasets/ image 同梱 / QUDT 表 content 化 / seed 移動）~~ ✅ **P2 全完了**（PR #94-99）。~~不完全 refine ガード~~ ✅ **完了**（PR #101）。
@@ -82,6 +85,8 @@
 - 線形・限定の作業（例: Asterism 改名 change-set）は通常実行で十分。
 
 ## 更新 log
+
+- 2026-11-10: **三つ星 A とロゴタイプ 01、紺色への統一**（`feat/asterism-brand-refresh`）。採用画像を SVG 正本化し UI・favicon・起動画面・OS アイコン・マニュアルへ同期。基調色は `#002869`、PROV と状態色は維持。UI build/lint・1,123 テストとマニュアルの生成/同期検査が成功。ローカル実装でありマージ・公開・配布は未実施。ADR=`brand-identity.md`。
 
 - 2026-11-04: **添えた論文から、用語・関係・問いを根拠の文つきで提案する**（12b・`feat/chat-paper-propose`・base 12a。契約 `contracts/pr12b-contract.md`）。`chat_paper` が下書きの版 graph の `doco:Sentence` を `s1`… で並べ（参考文献・謝辞を除く・上限 300 文）、`graph_propose` の `screen="paper"`（`add_concept`/`add_relation`/`add_question` だけ・関係に `evidence`＝文の番号 1〜3 が必須・他の画面は捨てる）で AI に番号を選ばせ、機械が「番号の文が実在する・両端の用語の名前が根拠の文に現れる（語の境目）」を確かめて合わない関係を落とす。下書きの関係の `evidence` は `{iri, text(150 字), path}` をストアから引く（AI の文字列は使わない）。承認 1 つ＝公開（12a）→ `commit_theme`（`assert_alignment(evidence=)` が来歴に `prov:wasDerivedFrom <文 IRI>`・`list_alignments` に `evidence`）。確定が落ちたら論文は公開のまま注記を付け手番は提案のまま（もう一度 ✓ で確定だけ）。取り消しは 12a のデータ片づけに下書きの差分を戻す。この手番に問いの提案があれば 10b の問いの提案は呼ばない。残した穴: 答え方の決まった問いが無い／問いにつながらない用語があると `commit_theme` が断る（プロンプトで問いと接続を指示・提案の時点で注記）。範囲の外（12c）: 知識グラフの根拠の線・関係のタブの根拠表示・Ask の引用。
 - 2026-11-04: **AI を役割で 2 つに — 作る AI と答える AI**（`feat/ai-roles`・ADR `ai-roles-make-answer.md`・設計 `design.md` §21。12b を gpt-oss-120b で 6 回試して形が外れたことから）。設定の AI タブに「作る AI」「答える AI（既定＝同じ）」・ヘッダは `X-LLM-Answer-*` を足しサーバが役割で選ぶ（`llm_roles`）・振り分け／範囲つきの修正／Ask が答える AI・適性検査を役割ごとの判定に・マニュアル「AI の要件」に線引き。11q の穴「提案だけ別のモデルにする設定は未実装」を閉じた。残した穴: 作るの推奨は必要条件（長い入力は台本に無い）。

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useImeEnterGuard } from './useImeEnterGuard'
-import { BrandMark, GearIcon, MenuIcon } from '../icons'
+import { BrandMark, BrandWordmark, GearIcon, MenuIcon } from '../icons'
 import { MoreMenu } from '../MoreMenu'
 import type { ThemesApiError } from '../themes/themesApi'
 import { deleteSession, isKeyMissing, renameSession, type SessionSummary } from './chatApi'
@@ -94,9 +94,9 @@ export function SessionList(p: SessionListProps) {
       <div className="chat-list-head">
         {toggle}
         <span className="brand-mark">
-          <BrandMark />
+          <BrandMark size={34} />
         </span>
-        <span className="chat-brand-name">{tb('brand.name')}</span>
+        <BrandWordmark className="chat-brand-name" size={19} label={tb('brand.name')} />
       </div>
       <button type="button" className="btn btn--soft btn--sm chat-new" data-testid="session-new" onClick={p.onNew}>
         {t('list.new')}

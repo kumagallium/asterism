@@ -196,7 +196,7 @@
    を開いているあいだ、この行が選ばれたまま＝木の中の現在地） */
 .rail-dataset-name[aria-current='page'] {
   font-weight: 600;
-  color: var(--accent, #1d5f3f);
+  color: var(--accent, #b3722b);
 }
 
 /* PR F16 §1.5: 共有ハブ（同じものの 1 つのページ）の種類の見出しに付ける

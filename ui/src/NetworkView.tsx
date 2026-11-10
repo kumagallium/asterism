@@ -65,10 +65,10 @@ function readPalette(): Palette {
   for (const [role, v] of Object.entries(ROLE_VAR)) roles[role] = cssColor(v, '#888888')
   return {
     roles,
-    edge: cssColor('--border-strong', '#c7d4c4'),
-    edgeFaded: cssColor('--border', '#dde6da'),
-    nodeFaded: cssColor('--border-strong', '#c7d4c4'),
-    label: cssColor('--fg', '#16241a'),
+    edge: cssColor('--border-strong', '#c1cdde'),
+    edgeFaded: cssColor('--border', '#dce4ef'),
+    nodeFaded: cssColor('--border-strong', '#c1cdde'),
+    label: cssColor('--fg', '#16243b'),
   }
 }
 
