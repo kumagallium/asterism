@@ -99,8 +99,9 @@ _TERM_HOLE_LIMIT = 3
 #: AI に見せる種類（星）の行の上限（選んでいる星が先頭・残りは件数の多い順）
 _MAX_KIND_ROWS = 150
 _MAX_BATCH = 100
-#: 同じ意味を向きなしで結ぶ述語（``a eq b`` があれば ``b eq a`` も同じ線）
-_SYMMETRIC = frozenset({"equivalentClass", "equivalentProperty"})
+#: 向きなしで結ぶ述語（``a eq b`` があれば ``b eq a`` も同じ線）。competesWith も向きが無い。
+#: 使い道は ``found()`` だけ（重複・取り外しの照合）。
+_SYMMETRIC = frozenset({"equivalentClass", "equivalentProperty", "competesWith"})
 
 
 class ConsultMessage(BaseModel):
@@ -893,6 +894,10 @@ def register_consult_graph(
                     reason = "mixed"
                 elif msg == "unminted shared term":
                     reason = "unknown_key"
+                elif msg.startswith("role mismatch"):
+                    reason = "role_mismatch"
+                elif msg == "self relation":
+                    reason = "same"
                 drop(plan, reason)
             except Exception as exc:
                 logger.warning("consult graph: alignment write failed", exc_info=True)

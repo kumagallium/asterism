@@ -8,7 +8,7 @@ import type { Alignment } from './crosswalkApi'
 import type { DatasetRules, KindCounts, RuleMap, RuleProperty } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import type { ShapeEdge, ShapeField, ShapeNode } from './shapeGraph'
-import { isDirectedRelation, relationKey, sharedLines } from './lineChoice'
+import { isDirectedRelation, isEquivalenceRelation, relationKey, sharedLines } from './lineChoice'
 import { linksTo } from './shapeGraph'
 import type { SharedTerm } from './vocabApi'
 import { knownVocabForIri, localName } from './vocab'
@@ -366,10 +366,12 @@ export function composeVocabGraph(inputs: {
   }
   for (const a of alignments) {
     if (sharedByIri.has(a.source) || sharedByIri.has(a.target)) continue
+    const directed = isDirectedRelation(a.relation)
+    // 競合する（向きなし）は「同じ」の線ではない（resolve が標準の語の節を作る前に読み飛ばす）
+    if (!directed && !isEquivalenceRelation(a.relation)) continue
     const from = resolve(a.source)
     const to = resolve(a.target)
     if (!from || !to || from === to) continue
-    const directed = isDirectedRelation(a.relation)
     const key = directed ? `up ${from} ${to}` : `eq ${[from, to].sort().join(' ')}`
     if (alignDrawn.has(key)) continue
     alignDrawn.add(key)
@@ -409,10 +411,11 @@ export function composeVocabGraph(inputs: {
     if (!other) continue
     const [from, to] = fromShared ? [sharedIri, other] : [other, sharedIri]
     const rel = relationKey(ln.relation)
+    if (!isDirectedRelation(ln.relation) && !isEquivalenceRelation(ln.relation)) continue // 競合する
     const key = `${from} ${to} ${rel}`
     if (upperDrawn.has(key)) continue
     upperDrawn.add(key)
-    const eq = !isDirectedRelation(ln.relation)
+    const eq = isEquivalenceRelation(ln.relation)
     upperEdges.push({
       from,
       to,

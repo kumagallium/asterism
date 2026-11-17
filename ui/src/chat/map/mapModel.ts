@@ -4,8 +4,9 @@
 import Graph from 'graphology'
 import type Sigma from 'sigma'
 import { hashPosition, layoutNetwork, neighborhoodOf } from '../../networkModel'
-import { draftCardConcepts, draftNodeId, hubNodeId, kindId, termId, termLabel } from '../../sky/skyLayout'
-import type { DraftSky, SkyData, SkyDataset, SkyKnowledgeRelation } from '../../sky/skyApi'
+import { draftCardConcepts, draftNodeId, hubNodeId, kindId, realRelationOf, termId, termLabel } from '../../sky/skyLayout'
+import type { DraftSky, SkyData, SkyDataset } from '../../sky/skyApi'
+import { isDirectedRelation } from '../../lineChoice'
 import type { PointSel } from '../chatState'
 
 export type MapNodeType = 'term' | 'kind' | 'draft' | 'hub' | 'dataset'
@@ -65,20 +66,19 @@ export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
 /** 関係の短い表示名。この辞書が正本（sky.json のキーは参照しない）。
  *  i18n のシングルトンは module 直下で読まない罠があるので、lang 引数で引く辞書にしてある。 */
 const RELATION_LABEL: Record<'ja' | 'en', Record<string, string>> = {
-  ja: { isA: '一種', isPartOf: '一部', lowers: '下げる', raises: '上げる', affects: '変える' },
-  en: { isA: 'kind of', isPartOf: 'part of', lowers: 'lowers', raises: 'raises', affects: 'changes' },
+  ja: {
+    isA: '一種', isPartOf: '一部', lowers: '下げる', raises: '上げる', affects: '変える',
+    makes: '作る', measuresProperty: '測る', measuresMaterial: '測る', measures: '測る', becomes: '変わる', competesWith: '競合する', hasProperty: '物性',
+  },
+  en: {
+    isA: 'kind of', isPartOf: 'part of', lowers: 'lowers', raises: 'raises', affects: 'changes',
+    makes: 'makes', measuresProperty: 'measures', measuresMaterial: 'measures', measures: 'measures', becomes: 'turns into', competesWith: 'competes with', hasProperty: 'has property',
+  },
 }
 
 /** 関係の表示名。引けなければ undefined。 */
 export function relationLabel(relation: string, lang: 'ja' | 'en'): string | undefined {
   return RELATION_LABEL[lang][relation]
-}
-
-const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = {
-  part: 'isPartOf',
-  lowers: 'lowers',
-  raises: 'raises',
-  affects: 'affects',
 }
 
 /** SkyData＋提案 → graphology のグラフ。位置は hashPosition（まだ配置していない）。 */
@@ -176,7 +176,8 @@ export function buildMapGraph(
     if (a === b || !g.hasNode(a) || !g.hasNode(b)) continue
     conceptSeen.add(`${a}>${b}>${l.relation}`)
     const label = relationLabel(l.relation, lang)
-    addEdge(a, b, { kind: 'concept', relation: l.relation, ...(label ? { label } : {}) }, true)
+    // 向きの無い関係（competesWith）は端の順を揃える（矢じりも出さない）
+    addEdge(a, b, { kind: 'concept', relation: l.relation, ...(label ? { label } : {}) }, isDirectedRelation(l.relation))
   }
 
   // 視点と入っている種類
@@ -215,10 +216,14 @@ export function buildMapGraph(
       const b = ends.get(r.to)
       if (!a || !b || a === b) continue
       const state = r.state ?? 'thin'
-      const real = REAL_RELATION[r.rel]
+      const toKind = d.concepts.find((c) => c.key === r.to)?.kind
+      const real = realRelationOf(r.rel, toKind)
       // 薄い提案の線だけ、既にある本物の線と同じ関係なら張らない
-      if (state === 'thin' && real && conceptSeen.has(`${a}>${b}>${real}`)) continue
-      addEdge(a, b, { kind: 'draft', relation: r.rel, thin: state === 'thin', proposed: state === 'thin' }, true)
+      // （向きの無い関係＝競合する は、本物の線が逆向きでも同じ線）
+      const seen =
+        conceptSeen.has(`${a}>${b}>${real}`) || (real === 'competesWith' && conceptSeen.has(`${b}>${a}>${real}`))
+      if (state === 'thin' && real && seen) continue
+      addEdge(a, b, { kind: 'draft', relation: r.rel, thin: state === 'thin', proposed: state === 'thin' }, r.rel !== 'competes')
     }
   }
 

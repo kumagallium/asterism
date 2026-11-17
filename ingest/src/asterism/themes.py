@@ -44,10 +44,16 @@ from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
     ALIGNMENT_GRAPH,
     REASON_MAX,
+    RELATION_SHAPES,
+    ROLE_RULES,
+    ROLES,
+    ROLES_JA,
     _check_same_shape,
     _declared_shapes,
     add_evidence,
     assert_alignment,
+    canonical_ends,
+    check_roles,
     remove_alignment,
     remove_evidence,
 )
@@ -74,7 +80,33 @@ KNOWLEDGE_OPS = ("factors", "parts", "kinds")
 KNOWLEDGE_DIRECTIONS = ("lowers", "raises", "affects")
 #: 下書きの関係の名前（``theme_propose.RELATIONS`` と同じ）。ストアの述語には
 #: :func:`relation_predicate` で写す。
-RELATION_KINDS = ("sub", "eq", "quantity", "part", "lowers", "raises", "affects")
+RELATION_KINDS = (
+    "sub",
+    "eq",
+    "quantity",
+    "part",
+    "lowers",
+    "raises",
+    "affects",
+    "makes",
+    "measures",
+    "becomes",
+    "competes",
+    "has_property",
+)
+#: 実験の記録の関係（下書きの名前・14a-1）。種別と役割の検査は :func:`experiment_relation_problem`。
+EXPERIMENT_RELATIONS = ("makes", "measures", "becomes", "competes", "has_property")
+#: 向きの無い下書きの関係（確定側は competesWith・``crosswalk_runtime.SYMMETRIC_RELATIONS``）。
+SYMMETRIC_DRAFT_RELATIONS = ("competes",)
+
+
+def draft_rel_key(frm: str, rel: str, to: str) -> tuple[str, str, str]:
+    """下書きの関係の突き合わせ用の鍵。向きの無い関係は両端を文字列順に並べる（それ以外はそのまま）。"""
+    if rel in SYMMETRIC_DRAFT_RELATIONS and to < frm:
+        return (to, rel, frm)
+    return (frm, rel, to)
+
+
 #: 1 つのテーマに置ける概念の上限（累積）。
 MAX_CONCEPTS = 120
 _MAX_DRAFT_RELATIONS = 400
@@ -745,14 +777,23 @@ def match_rows(
     return out
 
 
-def relation_predicate(rel: str, kind: str) -> str:
+def relation_predicate(rel: str, kind: str, to_kind: str | None = None) -> str:
     """A draft relation (``sub`` / ``eq`` / ``quantity`` / ``part`` / ``lowers`` / ``raises``
-    / ``affects``) → the key of :data:`ALIGN_RELATIONS` (the standard predicate), by the kind
-    (``class`` | ``property``) of the subject."""
+    / ``affects`` / ``makes`` / ``measures`` / ``becomes`` / ``competes`` / ``has_property``)
+    → the key of :data:`ALIGN_RELATIONS` (the standard predicate), by the kind
+    (``class`` | ``property``) of the subject.
+
+    ``measures`` は相手の種別（``to_kind``）で 2 つに割れる: ``property`` なら
+    ``measuresProperty``・それ以外の種別なら ``measuresMaterial``。``to_kind`` が無ければ
+    決められないので :class:`ThemeError`。ほかの関係は ``to_kind`` を見ない。"""
     if rel == "sub":
         return "subClassOf" if kind == "class" else "subPropertyOf"
     if rel == "eq":
         return "equivalentClass" if kind == "class" else "equivalentProperty"
+    if rel == "measures":
+        if to_kind is None:
+            raise ThemeError("「測る」は、相手が項目か種類かが分からないと決められません")
+        return "measuresProperty" if to_kind == "property" else "measuresMaterial"
     try:
         return {
             "quantity": "hasQuantityKind",
@@ -760,9 +801,44 @@ def relation_predicate(rel: str, kind: str) -> str:
             "lowers": "lowers",
             "raises": "raises",
             "affects": "affects",
+            "makes": "makes",
+            "becomes": "becomes",
+            "competes": "competesWith",
+            "has_property": "hasProperty",
         }[rel]
     except KeyError:
         raise ThemeError(f"関係は {RELATION_KINDS} のどれかです: {rel!r}") from None
+
+
+def experiment_relation_problem(
+    rel: str,
+    subj_kind: str,
+    obj_kind: str,
+    subj_role: str | None,
+    obj_role: str | None,
+) -> str | None:
+    """実験の記録の 5 つの関係（:data:`EXPERIMENT_RELATIONS`）の端を調べる純関数。
+
+    種別（``class`` / ``property``）が表（:data:`~asterism.crosswalk_runtime.RELATION_SHAPES`）に
+    合わなければ ``"mixed"``・役割の札が合わなければ ``"role_mismatch"``・どちらも問題なければ
+    ``None``。札の無い端（``None``）は検査しない。``postprocess_draft`` と
+    ``graph_diff.check_relation`` が同じ関数を呼ぶ。"""
+    if rel == "measures":
+        if obj_kind not in ("class", "property"):
+            return "mixed"
+        pred = relation_predicate(rel, subj_kind, obj_kind)
+    else:
+        pred = relation_predicate(rel, subj_kind)
+    allowed_from, allowed_to = RELATION_SHAPES[pred]
+    if (allowed_from and subj_kind not in allowed_from) or (
+        allowed_to and obj_kind not in allowed_to
+    ):
+        return "mixed"
+    try:
+        check_roles(pred, subj_role, obj_role)
+    except ValueError:
+        return "role_mismatch"
+    return None
 
 
 def concept_end_key(row: dict) -> str:
@@ -950,9 +1026,24 @@ def postprocess_draft(
 
     # relations — the draft's own sub / part edges (and the base's) feed the cycle check
     rels: list[dict] = []
+    def rel_trip(frm: str, to: str, rel: str) -> tuple[str, str, str]:
+        # 向きの無い関係（競合する）は、両端の順を問わず 1 本
+        if rel == "competes" and to < frm:
+            frm, to = to, frm
+        return (frm, to, rel)
+
     seen_rel: set[tuple[str, str, str]] = {
-        (str(r.get("from")), str(r.get("to")), str(r.get("rel"))) for r in base_rels
+        rel_trip(str(r.get("from")), str(r.get("to")), str(r.get("rel"))) for r in base_rels
     }
+
+    def role_of(row: dict) -> str | None:
+        """役割の札: 既にある用語（``use: existing:``）はストアの札・それ以外は行の ``role``。"""
+        if str(row.get("use") or "").startswith(_USE_EXISTING):
+            e = by_slug.get(str(row.get("slug") or ""))
+            return e.role if e is not None else None
+        r = row.get("role")
+        return r if r in ROLES else None
+
     edges: dict[str, set[tuple[str, str]]] = {"sub": set(), "part": set()}
     for r in base_rels:
         if r.get("rel") in edges and not r.get("problem"):
@@ -974,7 +1065,7 @@ def postprocess_draft(
         else:
             assert obj is not None
             obj_key = obj["key"]
-        trip = (subj["key"], obj_key, rel)
+        trip = rel_trip(subj["key"], obj_key, rel)
         if trip in seen_rel:
             continue
         seen_rel.add(trip)
@@ -988,6 +1079,14 @@ def postprocess_draft(
         elif rel in ("lowers", "raises", "affects"):
             if obj_kind != "property":
                 problem = "target_not_property"
+        elif rel in EXPERIMENT_RELATIONS:
+            problem = experiment_relation_problem(
+                rel,
+                subj["kind"],
+                obj_kind,
+                role_of(subj),
+                role_of(obj) if obj is not None else None,
+            )
         elif obj_kind != subj["kind"]:  # sub / eq / part join the same kind of thing
             problem = "mixed"
         end = concept_end_key(obj) if std is None else std.iri  # type: ignore[arg-type]
@@ -995,7 +1094,7 @@ def postprocess_draft(
             dismissed,
             concept_end_key(subj),
             end,
-            relation=relation_predicate(rel, subj["kind"]),
+            relation=relation_predicate(rel, subj["kind"], obj_kind),
         ):
             dropped["relations"].append({"from": r["from"], "rel": rel, "to": obj_ref})
             continue
@@ -1254,6 +1353,7 @@ class _Row:
     mint: bool  # a new sv: term is made
     std: StdRef | None  # the standard the new term is tied to
     iri: str
+    role: str | None = None  # 役割の札（この確定で作る語だけ。既にある語はストアの札が勝つ）
 
 
 @dataclass
@@ -1329,7 +1429,26 @@ def _check_line_shapes(lines: list[_Line], shapes: dict[str, set[str]]) -> None:
         except ValueError as e:
             if ln.relation in ("lowers", "raises", "affects"):
                 raise ThemeError("下げる・上げる・変えるの相手は、項目だけです") from e
+            if ln.relation in ROLE_RULES:
+                raise ThemeError("この関係の両端は、種類と項目の組が合いません") from e
             raise ThemeError("種類と項目は結べません") from e
+
+
+def _check_line_roles(lines: list[_Line], roles: dict[str, str], labels: dict[str, str]) -> None:
+    """役割の札（``roles``: IRI → 札）が合わない関係を断る（札の無い端は通す）。
+    どの語かが分かる文で断る（``labels``: IRI → 表示名）。"""
+    for ln in lines:
+        if ln.relation not in ROLE_RULES:
+            continue
+        for iri, ends in ((ln.source, (True, False)), (ln.target, (False, True))):
+            role = roles.get(iri)
+            try:
+                check_roles(ln.relation, role if ends[0] else None, role if ends[1] else None)
+            except ValueError as e:
+                name = labels.get(iri) or iri
+                raise ThemeError(
+                    f"役割の札が合わない関係があります（「{name}」は{ROLES_JA[str(role)]}です）"
+                ) from e
 
 
 def _connected(start: set[str], edges: Iterable[tuple[str, str]]) -> set[str]:
@@ -1449,6 +1568,12 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                 raise ThemeError(
                     f"「{label_ja}」と既にある用語「{e.label}」は種類と項目が合いません"
                 )
+        role = raw.get("role")
+        if role is not None:
+            if role not in ROLES:
+                raise ThemeError(f"concepts[{i}].role は {ROLES} のどれかです")
+            if kind != "class":
+                raise ThemeError(f"「{label_ja}」は項目なので、役割の札は付けられません")
         row = _Row(
             key=key,
             label_ja=label_ja,
@@ -1462,6 +1587,7 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             mint=mint,
             std=std,
             iri=sv.term_iri(slug) if slug else "",
+            role=role if mint else None,  # use: existing の行は、書かれていてもストアの札を使う
         )
         rows.append(row)
         by_key[key] = row
@@ -1537,10 +1663,13 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
             raise ThemeError(
                 f"「{subj.label_ja}」と相手は、種類と項目が合いません（種類と項目は結べません）"
             )
+        to_kind = obj_row.kind if obj_row is not None else obj_std.kind  # type: ignore[union-attr]
+        pred = relation_predicate(rel, subj.kind, to_kind)
+        src_iri, dst_iri = canonical_ends(pred, subj.iri, target_iri)
         add_line(
-            subj.iri,
-            target_iri,
-            relation_predicate(rel, subj.kind),
+            src_iri,
+            dst_iri,
+            pred,
             reason=_line_reason(raw.get("reason")),
             ai=ai_drafted and raw.get("by") == "ai",
             evidence=_evidence_iris(raw.get("evidence")),
@@ -1559,6 +1688,14 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         if ref.kind in ("class", "property"):
             shapes.setdefault(iri, set()).add(ref.kind)
     _check_line_shapes(lines, shapes)
+    # 役割の札: 既にある語はストアの札・この確定で作る語は行の札（use: existing の行の role は無視）
+    line_roles = {t.iri: t.role for t in existing if t.role}
+    line_labels = {t.iri: t.label for t in existing}
+    for r in rows:
+        line_labels[r.iri] = r.label_ja
+        if r.mint and r.role:
+            line_roles[r.iri] = r.role
+    _check_line_roles(lines, line_roles, line_labels)
     # cycles: the stored lines plus the ones planned, asserted in order
     edges = set(await sv._alignment_lines(client))
     for ln in lines:
@@ -1899,6 +2036,7 @@ async def commit_theme(client: Any, root: Path | str, body: dict, *, at: str) ->
                 drafted_by="ai" if row.ai else None,
                 theme_id=plan.theme["id"],
                 at=at,
+                role=row.role,
             )
         for row in plan.rows:
             if row.mint or row.key not in plan.cq_tools:
@@ -2238,6 +2376,7 @@ __all__ = [
     "MAX_CONCEPTS",
     "RELATION_KINDS",
     "RESERVED_IDS",
+    "SYMMETRIC_DRAFT_RELATIONS",
     "StdRef",
     "ThemeError",
     "add_questions_to_theme",
@@ -2250,7 +2389,9 @@ __all__ = [
     "default_standards",
     "delete_draft",
     "derive_slug",
+    "draft_rel_key",
     "ensure_migrated",
+    "experiment_relation_problem",
     "knowledge_tool_name",
     "list_drafts",
     "load_draft",

@@ -15,7 +15,7 @@ export interface DecidePreview {
   questions: { tool_name: string; title: string; before: number; after: number }[]
   terms: { iri: string; label: string; before: number; after: number }[]
 }
-export type DecideReason = 'mixed' | 'cycle' | 'unminted' | 'same'
+export type DecideReason = 'mixed' | 'cycle' | 'unminted' | 'same' | 'role'
 
 /** 3 つめの選択肢「当てはまるものは無い」（提案を外す）。 */
 export const NONE = 'none'

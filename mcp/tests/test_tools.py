@@ -1206,10 +1206,10 @@ async def test_schema_summary_knowledge_only_term_with_no_dataset_at_all() -> No
     assert [t["knowledge_lines"] for t in out["shared_terms"]] == [1, 1]
 
 
-def test_mcp_reads_all_nine_relations() -> None:
+def test_mcp_reads_all_fifteen_relations() -> None:
     from asterism.crosswalk_runtime import ALIGN_RELATIONS
 
-    assert len(ALIGN_RELATIONS) == 9  # tools.py の rel_by_iri はこれを読む
+    assert len(ALIGN_RELATIONS) == 15  # tools.py の rel_by_iri はこれを読む
 
 
 async def test_schema_summary_shared_narrower_is_capped_by_max_classes() -> None:

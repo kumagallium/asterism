@@ -685,6 +685,8 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     from: string
     to: string
     info: DraftEdgeInfo
+    /** 相手の概念の種別（`measures` を確定側の名前に割る）。 */
+    toKind: 'class' | 'property' | undefined
   }
   const draftEdgesIn: DraftEdgeIn[] = []
   for (const d of opts.drafts ?? []) {
@@ -696,6 +698,7 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
       draftEdgesIn.push({
         from: a,
         to: b,
+        toKind: d.concepts.find((c) => c.key === r.to)?.kind,
         info: {
           draftId: d.draft_id,
           rel: r.rel,
@@ -936,8 +939,13 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     const key = `${e.info.draftId}>${e.from}>${e.to}>${e.info.rel}>${e.info.state}`
     if (draftSeen.has(key)) continue
     draftSeen.add(key)
-    const real = REAL_RELATION[e.info.rel]
-    if (e.info.state === 'thin' && real && conceptSeen.has(`${e.from}>${e.to}>${real}`)) continue
+    const real = realRelationOf(e.info.rel, e.toKind)
+    // 向きの無い関係（競合する）は、本物の線が逆向きでも同じ線
+    const seen =
+      real !== undefined &&
+      (conceptSeen.has(`${e.from}>${e.to}>${real}`) ||
+        (real === 'competesWith' && conceptSeen.has(`${e.to}>${e.from}>${real}`)))
+    if (e.info.state === 'thin' && seen) continue
     edges.push({ kind: 'draft', from: e.from, to: e.to, draft: e.info })
   }
   // 線の道すじと小さな札の位置（札の縁から縁へ・札と札の下の字を通らない・小さな札どうしが重ならない）
@@ -981,7 +989,24 @@ function drawnWidth(label: string, w: number): number {
 }
 
 /** 提案の線の関係 → 本物の知識の線の関係（同じ関係は二重に引かない）。 */
-const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = { part: 'isPartOf', lowers: 'lowers', raises: 'raises', affects: 'affects' }
+/** 下書きの関係の名前 → 確定側の名前。 */
+const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = {
+  part: 'isPartOf',
+  lowers: 'lowers',
+  raises: 'raises',
+  affects: 'affects',
+  makes: 'makes',
+  becomes: 'becomes',
+  competes: 'competesWith',
+  has_property: 'hasProperty',
+}
+
+/** 下書きの関係 → 確定側の名前。`measures` だけは相手の概念の種別で決まる（項目＝measuresProperty・種類＝measuresMaterial）。
+ *  相手の種別が分からなければ undefined（表示名は下書きの名前「測る」で出す）。星図と地図で同じ割り方を使う。 */
+export function realRelationOf(rel: string, toKind: 'class' | 'property' | undefined): SkyKnowledgeRelation | undefined {
+  if (rel === 'measures') return toKind === 'property' ? 'measuresProperty' : toKind === 'class' ? 'measuresMaterial' : undefined
+  return REAL_RELATION[rel]
+}
 
 /** 知識の線の小さな札の幅（「一部」「part」・↓ ↑ ↕）。置き場所を決めるときに見込む。 */
 const PILL_W_PART = 36

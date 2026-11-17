@@ -143,6 +143,15 @@ def test_names_aliases_questions_and_columns_may_not_look_like_code() -> None:
     _bad({"op": "add_relation", "from": "c1", "rel": "eq", "to": "http://x.org/a", "reason": ""})
 
 
+@pytest.mark.parametrize("rel", ["makes", "measures", "becomes", "competes", "has_property"])
+def test_the_new_relations_pass_validation(rel: str) -> None:
+    raw = {"reply": "", "ops": [
+        {"op": "add_relation", "from": "c3", "rel": rel, "to": "c2", "reason": "r"},
+    ]}  # fmt: skip
+    out = validate_graph_diff(raw, known_keys=KEYS)
+    assert out["ops"][0]["rel"] == rel
+
+
 def test_relations_and_modes_are_closed_sets() -> None:
     _bad({"op": "add_relation", "from": "c1", "rel": "causes", "to": "c2", "reason": ""})
     _bad({"op": "bind_column", "column": "k", "to": "c1", "rel": "part", "reason": ""})

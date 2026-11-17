@@ -295,10 +295,12 @@ describe('HandForm', () => {
       { key: 'h2', label: '散乱', kind: 'class' as const, use: 'new' },
     ],
   }
-  it('概念が 2 つ以上あれば関係の行（7 つ）も出る', () => {
+  it('概念が 2 つ以上あれば関係の行（12 つ）も出る', () => {
     const html = renderToStaticMarkup(<HandForm draft={draft} nextKey="h3" busy={false} onSubmit={async () => true} />)
     expect(html).toContain('data-testid="hand-form"')
-    expect((html.match(/<option value="(sub|eq|quantity|part|lowers|raises|affects)"/g) ?? []).length).toBe(7)
+    expect((html.match(/<option value="(sub|eq|quantity|part|lowers|raises|affects|makes|measures|becomes|competes|has_property)"/g) ?? []).length).toBe(12)
+    expect(text(html)).toContain('競合する')
+    expect(text(html)).toContain('物性')
     expect(text(html)).toContain('下げる')
   })
   it('問いがあれば 3 行目「答え方」（8 つの方法）と testid が出る', () => {

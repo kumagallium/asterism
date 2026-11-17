@@ -18,7 +18,7 @@
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
 import { conceptName, perspectiveDisplayName } from './crosswalkLabels'
 import type { DatasetRules, KindCounts } from './galleryApi'
-import { isDirectedRelation, relationKey, sharedLines } from './lineChoice'
+import { isDirectedRelation, isEquivalenceRelation, relationKey, sharedLines } from './lineChoice'
 import { rulesShape } from './shapeGraph'
 import type { SharedTerm } from './vocabApi'
 import { knownVocabForIri, localName } from './vocab'
@@ -655,6 +655,7 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
   const pushAlign = (from: string, to: string, relation: string) => {
     if (from === to) return
     const directed = isDirectedRelation(relation)
+    if (!directed && !isEquivalenceRelation(relation)) return // 競合する（向きなし）は「同じ」の線ではない
     // 向きのない対応は両端を入れ替えても同じ線。向きのある線は向きごとに 1 本。
     const key = directed ? `up\u0000${from}\u0000${to}` : `eq\u0000${[from, to].sort().join('\u0000')}`
     if (alignSeen.has(key)) return
@@ -693,6 +694,7 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
   }
   const upperAll: UpperLink[] = []
   for (const ln of sharedLines(sharedTerms, allAlignments)) {
+    if (!isDirectedRelation(ln.relation) && !isEquivalenceRelation(ln.relation)) continue // 競合する
     for (const f of resolveShared(ln.from)) for (const t of resolveShared(ln.to)) {
       if (f !== t) upperAll.push({ from: f, to: t, relation: ln.relation })
     }
@@ -735,7 +737,7 @@ export function layoutKindOverview(input: OverviewInput): OverviewLayout {
     childrenOf.set(parent, set)
   }
   for (const u of upperLinks) {
-    const eq = !isDirectedRelation(u.relation)
+    const eq = isEquivalenceRelation(u.relation)
     // from ⊂ to: from は to の子。≡ は両方向とも子として数える。
     if (sharedByIri.has(u.to) && (circleById.has(u.from) || sharedByIri.has(u.from))) addChild(u.to, u.from)
     if (eq && sharedByIri.has(u.from) && (circleById.has(u.to) || sharedByIri.has(u.to))) addChild(u.from, u.to)

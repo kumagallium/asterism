@@ -617,3 +617,25 @@ async def test_knowledge_questions_and_term_to_term_lines(tmp_path: Path) -> Non
     )
     lowers = next(e for e in out["edges"] if e["relation"] == "lowers")
     assert lowers["reason"] == "粒界で散乱される"
+
+
+async def test_new_experiment_relations_flow_into_edges(tmp_path: Path) -> None:
+    """実験の記録の関係（作る・競合する）も、語どうしの知識の線として ``edges[]`` に出る。"""
+    client, root = await _world(tmp_path)
+    at = "2026-11-17T00:00:00+00:00"
+    for slug, label, role in (
+        ("arc", "アーク溶解", "method"),
+        ("mg2si", "Mg2Si", "material"),
+        ("pellet", "Mg2Si 焼結体", "material"),
+    ):
+        await shared_vocab.mint_term(
+            client, root, slug=slug, kind="class", label=label, cqs=[], theme_id="exp", at=at,
+            role=role,
+        )  # fmt: skip
+    arc, mg, pellet = (shared_vocab.term_iri(s) for s in ("arc", "mg2si", "pellet"))
+    await assert_alignment(client, arc, mg, "makes", at=at)
+    await assert_alignment(client, pellet, mg, "competesWith", at=at)  # 並べ替えられて 1 本
+    out = await sky_view(client, root)
+    got = {(e["from"], e["to"], e["relation"]) for e in out["edges"]}
+    lo, hi = sorted([mg, pellet])
+    assert got == {(arc, mg, "makes"), (lo, hi, "competesWith")}

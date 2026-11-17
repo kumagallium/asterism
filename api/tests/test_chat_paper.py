@@ -1647,3 +1647,36 @@ def test_draft_reply_evidence_carries_the_dataset_id_so_the_sentence_can_open_th
             if o["op"] == "add_relation"
             for e in o["evidence"]
         )
+
+
+def test_mark_supports_finds_a_competes_line_whichever_way_the_proposal_puts_it(
+    tmp_path: Path,
+) -> None:
+    """向きの無い関係（競合する）は、提案が逆向きでもストアの並びで引いて「支える」と見る。"""
+    from tests.test_vocab_api import _mint
+
+    app, _ds = _app(tmp_path, _TwoStep())
+    with TestClient(app, headers=_AUTH) as client:
+        assert _mint(client, slug="aaa", label_ja="Mg2Si", role="material").status_code == 201
+        assert _mint(client, slug="zzz", label_ja="Mg2Sn", role="material").status_code == 201
+        ev = "https://example.org/paper/s1"
+        _run(
+            crosswalk_runtime.assert_alignment(
+                app.state.client, shared_vocab.term_iri("aaa"), shared_vocab.term_iri("zzz"),
+                "competesWith", at="2026-11-18T00:00:00+00:00", evidence=[ev],
+            )
+        )  # fmt: skip
+
+        def ops(evidence: str) -> list[dict]:
+            return [
+                {"op": "add_concept", "key": "n1", "kind": "class", "use": "existing:aaa"},
+                {"op": "add_concept", "key": "n2", "kind": "class", "use": "existing:zzz"},
+                {"op": "add_relation", "from": "n2", "rel": "competes", "to": "n1",
+                 "evidence": [{"iri": evidence, "text": "x", "path": None}]},
+            ]  # fmt: skip
+
+        got = _run(chat_paper.mark_supports(app.state.client, ops(ev)))
+        assert [o for o in got if o["op"] == "add_relation"] == []  # 根拠は付いている — 外す
+        got = _run(chat_paper.mark_supports(app.state.client, ops("https://example.org/p/s2")))
+        (r,) = [o for o in got if o["op"] == "add_relation"]
+        assert r["supports"] is True

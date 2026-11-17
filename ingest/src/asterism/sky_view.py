@@ -20,7 +20,8 @@
   ``data``。答えるデータセットの数は ``wired.json``）と、``themes.json`` の知識の問い
   （``mode`` = ``knowledge``・tool_name ``kq_…``。知識で答えた数は ``asterism.knowledge`` の走者で、
   読めなければ ``knowledge.json``）。「答えられる」は データ ≥ 1 **または** 知識 ≥ 1。
-* 知識の線 = 語どうしの ``isPartOf`` / ``lowers`` / ``raises`` / ``affects``（``edges[]``）。
+* 知識の線 = 語どうしの ``crosswalk_runtime.KNOWLEDGE_RELATIONS``（一部・下げる・上げる・変える
+  と、実験の記録の作る・測る（2 種）・変わる・競合する・物性。``edges[]``）。
 
 公開済みのデータセットが 0 件なら、store に 1 回も問い合わせず空の形を返す（空の
 ``FROM NAMED`` は draft まで読んでしまうため）。
@@ -83,7 +84,8 @@ _QK_PREFIX = "quantitykind"
 _XW_LINK_CLASS = _XW_NS + "CrosswalkLink"
 _LINE_RELATIONS = ("subClassOf", "equivalentClass", "subPropertyOf", "equivalentProperty")
 _SUBSUMPTION = ("subClassOf", "subPropertyOf")
-#: 語どうしの「知識の線」として ``edges[]`` に返す関係（一部・下げる・上げる・変える）。
+#: 語どうしの「知識の線」として ``edges[]`` に返す関係（一部・下げる・上げる・変える・作る・測る・
+#: 変わる・競合する・物性）。
 _EDGE_RELATIONS = frozenset(crosswalk_runtime.KNOWLEDGE_RELATIONS)
 #: 「標準用語に一致」と数える線。lowers / isPartOf など、同じものを言わない線は含めない
 _STANDARD_MATCH_RELATIONS = frozenset({"equivalentClass", "equivalentProperty", "hasQuantityKind"})

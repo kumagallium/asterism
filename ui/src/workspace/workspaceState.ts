@@ -9,7 +9,7 @@
 //   - 人の直接の編集（プルダウン・ドラッグ・手で足す）は AI の提案と同じ形の差分（`GraphOp`）。
 import type { QuestionScreen, QuestionSuggestion } from '../consult/graphChatApi'
 import type { GraphDropped, GraphOp } from '../themes/consultGraphApi'
-import type { ConceptRow, DraftPending, RelKind, RelationRow, TermKind, ThemeDraft } from '../themes/themeDraft'
+import { REL_KINDS, type ConceptRow, type DraftPending, type RelKind, type RelationRow, type TermKind, type ThemeDraft } from '../themes/themeDraft'
 
 // ---- 提案（薄い）と本物 -------------------------------------------------------------------
 
@@ -234,7 +234,7 @@ export interface CanvasModel {
   relations: CanvasRelation[]
 }
 
-const REL_KIND_LIST: RelKind[] = ['sub', 'eq', 'quantity', 'part', 'lowers', 'raises', 'affects']
+const REL_KIND_LIST: RelKind[] = REL_KINDS as RelKind[]
 const isRel = (v: unknown): v is RelKind => REL_KIND_LIST.includes(v as RelKind)
 const sv = (v: unknown): string => (typeof v === 'string' ? v : '')
 
@@ -372,6 +372,7 @@ export const DROP_REASONS = [
   'cycle',
   'quantity_target',
   'target_not_property',
+  'role_mismatch',
   'dismissed',
   'duplicate',
   'not_found',

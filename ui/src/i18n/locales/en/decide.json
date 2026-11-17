@@ -17,7 +17,13 @@
     "isPartOf": "is a part of it",
     "lowers": "lowers it",
     "raises": "raises it",
-    "affects": "changes it"
+    "affects": "changes it",
+    "makes": "makes it",
+    "measuresProperty": "measures it",
+    "measuresMaterial": "measures it",
+    "becomes": "turns into it",
+    "competesWith": "competes with it",
+    "hasProperty": "has it as a property"
   },
   "sentence": {
     "subClassOf": "\"{{subject}}\" is a kind of \"{{target}}\"",
@@ -28,7 +34,13 @@
     "isPartOf": "“{{subject}}” is a part of “{{target}}”",
     "lowers": "“{{subject}}” lowers “{{target}}”",
     "raises": "“{{subject}}” raises “{{target}}”",
-    "affects": "“{{subject}}” changes “{{target}}”"
+    "affects": "“{{subject}}” changes “{{target}}”",
+    "makes": "“{{subject}}” makes “{{target}}”",
+    "measuresProperty": "“{{subject}}” measures “{{target}}”",
+    "measuresMaterial": "“{{subject}}” measures “{{target}}”",
+    "becomes": "“{{subject}}” turns into “{{target}}”",
+    "competesWith": "“{{subject}}” competes with “{{target}}”",
+    "hasProperty": "“{{subject}}” has the property “{{target}}”"
   },
   "effect": {
     "error": "Could not count what would change. You can still decide.",
@@ -43,6 +55,7 @@
     "cycle": "That would make a loop.",
     "unminted": "That term has not been created yet.",
     "same": "A thing cannot be decided against itself.",
+    "role": "The roles do not fit.",
     "invalid": "This combination cannot be decided (it includes a term that has not been created, or mixes a kind and a field).",
     "unknown": "This combination cannot be decided."
   },

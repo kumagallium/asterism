@@ -17,7 +17,13 @@
     "isPartOf": "の一部です",
     "lowers": "を下げます",
     "raises": "を上げます",
-    "affects": "を変えます"
+    "affects": "を変えます",
+    "makes": "で作ります",
+    "measuresProperty": "で測ります",
+    "measuresMaterial": "で測ります",
+    "becomes": "に変わります",
+    "competesWith": "と競合します",
+    "hasProperty": "の物性です"
   },
   "sentence": {
     "subClassOf": "「{{subject}}」は「{{target}}」の一種",
@@ -28,7 +34,13 @@
     "isPartOf": "「{{subject}}」は「{{target}}」の一部",
     "lowers": "「{{subject}}」は「{{target}}」を下げる",
     "raises": "「{{subject}}」は「{{target}}」を上げる",
-    "affects": "「{{subject}}」は「{{target}}」を変える"
+    "affects": "「{{subject}}」は「{{target}}」を変える",
+    "makes": "「{{subject}}」で「{{target}}」を作る",
+    "measuresProperty": "「{{subject}}」で「{{target}}」を測る",
+    "measuresMaterial": "「{{subject}}」で「{{target}}」を測る",
+    "becomes": "「{{subject}}」が「{{target}}」に変わる",
+    "competesWith": "「{{subject}}」と「{{target}}」は競合する",
+    "hasProperty": "「{{subject}}」の「{{target}}」"
   },
   "effect": {
     "error": "どうなるかを数えられませんでした。決めることはできます。",
@@ -43,6 +55,7 @@
     "cycle": "循環になります。",
     "unminted": "まだ作っていない用語です。",
     "same": "同じものどうしは決められません。",
+    "role": "役割が合いません。",
     "invalid": "この組み合わせは決められません（まだ作っていない用語を含むか、種類と項目が混ざっています）。",
     "unknown": "この組み合わせは決められません。"
   },

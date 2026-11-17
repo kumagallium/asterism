@@ -40,11 +40,17 @@ from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
     ALIGNMENT_GRAPH,
     KNOWLEDGE_RELATIONS,
+    ROLE_RULES,
+    ROLES,
+    SYMMETRIC_RELATIONS,
     _check_same_shape,
+    _declared_roles,
     _declared_shapes,
     _endpoint_context,
     _kind_of,
     _sparql_str,
+    canonical_ends,
+    check_roles,
 )
 from asterism.query_tools import (
     lint_query_tool,
@@ -96,7 +102,24 @@ PART_OF_PATH = f"(<{ALIGN_RELATIONS['isPartOf']}>)*"
 
 #: ``sv:`` の slug に使えない予約語。知識の関係の名前（述語は ``sv:`` に置かない）と
 #: 取り違えないため。``mint_term`` と ``themes`` の slug 検査が拒む。
-RESERVED_SLUGS = frozenset({"part_of", "lowers", "raises", "affects", "regulates"})
+RESERVED_SLUGS = frozenset(
+    {
+        "part_of",
+        "lowers",
+        "raises",
+        "affects",
+        "regulates",
+        "makes",
+        "measures",
+        "becomes",
+        "competes",
+        "competes_with",
+        "has_property",
+    }
+)
+
+#: 役割の札を付けた主体（``xw:roleBy``）の閉じた値。
+ROLE_BY = ("human", "machine", "ai")
 
 #: Labels too generic to suggest a fit (already :func:`normalize_label`-ed).
 GENERIC_LABELS = frozenset(
@@ -192,6 +215,11 @@ class SharedTerm:
     #: ``xw:draftedBy``（``"ai"`` = AI の下書きを人が採用）と ``xw:confirmedAt``（確定した日時）。
     drafted_by: str | None = None
     confirmed_at: str | None = None
+    #: 役割の札（``xw:role``・:data:`~asterism.crosswalk_runtime.ROLES`）と付けた主体
+    #: （``xw:roleBy``）。
+    #: 種類（class）の語にだけ付く任意の札。
+    role: str | None = None
+    role_by: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +725,8 @@ async def mint_term(
     aliases: Iterable[str] | None = None,
     drafted_by: str | None = None,
     theme_id: str | None = None,
+    role: str | None = None,
+    role_by: str | None = None,
 ) -> dict:
     """Mint ``sv:<slug>`` (ADR §2.1, 改訂 design.md §15.2 / 利用者裁定 2026-10-20):
 
@@ -718,9 +748,22 @@ async def mint_term(
     draft: ``xw:draftedBy`` plus ``xw:confirmedAt`` (= ``at``). Nothing else about the
     draft (the raw output, the rejected suggestions) is kept.
 
+    ``role`` は役割の札（:data:`~asterism.crosswalk_runtime.ROLES` のどれか・種類の語だけ）。
+    ``role_by`` の既定は ``"human"``。違えば ``ValueError``。
+
     Everything that can be refused is checked before the first write. Returns the
     :class:`SharedTerm` as a dict."""
     iri = term_iri(slug)
+    if role is not None:
+        if role not in ROLES:
+            raise ValueError(f"role must be one of {ROLES}: {role!r}")
+        if kind != "class":
+            raise ValueError("役割の札は種類の語にだけ付けられます")
+        role_by = role_by or "human"
+        if role_by not in ROLE_BY:
+            raise ValueError(f"role_by must be one of {ROLE_BY}: {role_by!r}")
+    else:
+        role_by = None
     if kind not in _KINDS:
         raise ValueError(f"kind must be one of {_KINDS}: {kind!r}")
     if not (label or "").strip():
@@ -751,6 +794,8 @@ async def mint_term(
         aliases=clean_aliases(aliases),
         drafted_by=drafted_by,
         confirmed_at=at if drafted_by else None,
+        role=role,
+        role_by=role_by,
     )
     tools = default_cq_tools(term, cqs)
     _lint_or_raise(tools)
@@ -775,6 +820,10 @@ async def mint_term(
     if term.drafted_by:
         triples.append(f"<{iri}> <{XW}draftedBy> {_lit(term.drafted_by)}")
         triples.append(f'<{iri}> <{XW}confirmedAt> "{at}"^^<{_XSD}dateTime>')
+    if term.role:
+        triples.append(f"<{iri}> <{XW}role> {_lit(term.role)}")
+        triples.append(f"<{iri}> <{XW}roleBy> {_lit(term.role_by or 'human')}")
+        triples.append(f'<{iri}> <{XW}roleAt> "{at}"^^<{_XSD}dateTime>')
     triples.append(f'<{iri}> <{_PROV}generatedAtTime> "{at}"^^<{_XSD}dateTime>')
     # Order: files first (scaffold + CQ upsert), then the store INSERT. If the INSERT
     # fails the CQs just written are taken back out by name, so a retry is not a
@@ -836,6 +885,10 @@ async def _read_terms(client: Any) -> list[SharedTerm]:
             d["by"] = v
         elif p == f"{XW}confirmedAt":
             d["conf"] = v
+        elif p == f"{XW}role":
+            d["role"] = v
+        elif p == f"{XW}roleBy":
+            d["role_by"] = v
         elif p == f"{_PROV}generatedAtTime":
             d["at"] = v
     out: list[SharedTerm] = []
@@ -855,9 +908,54 @@ async def _read_terms(client: Any) -> list[SharedTerm]:
                 aliases=tuple(sorted(set(d["alt"]), key=lambda a: (normalize_label(a), a))),
                 drafted_by=d.get("by"),
                 confirmed_at=d.get("conf"),
+                role=d["role"] if d.get("role") in ROLES else None,
+                role_by=d.get("role_by") if d.get("role") in ROLES else None,
             )
         )
     return sorted(out, key=lambda t: t.slug)
+
+
+async def set_term_role(
+    client: Any, slug: str, role: str | None, *, at: str, by: str = "human"
+) -> dict:
+    """語の役割の札を置き換える（``role=None`` で外す）。
+
+    * :class:`TermNotFound` — その語が無い;
+    * ``ValueError`` — 項目（property）の語・``role`` が :data:`~asterism.crosswalk_runtime.ROLES`
+      に無い・``by`` が :data:`ROLE_BY` に無い・``at`` が ISO でない。
+
+    札を変えても、既にある線は調べ直さない（外すのは人）。更新後の :class:`SharedTerm` を
+    dict で返す。"""
+    iri = term_iri(slug)
+    if role is not None and role not in ROLES:
+        raise ValueError(f"role must be one of {ROLES}: {role!r}")
+    if by not in ROLE_BY:
+        raise ValueError(f"by must be one of {ROLE_BY}: {by!r}")
+    if not _ISO_AT.match(at or ""):
+        raise ValueError(f"at must be an ISO datetime: {at!r}")
+    term = next((t for t in await _read_terms(client) if t.iri == iri), None)
+    if term is None:
+        raise TermNotFound(f"{slug!r} という用語はありません")
+    if term.kind != "class":
+        raise ValueError("役割の札は種類の語にだけ付けられます")
+    clear = (
+        f"DELETE WHERE {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> <{XW}role> ?o }} }} ;"
+        f"DELETE WHERE {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> <{XW}roleBy> ?o }} }} ;"
+        f"DELETE WHERE {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ <{iri}> <{XW}roleAt> ?o }} }}"
+    )
+    if role is None:
+        await client.sparql_update(clear)
+    else:
+        await client.sparql_update(
+            f"{clear} ;"
+            f"INSERT DATA {{ GRAPH <{SHARED_VOCAB_GRAPH}> {{ "
+            f"<{iri}> <{XW}role> {_lit(role)} . <{iri}> <{XW}roleBy> {_lit(by)} . "
+            f'<{iri}> <{XW}roleAt> "{at}"^^<{_XSD}dateTime> }} }}'
+        )
+    now = next(t for t in await _read_terms(client) if t.iri == iri)
+    out = asdict(now)
+    out["aliases"] = list(now.aliases)
+    return out
 
 
 async def term_provenance(client: Any, iri: str) -> dict[str, str] | None:
@@ -1272,14 +1370,17 @@ async def preview_alignment(
 
     戻り値: ``{valid, reason, questions: [{tool_name, title, before, after}],
     terms: [{iri, label, before, after}]}``。``reason`` は ``same`` / ``unminted`` /
-    ``mixed`` / ``cycle``（``valid`` のときは ``None``）。``valid=False`` では ``questions`` と
-    ``terms`` は空。``before`` は ``wired.json``（その語が無ければ同じ計算）。
+    ``mixed`` / ``role`` / ``cycle``（``valid`` のときは ``None``）。向きの無い関係は
+    :func:`~asterism.crosswalk_runtime.canonical_ends` で並べ替えてから試算する。
+    ``valid=False`` では ``questions`` と ``terms`` は空。``before`` は ``wired.json``
+    （その語が無ければ同じ計算）。
 
     ``ValueError`` — 関係が閉集合に無い・IRI の形が不正。"""
     if relation not in ALIGN_RELATIONS:
         raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
     _check_iri(source)
     _check_iri(target)
+    source, target = canonical_ends(relation, source, target)
 
     def refused(reason: str) -> dict:
         return {"valid": False, "reason": reason, "questions": [], "terms": []}
@@ -1301,6 +1402,12 @@ async def preview_alignment(
             )
         except ValueError:
             return refused("mixed")
+        if relation in ROLE_RULES:
+            roles = await _declared_roles(client, [source, target])
+            try:
+                check_roles(relation, roles.get(source), roles.get(target))
+            except ValueError:
+                return refused("role")
         rels = cycle_rels(relation)
         if rels is not None and target in _down_set(source, edges, rels):
             return refused("cycle")
@@ -1381,7 +1488,12 @@ def _save_dismissed(root: Path | str, rows: list[dict]) -> None:
 
 
 def _same_dismissal(r: dict, subject: str, term: str, relation: str | None) -> bool:
-    return r["subject"] == subject and r["term"] == term and r.get("relation") == relation
+    if r.get("relation") != relation:
+        return False
+    if r["subject"] == subject and r["term"] == term:
+        return True
+    # 向きの無い関係は、両端の順を問わず同じ却下
+    return relation in SYMMETRIC_RELATIONS and r["subject"] == term and r["term"] == subject
 
 
 def dismiss_fit(
@@ -1734,6 +1846,7 @@ __all__ = [
     "PART_OF_PATH",
     "REGISTRY_ID",
     "RESERVED_SLUGS",
+    "ROLE_BY",
     "SELECTION_OPS",
     "SHARED_VOCAB_GRAPH",
     "SLUG_RE",
@@ -1773,6 +1886,7 @@ __all__ = [
     "preview_alignment",
     "recompute_wired",
     "remove_term",
+    "set_term_role",
     "slug_of",
     "term_iri",
     "term_provenance",
