@@ -72,6 +72,32 @@ Claude Desktop などに Graphium と Asterism の両方の MCP をつなぎ、�
 | ④ | Asterism `find_datasets` → `sparql_query`（または typed tool） | 問い（例: 650 K 以上で分解した観察に反するものは？） |
 | ⑤ | Graphium `save_answer` | 問い・答え・`citations`（答えの出典 = `source_url` の知見 id） |
 
+## 全部を写す（知識の束・2026-11-18）
+
+上の手順が写すのは、型を付けた知見だけ。知識グラフを育てる土台としては、**未確認の知見も含めた全部**を
+1 つのデータセットに写す道が別にある（ADR [`knowledge-copy.md`](../../architecture/knowledge-copy.md)）。
+設計は Asterism が機械で組むので、人の設計も AI も挟まない。
+
+```
+Graphium ──export_asterism_knowledge──▶ 知識の束（JSON 1 本）──▶ Asterism が写す
+                                                                   ├─ 知見・トピック・資料
+                                                                   └─ 語（表記ゆれを束ねる）と、語が出る知見
+```
+
+| 順 | だれが | 何を |
+|---|---|---|
+| ① | 人（1 回だけ） | Asterism の設定で Graphium の MCP サーバを登録して有効にし、`sourceProvider.knowledge` に `export_asterism_knowledge` を入れる |
+| ② | Asterism | `POST /api/mcp-servers/graphium/knowledge-copy` — Graphium の道具を呼んで束を取り、データセット「Graphium の知見」を作る（2 回目からは同じデータセットを全量で作り直す） |
+
+- 束を自分で用意するなら `POST /api/knowledge-copies` に `{source, bundle}`（MCP を使わない道）。
+- 出来るデータセットの種類: 知見（`kn:Claim`）・トピック（`skos:Concept`）・資料（`kn:Source`）・語（`kn:Term`）。
+  知見は `kn:reviewState`（`candidate`／`verified`）を持ち、出てくる語へ `kn:mentions` で結ばれる。
+- 題を割る（「Bi2Te3 の 熱伝導率」→ 材料と物性）のは Graphium、表記ゆれを束ねる・語が知見に出るかを見るのは Asterism。
+- 語は写しの行で、用語（共有語）ではない。用語と関係にするのは次の段。
+- 知見とトピックの IRI は、型つきの道（上の `mapping-ir.yaml`）と同じ（`…/Graphium/claim/{id}`）。
+  2 つのデータセットに同じ知見が出ても、同じ物として重なる。
+- ゴミ箱・アーカイブ済みの知見とトピックは写さない（Graphium の一覧と同じ）。
+
 ## 守っていること
 - Asterism のストアに入るのは承認済みの設計の行だけ。追記は設計を変えない
 - 主語は `claimBaseIri/{id}`。`example.org` は使わない
