@@ -171,6 +171,7 @@ from asterism_api.converse_routes import register_converse
 from asterism_api.dataset_summary_routes import register_dataset_summary
 from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
+from asterism_api.knowledge_copy import register_knowledge_copy_routes
 from asterism_api.mcp_client_routes import register_mcp_client_routes
 from asterism_api.questions_routes import (
     apply_questions,
@@ -12415,6 +12416,7 @@ def build_app(
     register_sample_routes(app, cfg)  # 見本の手動の置き換え・控えから戻す（ADR kantan K62）
     register_appdata_cards(app, cfg)  # 契約メモ contract_pr_f4.md §1-5（担当 api）
     register_mcp_client_routes(app, cfg)  # 登録した MCP サーバの道具を呼ぶ側（ADR source-switch）
+    register_knowledge_copy_routes(app, cfg)  # 知識の束を写す（ADR knowledge-copy）
     register_classes(
         app, cfg, label_resolvers=_crosswalk_label_resolvers
     )  # 契約メモ contract_pr_f9.md §3（担当 api）

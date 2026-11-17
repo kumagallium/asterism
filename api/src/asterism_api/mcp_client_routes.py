@@ -231,7 +231,12 @@ def register_mcp_client_routes(
             "servers": [c.public() for c in ok.values()],
             "invalid": [{"name": n, "error": e} for n, e in bad.items()],
             "source_home": reg.source_home(),
-            "source_provider": {"list": provider.list, "get": provider.get, "add": provider.add},
+            "source_provider": {
+                "list": provider.list,
+                "get": provider.get,
+                "add": provider.add,
+                "knowledge": provider.knowledge,
+            },
             "send_originals_to_home": reg.send_originals(),
             "max_source_file_bytes": MAX_SOURCE_FILE_BYTES,
             "recent": [r.public() for r in reg.client.recent],
