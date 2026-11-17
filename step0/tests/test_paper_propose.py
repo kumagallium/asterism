@@ -56,7 +56,16 @@ def test_each_relation_is_judged_alone_and_the_bad_ones_are_counted() -> None:
     ]
     out = validate_paper_relations({"relations": [bad[0], GOOD, *bad[1:]]})
     assert out["relations"] == [GOOD] and out["shape_dropped"] == len(bad)
-    assert set(PAPER_RELS) == {"part", "sub", "lowers", "raises", "affects"}
+    assert set(PAPER_RELS) == {
+        "part", "sub", "lowers", "raises", "affects",
+        "makes", "measures", "becomes", "competes", "has_property",
+    }  # fmt: skip
+
+
+@pytest.mark.parametrize("rel", ["makes", "measures", "becomes", "competes", "has_property"])
+def test_the_new_relations_pass_and_an_unknown_one_is_dropped(rel: str) -> None:
+    out = validate_paper_relations({"relations": [{**GOOD, "rel": rel}, {**GOOD, "rel": "causes"}]})
+    assert [r["rel"] for r in out["relations"]] == [rel] and out["shape_dropped"] == 1
 
 
 def test_at_most_twenty_relations() -> None:

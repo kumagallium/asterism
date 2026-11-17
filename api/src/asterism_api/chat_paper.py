@@ -471,6 +471,11 @@ _Q_TEXT = {
         "lowers": "{to} を下げるものは？",
         "raises": "{to} を上げるものは？",
         "affects": "{to} を変えるものは？",
+        "makes": "{to} を作る手法は？",
+        "measures": "{to} を測る手法は？",
+        "becomes": "{to} に変わるものは？",
+        "competes": "{to} と競合するものは？",
+        "has_property": "{to} を持つ材料は？",
     },
     "en": {
         "part": "What are the parts of {to}?",
@@ -478,8 +483,21 @@ _Q_TEXT = {
         "lowers": "What lowers {to}?",
         "raises": "What raises {to}?",
         "affects": "What changes {to}?",
+        "makes": "Which methods make {to}?",
+        "measures": "Which methods measure {to}?",
+        "becomes": "What turns into {to}?",
+        "competes": "What competes with {to}?",
+        "has_property": "Which materials have {to}?",
     },
 }
+#: 関係 → 問いの型（op_kind）。lowers 系は ``direction`` つきの ``factors``。
+_OP_KIND = {
+    "part": "parts", "sub": "kinds", "lowers": "factors", "raises": "factors",
+    "affects": "factors", "makes": "makers", "measures": "measurers", "becomes": "sources",
+    "competes": "competitors", "has_property": "bearers",
+}  # fmt: skip
+#: 両端とも種類の関係（makes・becomes・competes）。
+_CLASS_BOTH = ("makes", "becomes", "competes")
 
 
 def _is_japanese(name: str) -> bool:
@@ -500,12 +518,16 @@ def build_ops(
       ``use: existing:<slug>``・既存の種類・**既存の名前**（札・問い文もそれ）。同じ名前の既存の
       用語が複数あれば、関係の位置に合う種類（lowers 系の相手 = property・part/sub は相手側の種類）
       を選ぶ（合うものが無ければ先勝ち）。標準の語は、適用の段の照合が当てる。
-    - 種類: ``lowers``/``raises``/``affects`` の相手（to）= ``property``、それ以外 = ``class``。
-      食い違う関係（``part``/``sub`` の両端の種類が違う・相手が class の ``lowers`` 系・自己参照）
-      は落とす。
+    - 種類: ``lowers``/``raises``/``affects``/``has_property`` の相手（to）= ``property``、
+      ``makes``/``becomes``/``competes`` の両端と新しい関係（``makes``/``measures``/``becomes``/
+      ``competes``/``has_property``）の from = ``class``。``measures`` の相手は、同じ提案の中で
+      項目と決まる（上の相手・既存の用語が項目）なら ``property``、それ以外は ``class``。
+      食い違う関係（``part``/``sub`` の両端の種類が違う・相手が class の ``lowers`` 系／
+      ``has_property``・項目を端に持つ ``makes``/``becomes``/``competes``・自己参照）は落とす。
     - 名前: ``label_en`` = ``*_en`` → ラテン文字の名前 → 空。``label_ja`` = ``*_ja`` → 日本語の
       名前 → 名前。書かれた別の名前は別名に足す（照合にも使う）。
-    - 同じ (from, rel, to) は 1 本にまとめ、根拠の番号は出現順に最大 3 つ。
+    - 同じ (from, rel, to) は 1 本にまとめ、根拠の番号は出現順に最大 3 つ。``competes`` は
+      向きを問わず 1 本（:func:`themes.draft_rel_key`）。
     - 鍵は ``n1``… を出てきた順に振る。``add_concept`` → ``add_relation`` の順。問いは含めない。"""
     by_name: dict[str, list[SharedTerm]] = {}
     for t in sorted(existing, key=lambda x: x.slug):
@@ -540,12 +562,24 @@ def build_ops(
          end(r["to"], r.get("to_ja"), r.get("to_en")), r)
         for r in relations
     ]  # fmt: skip
-    factor_to = {to for _f, to, r in pairs if r["rel"] in _FACTOR_DIR}
+    factor_to = {to for _f, to, r in pairs if r["rel"] in _FACTOR_DIR or r["rel"] == "has_property"}
+    class_pos = {  # 種類の位置（lowers 系の相手と重なる語は項目が勝つ）
+        k
+        for f, to, r in pairs
+        for k in (
+            (f, to) if r["rel"] in _CLASS_BOTH
+            else (f,) if r["rel"] in ("makes", "measures", "has_property")
+            else ()
+        )
+    } - factor_to  # fmt: skip
+    measure_to = {to for _f, to, r in pairs if r["rel"] == "measures"}
     for k, t in terms.items():  # 既存の用語を選ぶ（1 つに決まらなければ関係の位置の種類で）
         if len(t["cands"]) == 1:
             t["existing"] = t["cands"][0]
         elif t["cands"] and k in factor_to:
             t["existing"] = next((c for c in t["cands"] if c.kind == "property"), t["cands"][0])
+        elif t["cands"] and (k in class_pos or k in measure_to):  # 種類の位置
+            t["existing"] = next((c for c in t["cands"] if c.kind == "class"), t["cands"][0])
         if t["existing"] is not None:
             t["kind"] = t["existing"].kind
         elif not t["cands"]:
@@ -574,12 +608,22 @@ def build_ops(
     merged: dict[tuple[str, str, str], list[str]] = {}
     for f, to, r in pairs:
         kf, kt = terms[f]["kind"], terms[to]["kind"]
-        same = r["rel"] in ("part", "sub") and kf == kt
-        factor = r["rel"] in _FACTOR_DIR and kt == "property"
-        if f == to or not (same or factor):
+        rel = r["rel"]
+        if rel in ("part", "sub"):
+            ok = kf == kt
+        elif rel in _FACTOR_DIR:
+            ok = kt == "property"
+        elif rel == "has_property":
+            ok = kf == "class" and kt == "property"
+        elif rel == "measures":
+            ok = kf == "class"
+        else:  # makes・becomes・competes
+            ok = kf == "class" and kt == "class"
+        if f == to or not ok:
             dropped += 1
             continue
-        merged[(f, r["rel"], to)] = _join_evidence(merged.get((f, r["rel"], to), []), r["evidence"])
+        key = themes.draft_rel_key(f, rel, to)
+        merged[key] = _join_evidence(merged.get(key, []), r["evidence"])
     keys: dict[str, str] = {}
     ops: list[dict] = []
     for f, _rel, to in merged:
@@ -609,7 +653,9 @@ def add_questions(ops: list[dict], lang: str) -> tuple[list[dict], int]:
     """残った関係から問いを機械が組んで ops の末尾に足す → ``(ops, 5 つを超えて落とした関係の数)``。
 
     相手（to）ごとの問い（part → 一部・sub → 種類・lowers/raises/affects → 下げる／上げる／
-    変えるもの）。関係を向きなしの網として、新しい用語を含む連結成分ごとに、相手の多い用語の問いを
+    変えるもの・makes → 作る手法・measures → 測る手法・becomes → 変わるもの・competes → 競合する
+    もの・has_property → 持つ材料。型は :data:`_OP_KIND`）。
+    関係を向きなしの網として、新しい用語を含む連結成分ごとに、相手の多い用語の問いを
     1 つ選ぶ（= 全部の用語が問いの対象から関係でたどれる最小の数）。最大 5。5 を超える成分の
     関係は落とす（用語は ``prune_unlinked`` 相当で残らない）。"""
     lg = "en" if lang == "en" else "ja"
@@ -654,7 +700,7 @@ def add_questions(ops: list[dict], lang: str) -> tuple[list[dict], int]:
             {
                 "op": "add_question", "question": _Q_TEXT[lg][rel].format(to=name),
                 "mode": "knowledge",
-                "op_kind": "parts" if rel == "part" else "kinds" if rel == "sub" else "factors",
+                "op_kind": _OP_KIND[rel],
                 "target": str(r["to"]), "direction": _FACTOR_DIR.get(rel),
                 "kind": None, "property": None, "value": "", "match": None, "property2": None,
                 "kind2": None, "wanted_data": "", "reason": "",

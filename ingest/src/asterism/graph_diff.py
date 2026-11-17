@@ -513,6 +513,8 @@ class _Applier:
             good = op_kind in themes.KNOWLEDGE_OPS and t_row is not None
             if op_kind == "factors":
                 good = good and direction in themes.KNOWLEDGE_DIRECTIONS
+            if good and not themes.knowledge_target_kind_ok(op_kind, t_row["kind"]):
+                good = False  # 新しい型の対象の種別が合わない
         else:
             good = themes.data_answer_complete(
                 op_kind, kind=k_row, prop=p_row, prop2=p2_row, kind2=k2_row, value=value

@@ -6,6 +6,8 @@ import {
   type ThemeDraft,
   addConcept,
   addQuestion,
+  conceptsFor,
+  LINE_WAYS,
   answerComplete,
   answerHost,
   answerState,
@@ -237,6 +239,62 @@ describe('answers', () => {
     expect(knowledgeEstimate(d, { ...d.answers[0], op: 'parts', direction: '' })).toBe(2)
     expect(knowledgeEstimate(d, { ...d.answers[0], op: 'kinds', direction: '' })).toBe(0)
     expect(knowledgeEstimate(d, ans('x'))).toBe(0)
+  })
+})
+
+describe('knowledge ways that read one relation (14a-2)', () => {
+  const base = ans('x')
+  it('round-trips setWay → wayOf and needs a target', () => {
+    expect(LINE_WAYS).toHaveLength(10)
+    for (const w of LINE_WAYS) {
+      const a = setWay(base, w)
+      expect(a).toMatchObject({ mode: 'knowledge', op: w, direction: '' })
+      expect(wayOf(a)).toBe(w)
+      expect(wayNeeds(w).target).toBe(true)
+      expect(answerComplete(a)).toBe(false)
+      expect(answerComplete({ ...a, target: 'c1' })).toBe(true)
+    }
+  })
+  it('limits the target concepts by kind', () => {
+    const d = thermal()
+    const kinds = (w: (typeof LINE_WAYS)[number]) => new Set(conceptsFor(d, w, 'target').map((c) => c.kind))
+    expect(kinds('bearers')).toEqual(new Set(['property']))
+    expect(kinds('measurers')).toEqual(new Set(['class', 'property']))
+    for (const w of ['makers', 'products', 'measured', 'sources', 'outcomes', 'competitors', 'properties', 'missing'] as const) {
+      expect(kinds(w)).toEqual(new Set(['class']))
+    }
+  })
+  it('estimates by direct lines only', () => {
+    const d: ThemeDraft = {
+      ...thermal(),
+      relations: [
+        rel('c4', 'makes', 'c7'),
+        rel('c5', 'makes', 'c7'),
+        rel('c7', 'makes', 'c5'),
+        rel('c4', 'competes', 'c5'), // 逆向き（相手が対象でも 1）
+        rel('c4', 'becomes', 'c5'),
+        rel('c7', 'has_property', 'c1'),
+        rel('c7', 'has_property', 'c2'),
+        rel('c5', 'has_property', 'c2'),
+        rel('c5', 'has_property', 'c3'),
+        rel('c4', 'has_property', 'c3'),
+        rel('c4', 'has_property', 'c6'),
+      ],
+    }
+    const est = (op: string, target: string) => knowledgeEstimate(d, { ...setWay(ans('x'), op as never), target })
+    expect(est('makers', 'c7')).toBe(2)
+    expect(est('products', 'c7')).toBe(1)
+    expect(est('competitors', 'c4')).toBe(1)
+    expect(est('competitors', 'c5')).toBe(1)
+    expect(est('sources', 'c5')).toBe(1)
+    expect(est('outcomes', 'c4')).toBe(1)
+    expect(est('properties', 'c7')).toBe(2)
+    expect(est('bearers', 'c2')).toBe(2)
+    expect(est('makers', '')).toBe(0)
+    // c7 が持たない c3（c5・c4 の 2 件が持つ）だけ。c6（1 件だけ）と c7 が持つ c2 は出ない
+    expect(est('missing', 'c7')).toBe(1)
+    // c5 が持たないもの: c1（c7 だけ）・c6（c4 だけ）→ 2 件以上が持つ項目は無い
+    expect(est('missing', 'c5')).toBe(0)
   })
 })
 

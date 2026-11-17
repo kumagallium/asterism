@@ -956,3 +956,82 @@ def test_wide_selection_reads_terms_by_iri_not_by_position() -> None:
     assert _wide_selection(tool, no_p) == {}
     no_p2 = {i: v for i, v in by.items() if i != p2}
     assert _wide_selection(tool, no_p2) == {"op": "trend", "kind": "曲線", "property": "温度"}
+
+
+def _new_types_body() -> dict:
+    """14a-2 の新しい型の問いを置く小さな下書き（作り物の語）。"""
+    cls = {"kind": "class", "use": "new", "aliases": [], "reason": ""}
+    prop = {"kind": "property", "use": "new", "aliases": [], "reason": ""}
+    concepts = [
+        {"key": "s1", "label_ja": "Mg2Si", "label_en": "Mg2Si", "slug": "mg2si", **cls},
+        {"key": "s2", "label_ja": "Mg2Sn", "label_en": "Mg2Sn", "slug": "mg2sn", **cls},
+        {"key": "s3", "label_ja": "Mg2Ge", "label_en": "Mg2Ge", "slug": "mg2ge", **cls},
+        {"key": "m1", "label_ja": "アーク溶解", "label_en": "arc melting", "slug": "arc_melting",
+         **cls},
+        {"key": "p1", "label_ja": "熱伝導率", "label_en": "thermal conductivity", "slug": "tc",
+         **prop},
+        {"key": "p2", "label_ja": "ゼーベック係数", "label_en": "Seebeck coefficient",
+         "slug": "seebeck", **prop},
+    ]  # fmt: skip
+    rels = [
+        ("m1", "makes", "s1"),
+        ("s1", "has_property", "p1"), ("s2", "has_property", "p1"), ("s3", "has_property", "p1"),
+        ("s2", "has_property", "p2"), ("s3", "has_property", "p2"),
+        ("s2", "competes", "s1"),  # 向きを逆に置いても、s1 から引けば s2 が返る
+    ]  # fmt: skip
+    ans = {"direction": None, "kind": None, "property": None, "wanted_data": "", "reason": ""}
+    qs = [
+        ("Mg2Si を作る手法は？", "makers", "s1"),
+        ("Mg2Si の物性は？", "properties", "s1"),
+        ("Mg2Si と競合するものは？", "competitors", "s1"),
+        ("Mg2Si でまだ無い物性は？", "missing", "s1"),
+    ]
+    return {
+        "label": "新しい型", "lang": "ja", "ai_drafted": False, "batch": "batch-n",
+        "questions": [q for q, _o, _t in qs],
+        "concepts": concepts,
+        "relations": [{"from": f, "rel": r, "to": t, "reason": "", "by": "human"}
+                      for f, r, t in rels],
+        "answers": [{"question": q, "mode": "knowledge", "op": o, "target": t, **ans}
+                    for q, o, t in qs],
+    }  # fmt: skip
+
+
+def test_new_knowledge_types_answer_with_rows_and_sentences_in_line_direction(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path)
+    with TestClient(app, headers=_AUTH) as client:
+        d = client.post("/api/themes/drafts", json={"label": "新しい型", "questions": ["q"]}).json()
+        r = client.post(f"/api/themes/{d['id']}/commit", json=_new_types_body())
+        assert r.status_code == 201, r.text
+        assert r.json()["questions"] == [
+            "kq_mg2si_makers", "kq_mg2si_properties", "kq_mg2si_competitors",
+            "kq_mg2si_missing",
+        ]  # fmt: skip
+        got = client.get(f"/api/themes/{d['id']}/answers").json()["answers"]
+        a = {x["tool_name"]: x for x in got}
+        assert a["kq_mg2si_makers"]["shape"] == "Mg2Si を作る手法"
+        mk = a["kq_mg2si_makers"]["knowledge"]
+        assert mk["count"] == 1 and mk["items"][0]["label"] == "アーク溶解"
+        assert mk["items"][0]["relation"] == "makes" and mk["items"][0]["via_label"] == "Mg2Si"
+        assert mk["items"][0]["sentence"] == "アーク溶解 で Mg2Si を作る"  # 相手が主語
+        pr = a["kq_mg2si_properties"]["knowledge"]
+        assert [i["label"] for i in pr["items"]] == ["熱伝導率"]
+        assert pr["items"][0]["sentence"] == "Mg2Si の 熱伝導率"  # X が主語
+        cp = a["kq_mg2si_competitors"]["knowledge"]
+        assert [i["label"] for i in cp["items"]] == ["Mg2Sn"]
+        assert cp["items"][0]["sentence"] == "Mg2Si と Mg2Sn は競合する"
+        ms = a["kq_mg2si_missing"]["knowledge"]
+        (row,) = ms["items"]
+        assert row["label"] == "ゼーベック係数" and row["relation"] == "hasProperty"
+        assert row["others_count"] == 2 and row["evidence"] == [] and row["reason"] is None
+        assert [o["label"] for o in row["others"]] == ["Mg2Ge", "Mg2Sn"]
+        assert row["sentence"] == "ゼーベック係数（ほかの 2 件にある: Mg2Ge・Mg2Sn）"
+        en = client.get(f"/api/themes/{d['id']}/answers", params={"lang": "en"}).json()
+        e = {x["tool_name"]: x for x in en["answers"]}
+        (erow,) = e["kq_mg2si_missing"]["knowledge"]["items"]
+        assert erow["sentence"] == "Seebeck coefficient (recorded for 2 others: Mg2Ge, Mg2Sn)"
+        assert e["kq_mg2si_makers"]["knowledge"]["items"][0]["sentence"] == (
+            "arc melting makes Mg2Si"
+        )

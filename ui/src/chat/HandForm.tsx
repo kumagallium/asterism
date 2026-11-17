@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { REL_KINDS } from '../themes/themeDraft'
+import { WAYS, targetsFor } from './handWays'
 import type { GraphOp, SetAnswerBody, SkyDraft } from './chatApi'
 
 export interface HandFormProps {
@@ -16,18 +17,6 @@ export interface HandFormProps {
   /** 既にある問いの答え方を決める。送れたら true。 */
   onAnswer?: (body: SetAnswerBody) => Promise<boolean>
 }
-
-/** 答え方の 8 つの方法（AI 無しで決められる形）。`id` は `op` か `op:direction`。 */
-const WAYS = [
-  { id: 'factors:lowers', mode: 'knowledge', op: 'factors', direction: 'lowers', label: 'answer.option.lowers', need: 'any' },
-  { id: 'factors:raises', mode: 'knowledge', op: 'factors', direction: 'raises', label: 'answer.option.raises', need: 'any' },
-  { id: 'factors:affects', mode: 'knowledge', op: 'factors', direction: 'affects', label: 'answer.option.affects', need: 'any' },
-  { id: 'parts', mode: 'knowledge', op: 'parts', direction: '', label: 'answer.option.parts', need: 'any' },
-  { id: 'kinds', mode: 'knowledge', op: 'kinds', direction: '', label: 'answer.option.kinds', need: 'any' },
-  { id: 'count', mode: 'data', op: 'count', direction: '', label: 'answer.option.count', need: 'class' },
-  { id: 'range', mode: 'data', op: 'range', direction: '', label: 'answer.option.range', need: 'property' },
-  { id: 'top', mode: 'data', op: 'top', direction: '', label: 'answer.option.top', need: 'property' },
-] as const
 
 export function HandForm({ draft, nextKey, busy, onSubmit, onAnswer }: HandFormProps) {
   const { t } = useTranslation('chat')
@@ -45,7 +34,7 @@ export function HandForm({ draft, nextKey, busy, onSubmit, onAnswer }: HandFormP
   const [waySel, setWaySel] = useState<string>(WAYS[0].id)
   const [targetSel, setTargetSel] = useState('')
   const way = WAYS.find((w) => w.id === waySel) ?? WAYS[0]
-  const targets = concepts.filter((c) => way.need === 'any' || c.kind === way.need)
+  const targets = targetsFor(concepts, way.need)
   const question = questions.includes(qSel) ? qSel : (questions[0] ?? '')
   const target = targets.some((c) => c.key === targetSel) ? targetSel : (targets[0]?.key ?? '')
   const b = (has(to) ? to : '') || concepts.find((c) => c.key !== a)?.key || ''

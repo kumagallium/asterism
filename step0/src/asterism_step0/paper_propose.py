@@ -5,7 +5,8 @@
 「名前 → 関係 → 名前＋根拠の文の番号」に絞る。AI が書くのはこれだけ::
 
     {"relations": [{"from": "...", "from_ja": "...|null", "from_en": "...|null",
-                    "rel": "part|sub|lowers|raises|affects",
+                    "rel": "part|sub|lowers|raises|affects|makes|measures|becomes|competes|
+                    has_property",
                     "to": "...", "to_ja": "...|null", "to_en": "...|null", "evidence": ["s12"]}]}
 
 用語の鍵・種類・問い・理由・``use`` は書かせない（機械が組む — ``asterism_api.chat_paper``）。
@@ -40,7 +41,10 @@ __all__ = [
 ]
 
 #: 論文の関係の種類（``graph_diff`` の ``rel`` の部分集合）
-PAPER_RELS = ("part", "sub", "lowers", "raises", "affects")
+PAPER_RELS = (
+    "part", "sub", "lowers", "raises", "affects",
+    "makes", "measures", "becomes", "competes", "has_property",
+)  # fmt: skip
 MAX_RELATIONS = 20
 MAX_EVIDENCE = 3
 _LEN_NAME = 80
@@ -70,7 +74,12 @@ sentences state. Answer with ONE JSON object and nothing else:
   (null when you do not know one).
 - "rel": exactly one of
   part (from is a part of to) / sub (from is a kind of to) /
-  lowers (from lowers to) / raises (from raises to) / affects (from changes to).
+  lowers (from lowers to) / raises (from raises to) / affects (from changes to) /
+  makes (the method from produces the material to) /
+  measures (the method from measures to, a material or a property) /
+  becomes (the material from turns into the material to) /
+  competes (the materials from and to compete; write it once) /
+  has_property (the material from has the property to).
 - "evidence": one to three sentence NUMBERS (s1, s2, ...) that state the relation. Numbers only,
   never a quotation. Both terms must appear in those sentences.
 - At most 20 relations. Leave out a relation the sentences do not state.

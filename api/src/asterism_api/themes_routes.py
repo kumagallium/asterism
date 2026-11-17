@@ -721,7 +721,9 @@ def register_themes(
         * ``mode`` = ``knowledge``（確定した関係の線から決定論で答える）| ``data``（宣言ツール）;
         * ``knowledge`` = ``{count, items[]}``（知識の問いだけ・データの問いは ``null``）。
           ``items`` は ``asterism.knowledge`` の行 ``{iri, label, relation, via, via_label, reason,
-          drafted_by, at, batch}``（誰が・いつ・何をまとめて・なぜ）。公開済みデータセットが
+          drafted_by, at, batch}``（誰が・いつ・何をまとめて・なぜ）。14a-2 の型の行には
+          ``sentence``（線の向きどおりの 1 文）が付き、``missing`` の行は
+          ``others``・``others_count`` を持つ。公開済みデータセットが
           0 件でも答える;
         * ``data`` = ``{answering, total_datasets}`` — データの問いは答えるデータセット数
           （``wired.json``）、知識の問いはその対象の語に答えるデータセット数。"""
@@ -758,6 +760,14 @@ def register_themes(
                             en = by_iri.get(it[iri_key])
                             if en is not None and en.label_en:
                                 it[field] = en.label_en
+                        for o in it.get("others") or []:  # 「ほかの n 件にある」の相手
+                            en = by_iri.get(o.get("iri"))
+                            if en is not None and en.label_en:
+                                o["label"] = en.label_en
+                for it in items:  # 14a-2 の型は、線の向きどおりの文を添える
+                    text = knowledge.item_sentence(sel.get("op"), it, lg)
+                    if text is not None:
+                        it["sentence"] = text
                 shown = (
                     (target.label_en or target.label) if lg == "en" and target else
                     (target.label if target else str(sel.get("target") or ""))

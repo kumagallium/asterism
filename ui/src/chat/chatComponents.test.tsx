@@ -8,6 +8,7 @@ import { ChatPane } from './ChatPane'
 import { AddPanel } from './AddPanel'
 import { Composer } from './Composer'
 import { HandForm } from './HandForm'
+import { WAYS, targetsFor } from './handWays'
 import { NoteLine, ReplyCard, SENTENCE_LIMIT } from './ReplyCard'
 import { SourcePickerView } from './SourcePicker'
 import { allDocumentNames, formatSize } from './sourcePickerUtil'
@@ -303,15 +304,25 @@ describe('HandForm', () => {
     expect(text(html)).toContain('物性')
     expect(text(html)).toContain('下げる')
   })
-  it('問いがあれば 3 行目「答え方」（8 つの方法）と testid が出る', () => {
+  it('問いがあれば 3 行目「答え方」（18 の方法）と testid が出る', () => {
     const withQ = { ...draft, questions: ['熱伝導率を下げるものは？'] }
     const html = renderToStaticMarkup(<HandForm draft={withQ} nextKey="h3" busy={false} onSubmit={async () => true} onAnswer={async () => true} />)
     for (const id of ['hand-answer-q', 'hand-answer-way', 'hand-answer-target', 'hand-answer', 'hand-name', 'hand-kind', 'hand-add', 'hand-rel-from', 'hand-rel-kind', 'hand-rel-to', 'hand-rel-add']) {
       expect(html).toContain(`data-testid="${id}"`)
     }
-    expect((html.match(/<option value="(factors:(lowers|raises|affects)|parts|kinds|count|range|top)"/g) ?? []).length).toBe(8)
+    expect((html.match(/<option value="(factors:(lowers|raises|affects)|parts|kinds|makers|products|measurers|measured|sources|outcomes|competitors|properties|bearers|missing|count|range|top)"/g) ?? []).length).toBe(18)
     const none = renderToStaticMarkup(<HandForm draft={draft} nextKey="h3" busy={false} onSubmit={async () => true} onAnswer={async () => true} />)
     expect(none).not.toContain('hand-answer')
+  })
+  it('新しい 10 の選択肢と、bearers を選ぶと対象は項目だけ', () => {
+    const withQ = { ...draft, questions: ['熱伝導率を持つ材料は？'] }
+    const html = renderToStaticMarkup(<HandForm draft={withQ} nextKey="h3" busy={false} onSubmit={async () => true} onAnswer={async () => true} />)
+    expect(html).toContain('<option value="bearers">〜を持つ材料</option>')
+    expect(html).toContain('<option value="missing">〜でまだ無い物性</option>')
+    const need = (id: string) => WAYS.find((w) => w.id === id)?.need ?? ''
+    expect(targetsFor(draft.concepts, need('bearers')).map((c) => c.key)).toEqual(['h1'])
+    expect(targetsFor(draft.concepts, need('measurers')).map((c) => c.key)).toEqual(['h1', 'h2'])
+    expect(targetsFor(draft.concepts, need('makers')).map((c) => c.key)).toEqual(['h2'])
   })
   it('概念が無いうちは名前の行だけ', () => {
     const html = renderToStaticMarkup(<HandForm draft={null} nextKey="h1" busy={false} onSubmit={async () => true} />)

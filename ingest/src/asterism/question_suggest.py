@@ -193,7 +193,10 @@ def postprocess_questions(
             ):
                 continue
         elif mode == "knowledge" and op in themes.KNOWLEDGE_OPS:
-            target = _pick(target_idx, raw.get("target"))
+            want = themes.KNOWLEDGE_TARGET_KINDS.get(str(op))
+            # 14a-2 の新しい型は対象の種別が決まっている（種類／項目）。合わない語は落とす
+            idx = name_index(_term_entries(terms, want, lang)) if want else target_idx
+            target = _pick(idx, raw.get("target"))
             direction = raw.get("direction")
             if target is None or (op == "factors" and direction not in themes.KNOWLEDGE_DIRECTIONS):
                 continue

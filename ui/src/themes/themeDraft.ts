@@ -99,7 +99,7 @@ export interface RelationRow {
 export interface AnswerRow {
   question: string
   mode: AnswerMode
-  /** knowledge: factors|parts|kinds・data: count|range|top|filter|group|trend|join。 */
+  /** knowledge: factors|parts|kinds|makers|products|measurers|measured|sources|outcomes|competitors|properties|bearers|missing・data: count|range|top|filter|group|trend|join。 */
   op: string
   target: string
   /** factors の向き: lowers|raises|affects。 */
@@ -617,13 +617,30 @@ export function confirmCounts(draft: ThemeDraft): ConfirmCounts {
 
 // ---- 答え方（②の上の行） ------------------------------------------------------------
 
-/** 答え方の型。knowledge の 5 つ（向き 3 つ・一部・一種）、data の 7 つ（件数・範囲・最大・絞る・〜ごと・推移・結合）、メモ。 */
+/** 関係を引く新しい knowledge の型（direction なし・対象が要る）。 */
+export const LINE_WAYS = [
+  'makers',
+  'products',
+  'measurers',
+  'measured',
+  'sources',
+  'outcomes',
+  'competitors',
+  'properties',
+  'bearers',
+  'missing',
+] as const
+export type LineWay = (typeof LINE_WAYS)[number]
+const isLineWay = (v: string): v is LineWay => (LINE_WAYS as readonly string[]).includes(v)
+
+/** 答え方の型。knowledge の 15 つ（向き 3 つ・一部・一種・関係を引く 10 つ）、data の 7 つ（件数・範囲・最大・絞る・〜ごと・推移・結合）、メモ。 */
 export const ANSWER_WAYS = [
   'lowers',
   'raises',
   'affects',
   'parts',
   'kinds',
+  ...LINE_WAYS,
   'count',
   'range',
   'top',
@@ -640,6 +657,7 @@ export function wayOf(a: AnswerRow): AnswerWay {
   if (a.mode === 'knowledge') {
     if (a.op === 'parts') return 'parts'
     if (a.op === 'kinds') return 'kinds'
+    if (isLineWay(a.op)) return a.op
     if (a.direction === 'raises') return 'raises'
     if (a.direction === 'affects') return 'affects'
     return 'lowers'
@@ -670,7 +688,7 @@ export interface WayNeeds {
 /** その型が選ぶ概念: target（knowledge）・kind（件数・範囲・最大・絞る・〜ごと・推移・結合）・property ほか。 */
 export function wayNeeds(way: AnswerWay): WayNeeds {
   return {
-    target: ['lowers', 'raises', 'affects', 'parts', 'kinds'].includes(way),
+    target: ['lowers', 'raises', 'affects', 'parts', 'kinds'].includes(way) || (LINE_WAYS as readonly string[]).includes(way),
     kind: way === 'count' || way === 'range' || way === 'top' || WIDE_WAYS.includes(way),
     property: way === 'range' || way === 'top' || WIDE_WAYS.includes(way),
     kindOptional: way === 'range' || way === 'top',
@@ -690,6 +708,16 @@ export function setWay(a: AnswerRow, way: AnswerWay): AnswerRow {
       return { ...base, mode: 'knowledge', op: 'factors', direction: way, kind: '', property: '', memo: null }
     case 'parts':
     case 'kinds':
+    case 'makers':
+    case 'products':
+    case 'measurers':
+    case 'measured':
+    case 'sources':
+    case 'outcomes':
+    case 'competitors':
+    case 'properties':
+    case 'bearers':
+    case 'missing':
       return { ...base, mode: 'knowledge', op: way, direction: '', kind: '', property: '', memo: null }
     case 'count':
       return { ...base, mode: 'data', op: 'count', direction: '', target: '', property: '', memo: null }
@@ -719,7 +747,7 @@ export function answerComplete(a: AnswerRow): boolean {
   if (a.mode === 'knowledge') {
     if (!a.target) return false
     if (a.op === 'factors') return ['lowers', 'raises', 'affects'].includes(a.direction)
-    return a.op === 'parts' || a.op === 'kinds'
+    return a.op === 'parts' || a.op === 'kinds' || isLineWay(a.op)
   }
   if (a.mode === 'data') {
     if (a.op === 'count') return !!a.kind
@@ -733,6 +761,44 @@ export function answerComplete(a: AnswerRow): boolean {
   return false
 }
 
+/** 新しい型の見積もり: 直接の線だけ（閉包なし）。 */
+function lineEstimate(rels: RelationRow[], op: LineWay, target: string): number {
+  const pick = (rel: RelKind, end: 'from' | 'to') => rels.filter((r) => r.rel === rel && r[end] === target).length
+  switch (op) {
+    case 'makers':
+      return pick('makes', 'to')
+    case 'products':
+      return pick('makes', 'from')
+    case 'measurers':
+      return pick('measures', 'to')
+    case 'measured':
+      return pick('measures', 'from')
+    case 'sources':
+      return pick('becomes', 'to')
+    case 'outcomes':
+      return pick('becomes', 'from')
+    case 'competitors':
+      return rels.filter((r) => r.rel === 'competes' && (r.from === target || r.to === target)).length
+    case 'properties':
+      return pick('has_property', 'from')
+    case 'bearers':
+      return pick('has_property', 'to')
+    case 'missing': {
+      const has = rels.filter((r) => r.rel === 'has_property')
+      const mine = new Set(has.filter((r) => r.from === target).map((r) => r.to))
+      const holders = new Map<string, Set<string>>()
+      for (const r of has) {
+        if (r.from === target || mine.has(r.to)) continue
+        holders.set(r.to, (holders.get(r.to) ?? new Set()).add(r.from))
+      }
+      return [...holders.values()].filter((h) => h.size >= MISSING_MIN_OTHERS).length
+    }
+  }
+}
+
+/** missing: 対象以外の何個以上の概念が持つ項目を「まだ無い」候補にするか（api と同じ）。 */
+export const MISSING_MIN_OTHERS = 2
+
 /**
  * 知識の問いに、いま確定したら何件で答えられるかの見積もり（api の `knowledge.py` と同じ規則・
  * 閉包は 1 段）: `factors(X, 下げる)` ＝ X を直接下げる線 ∪ X の一部を下げる線。「変える」は
@@ -743,6 +809,7 @@ export function knowledgeEstimate(draft: ThemeDraft, a: AnswerRow): number {
   const rels = sentRelations(draft)
   if (a.op === 'parts') return rels.filter((r) => r.rel === 'part' && r.to === a.target).length
   if (a.op === 'kinds') return rels.filter((r) => r.rel === 'sub' && r.to === a.target).length
+  if (isLineWay(a.op)) return lineEstimate(rels, a.op, a.target)
   const accept: RelKind[] = a.direction === 'affects' ? ['lowers', 'raises', 'affects'] : [a.direction as RelKind]
   const via = new Set([a.target, ...rels.filter((r) => r.rel === 'part' && r.to === a.target).map((r) => r.from)])
   const seen = new Set<string>()
@@ -774,9 +841,11 @@ export function conceptsFor(
       ? 'class'
       : slot === 'property' || slot === 'property2'
         ? 'property'
-        : way === 'lowers' || way === 'raises' || way === 'affects'
+        : way === 'lowers' || way === 'raises' || way === 'affects' || way === 'bearers'
           ? 'property'
-          : null
+          : (LINE_WAYS as readonly string[]).includes(way) && way !== 'measurers'
+            ? 'class'
+            : null
   return draft.concepts.filter((c) => want === null || c.kind === want)
 }
 

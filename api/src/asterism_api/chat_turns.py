@@ -1729,6 +1729,8 @@ def run_set_answer_turn(
         t_row = pick("target")
         if t_row is None:
             raise _undecided("target")
+        if not themes.knowledge_target_kind_ok(op, str(t_row.get("kind") or "")):
+            raise _undecided("target")  # 対象の種別が型に合わない（data の kind と同じ断り方）
         if op == "factors" and direction not in themes.KNOWLEDGE_DIRECTIONS:
             raise _undecided("direction")
         row = themes._answer_row(
@@ -1834,7 +1836,7 @@ def _answer_complete(a: dict) -> bool:
             return False
         if op == "factors":
             return a.get("direction") in ("lowers", "raises", "affects")
-        return op in ("parts", "kinds")
+        return op in themes.KNOWLEDGE_OPS and op != "factors"
     if mode == "data":
         kind, prop = a.get("kind"), a.get("property")
         if op == "count":

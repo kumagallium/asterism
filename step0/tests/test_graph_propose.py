@@ -27,6 +27,7 @@ from asterism_step0.graph_propose import (
     propose_graph_diff,
     validate_graph_diff,
 )
+from asterism_step0.theme_propose import KNOWLEDGE_OPS
 
 GRAPH = {
     "concepts": [
@@ -150,6 +151,15 @@ def test_the_new_relations_pass_validation(rel: str) -> None:
     ]}  # fmt: skip
     out = validate_graph_diff(raw, known_keys=KEYS)
     assert out["ops"][0]["rel"] == rel
+
+
+@pytest.mark.parametrize("op_kind", KNOWLEDGE_OPS[3:])
+def test_the_new_knowledge_question_types_pass_and_unknown_ones_fail(op_kind: str) -> None:
+    q = {"op": "add_question", "question": "q", "mode": "knowledge", "op_kind": op_kind,
+         "target": "c2", "reason": "r"}  # fmt: skip
+    out = validate_graph_diff({"reply": "", "ops": [q]}, known_keys=KEYS)
+    assert out["ops"][0]["op_kind"] == op_kind
+    _bad({**q, "op_kind": op_kind + "_x"})
 
 
 def test_relations_and_modes_are_closed_sets() -> None:

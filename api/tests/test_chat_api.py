@@ -480,6 +480,39 @@ def test_set_answer_decides_a_question_and_the_check_passes(tmp_path: Path) -> N
         assert c.json()["commit"] is not None and c.json()["commit"]["theme_id"]
 
 
+def test_set_answer_takes_the_new_knowledge_types_and_refuses_a_target_of_the_wrong_kind(
+    tmp_path: Path,
+) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        sid = _new(client)
+        _say(client, sid, Q_LOWER)
+        _ops(client, sid, [CONCEPT_A, CONCEPT_B, REL_AB])  # h1 = 項目・h2 = 種類
+        mine = {"question": Q_LOWER, "mode": "knowledge"}
+        # 種別の合わない対象は断る（data の kind と同じ 422・「答え方が決まっていません」）
+        for op, target in (("bearers", "h2"), ("makers", "h1"), ("missing", "h1")):
+            bad = _set(client, sid, **{**mine, "op": op, "target": target})
+            assert bad.status_code == 422 and "答え方が決まっていません: target" in bad.text, op
+        ok = _set(client, sid, **{**mine, "op": "makers", "target": "h2"})
+        assert ok.status_code == 201, ok.text
+        turn = ok.json()["turn"]
+        assert "粒界散乱 を作る手法" in turn["reply"]["text"]
+        # measurers はどちらでも・bearers は項目
+        assert _set(client, sid, **{**mine, "op": "measurers", "target": "h1"}).status_code == 201
+        done = _set(client, sid, **{**mine, "op": "bearers", "target": "h1"})
+        assert done.status_code == 201
+        assert "熱伝導率 を持つ材料" in done.json()["turn"]["reply"]["text"]
+        # 答え方が決まった問いとして ✓ が通る（direction なしの新しい型）
+        tid = done.json()["turn"]["id"]
+        c = client.post(f"/api/chat/sessions/{sid}/turns/{tid}/confirm", json={})
+        assert c.status_code == 200, c.text
+        # 既存の型は今のまま（種別の検査なし）
+        sid2 = _new(client)
+        _say(client, sid2, Q_LOWER)
+        _ops(client, sid2, [CONCEPT_A, CONCEPT_B, REL_AB])
+        assert _set(client, sid2, **{**mine, "op": "parts", "target": "h2"}).status_code == 201
+
+
 def test_set_answer_without_a_draft_and_revert(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
     with client:

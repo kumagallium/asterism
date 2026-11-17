@@ -635,7 +635,7 @@ def register_consult_graph(
         多くて 3 本。
         AI の答えは閉じた JSON だけ
         （SPARQL・IRI・コードの欄は無く、そう見える文字列は弾く・1 回だけ言い直させる）。機械が
-        閉じた形（7 つのデータの形・3 つの知識の形）に落ちるもの・名前が列や用語に実在するもの・
+        閉じた形（7 つのデータの形・13 の知識の形）に落ちるもの・名前が列や用語に実在するもの・
         既存の問いと重ならないものだけに絞る。未設定なら 503。"""
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root

@@ -124,7 +124,11 @@ def test_the_vocabulary_is_the_closed_one_of_the_design() -> None:
         "sub", "eq", "quantity", "part", "lowers", "raises", "affects",
         "makes", "measures", "becomes", "competes", "has_property",
     )  # fmt: skip
-    assert KNOWLEDGE_OPS == ("factors", "parts", "kinds")
+    assert KNOWLEDGE_OPS == (
+        "factors", "parts", "kinds",
+        "makers", "products", "measurers", "measured", "sources", "outcomes",
+        "competitors", "properties", "bearers", "missing",
+    )  # fmt: skip
     assert DATA_OPS == ("count", "range", "top", "filter", "group", "trend", "join")
 
 
@@ -200,6 +204,14 @@ def test_reason_and_wanted_data_are_cut_to_the_length_and_never_refused() -> Non
     del raw["relations"][1]["reason"]
     out = validate_theme_draft(raw)
     assert out["answers"][0]["wanted_data"] == "" and out["relations"][1]["reason"] == ""
+
+
+@pytest.mark.parametrize("op", KNOWLEDGE_OPS[3:])
+def test_the_new_knowledge_ops_pass_and_unknown_ones_still_fail(op: str) -> None:
+    a = validate_theme_draft(_bad(answers=[_ans(mode="knowledge", op=op, target="c2")]))
+    assert (a["answers"][0]["mode"], a["answers"][0]["op"]) == ("knowledge", op)
+    with pytest.raises(ThemeDraftError):
+        validate_theme_draft(_bad(answers=[_ans(mode="knowledge", op=op + "_x", target="c2")]))
 
 
 @pytest.mark.parametrize("op", ["filter", "group", "trend", "join"])
