@@ -27,7 +27,7 @@ import {
   type OverviewInput,
   type OverviewLayout,
 } from './kindOverview'
-import { isDirectedRelation, relationKey } from './lineChoice'
+import { isDirectedRelation, isEquivalenceRelation, relationKey } from './lineChoice'
 import { rulesShape } from './shapeGraph'
 
 /** これ以下なら種類まで（丸）で全部描く。 */
@@ -453,6 +453,7 @@ function build(input: OverviewInput, width: number, sweeps: number): OverviewLay
   for (const a of (input.alignments ?? []) as Alignment[]) {
     // ⊂ は向きあり（'upper'・source → target）、≡ などは向きのない対応。
     const directed = isDirectedRelation(a.relation)
+    if (!directed && !isEquivalenceRelation(a.relation)) continue // 競合する（向きなし）は「同じ」の線ではない
     for (const f of dsOfIri.get(a.source) ?? []) {
       for (const t of dsOfIri.get(a.target) ?? []) {
         if (f === t) continue

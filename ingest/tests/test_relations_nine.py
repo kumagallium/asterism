@@ -91,7 +91,7 @@ async def _lay(client: _Client, tmp_path: Path) -> None:
 
 
 def test_nine_relations_with_standard_iris_and_a_shape_row_each() -> None:
-    assert len(ALIGN_RELATIONS) == 9
+    assert len(ALIGN_RELATIONS) == 15  # 9 + 実験の記録の 6（14a-1）
     assert ALIGN_RELATIONS["isPartOf"] == OBO + "BFO_0000050"
     assert ALIGN_RELATIONS["lowers"] == OBO + "RO_0002212"
     assert ALIGN_RELATIONS["raises"] == OBO + "RO_0002213"
@@ -174,7 +174,19 @@ async def test_upper_path_is_unchanged_part_of_does_not_wire(seeded: _Client) ->
 
 
 def test_reserved_slugs() -> None:
-    assert {"part_of", "lowers", "raises", "affects", "regulates"} == set(sv.RESERVED_SLUGS)
+    assert {
+        "part_of",
+        "lowers",
+        "raises",
+        "affects",
+        "regulates",
+        "makes",
+        "measures",
+        "becomes",
+        "competes",
+        "competes_with",
+        "has_property",
+    } == set(sv.RESERVED_SLUGS)
 
 
 @pytest.mark.parametrize("slug", sorted(sv.RESERVED_SLUGS))

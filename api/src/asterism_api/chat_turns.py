@@ -143,6 +143,7 @@ _DROPPED = {
         "unsupported": "ここでは使えません",
         "dataset_only": "表の列だけに使えます",
         "same": "自分自身にはつなげません",
+        "role_mismatch": "役割が合いません",
         "quantity_target": "量は、項目から量の種類へだけつなげます",
         "target_not_property": "下げる・上げる・変えるの相手は項目だけです",
         "not_found": "見つかりません",
@@ -159,6 +160,7 @@ _DROPPED = {
         "unsupported": "not usable here",
         "dataset_only": "only for table columns",
         "same": "cannot link to itself",
+        "role_mismatch": "the roles do not fit",
         "quantity_target": "a quantity links only from an item to a quantity kind",
         "target_not_property": "the other end must be an item",
         "not_found": "not found",
@@ -504,7 +506,8 @@ def resolve_scope(
         has = any(
             (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) in ((f, rel, t), (t, rel, f))
             if rel == "eq"  # 「同じ」は向きを問わない
-            else (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) == (f, rel, t)
+            else themes.draft_rel_key(str(r.get("from")), str(r.get("rel")), str(r.get("to")))
+            == themes.draft_rel_key(str(f), rel, str(t))  # 向きの無い関係（競合する）も両向き
             for r in graph.get("relations") or []
         )
         if f is None or t is None or not has:
@@ -591,7 +594,8 @@ def filter_ops_to_scope(
 
     if line:
         f, rel, t = line
-        ends = {(f, t), (t, f)} if rel == "eq" else {(f, t)}
+        both = rel == "eq" or rel in themes.SYMMETRIC_DRAFT_RELATIONS  # 向きを問わない関係
+        ends = {(f, t), (t, f)} if both else {(f, t)}
 
         def keep_line(o: dict) -> bool:
             name = o.get("op")
@@ -1545,13 +1549,17 @@ def _remove_op(draft: dict, target: dict) -> dict | None:
         key = next((k for k, sl in slug_of.items() if sl and sl == target["slug"]), None)
         return None if key is None else {"op": "remove", "target": "concept", "key": key}
     kinds = {_concept_slug(c): c.get("kind") for c in rows}
+    # 向きの無い関係（競合する）は、指定がどちらの向きでもストアの並びにそろえて突き合わせる
+    want = (
+        *crosswalk_runtime.canonical_ends(target["relation"], target["from"], target["to"]),
+    )
     for r in draft.get("relations") or []:
         f = slug_of.get(str(r.get("from")), "")
         if not f:
             continue
         end = slug_of.get(str(r.get("to"))) or str(r.get("to"))
         iris = chat_seed._line_iris({"kinds": kinds}, (f, str(r.get("rel")), end))
-        if iris == (target["from"], target["relation"], target["to"]):
+        if iris is not None and iris == (want[0], target["relation"], want[1]):
             return {
                 "op": "remove",
                 "target": "relation",
@@ -1878,6 +1886,8 @@ def commit_body(draft: dict, lang: str) -> dict:
                 "use": c.get("use") or "new",
                 "slug": "" if _is_existing(c) else c.get("slug") or "",
                 "by": c.get("by") or "human",
+                # 役割の札（この確定で作る語だけに効く・ingest 側が既存の語の札は無視する）
+                **({"role": c["role"]} if c.get("role") else {}),
             }
             for c in concepts
         ],
@@ -2022,11 +2032,12 @@ async def confirm_only(
     }
     slug_of = {k: _concept_slug(c) for k, c in by_key.items()}
     seed = chat_seed.seed_from_theme(root, existing, theme)
-    seed_rels = {tuple(t) for t in seed["seed"]["relations"]}
+    seed_rels = {themes.draft_rel_key(*map(str, t)) for t in seed["seed"]["relations"]}
 
     def is_seed_rel(r: dict) -> bool:
         f, t = str(r.get("from")), str(r.get("to"))
-        return (slug_of.get(f, ""), str(r.get("rel")), slug_of.get(t) or t) in seed_rels
+        key = themes.draft_rel_key(slug_of.get(f, ""), str(r.get("rel")), slug_of.get(t) or t)
+        return key in seed_rels
 
     wanted: list[dict] = []
     for w in only.get("relations") or []:
@@ -2035,8 +2046,8 @@ async def confirm_only(
             (
                 r
                 for r in draft.get("relations") or []
-                if (str(r.get("from")), str(r.get("rel")), str(r.get("to")))
-                == (str(w["from"]), rel, str(w["to"]))
+                if themes.draft_rel_key(str(r.get("from")), str(r.get("rel")), str(r.get("to")))
+                == themes.draft_rel_key(str(w["from"]), rel, str(w["to"]))
             ),
             None,
         )

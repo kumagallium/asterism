@@ -88,6 +88,17 @@ describe('sentenceRows', () => {
     expect(relSentence('eq', 'A', 'B', 'ja')).toBe('A と B は同じもの')
     expect(relSentence('zzz', 'A', 'B', 'ja')).toBe('A - B')
     expect(relSentence('lowers', 'A', 'B', 'en')).toBe('A lowers B')
+    // 新しい 5 文（ja・en）
+    expect(relSentence('makes', 'A', 'B', 'ja')).toBe('A で B を作る')
+    expect(relSentence('measures', 'A', 'B', 'ja')).toBe('A で B を測る')
+    expect(relSentence('becomes', 'A', 'B', 'ja')).toBe('A が B に変わる')
+    expect(relSentence('competes', 'A', 'B', 'ja')).toBe('A と B は競合する')
+    expect(relSentence('has_property', 'A', 'B', 'ja')).toBe('A の B')
+    expect(relSentence('makes', 'A', 'B', 'en')).toBe('A makes B')
+    expect(relSentence('measures', 'A', 'B', 'en')).toBe('A measures B')
+    expect(relSentence('becomes', 'A', 'B', 'en')).toBe('A turns into B')
+    expect(relSentence('competes', 'A', 'B', 'en')).toBe('A competes with B')
+    expect(relSentence('has_property', 'A', 'B', 'en')).toBe('A has the property B')
   })
   it('rowsOfDraft: 実データの形（state なし・from_seed あり）。種は濃い行・外す／離れる線は除く・名前は curie の右も', () => {
     const d = {

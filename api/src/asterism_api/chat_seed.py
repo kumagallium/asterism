@@ -69,8 +69,16 @@ def seed_from_theme(root: Any, existing: list[SharedTerm], theme: dict) -> dict:
         if not isinstance(ln, dict):
             continue
         rel = graph_diff.PRED_TO_REL.get(str(ln.get("relation")))
-        src = by_iri.get(str(ln.get("from")))
-        tgt = end(str(ln.get("to")))
+        frm_iri, to_iri = str(ln.get("from")), str(ln.get("to"))
+        # 向きの無い関係は標準の語が from（IRI の並びで前）に来る — 用語を主語に入れ替える
+        if (
+            str(ln.get("relation")) in crosswalk_runtime.SYMMETRIC_RELATIONS
+            and by_iri.get(frm_iri) is None
+            and by_iri.get(to_iri) is not None
+        ):
+            frm_iri, to_iri = to_iri, frm_iri
+        src = by_iri.get(frm_iri)
+        tgt = end(to_iri)
         if rel is None or src is None or tgt is None:
             continue
         trip = (src.slug, rel, tgt)
@@ -142,8 +150,8 @@ def seed_gone(seed: dict, draft: dict) -> tuple[list[str], list[tuple[str, str, 
     slug_of = {str(c.get("key")): str(c.get("slug") or "") for c in rows}
     have_slugs = {s for s in slug_of.values() if s}
     have_rels = {
-        (slug_of.get(str(r.get("from")), ""), str(r.get("rel")),
-         slug_of.get(str(r.get("to")), str(r.get("to"))))
+        themes.draft_rel_key(slug_of.get(str(r.get("from")), ""), str(r.get("rel")),
+                             slug_of.get(str(r.get("to")), str(r.get("to"))))
         for r in draft.get("relations") or []
         if isinstance(r, dict) and r.get("problem") is None
     }  # fmt: skip
@@ -151,7 +159,7 @@ def seed_gone(seed: dict, draft: dict) -> tuple[list[str], list[tuple[str, str, 
     lines = [
         (str(f), str(r), str(t))
         for f, r, t in seed.get("relations") or []
-        if (str(f), str(r), str(t)) not in have_rels
+        if themes.draft_rel_key(str(f), str(r), str(t)) not in have_rels
     ]
     return terms, lines
 
@@ -163,13 +171,17 @@ def _line_iris(seed: dict, trip: tuple[str, str, str]) -> tuple[str, str, str] |
     if kind not in ("class", "property"):
         return None
     try:
-        pred = themes.relation_predicate(rel, kind)
         if ":" in t:
             ref = themes.std_by_curie(t)
             if ref is None:
                 return None
-            return sv.term_iri(f), pred, ref.iri
-        return sv.term_iri(f), pred, sv.term_iri(t)
+            pred = themes.relation_predicate(rel, kind, ref.kind)
+            a, b = crosswalk_runtime.canonical_ends(pred, sv.term_iri(f), ref.iri)
+            return a, pred, b
+        pred = themes.relation_predicate(rel, kind, (seed.get("kinds") or {}).get(t))
+        # 向きの無い関係（競合する）はストアの並び（IRI の文字列順）にそろえる
+        a, b = crosswalk_runtime.canonical_ends(pred, sv.term_iri(f), sv.term_iri(t))
+        return a, pred, b
     except (ValueError, themes.ThemeError):
         return None
 
@@ -189,12 +201,12 @@ def seed_marks(seed: dict | None, draft: dict) -> tuple[set[str], set[tuple[str,
     slug_of = {str(c.get("key")): slug(c) for c in rows}
     have = set(seed.get("concepts") or [])
     keys = {k for k, sl in slug_of.items() if sl and sl in have}
-    seed_rels = {tuple(t) for t in seed.get("relations") or []}
+    seed_rels = {themes.draft_rel_key(*map(str, t)) for t in seed.get("relations") or []}
     rels = {
         (str(r.get("from")), str(r.get("rel")), str(r.get("to")))
         for r in draft.get("relations") or []
         if isinstance(r, dict)
-        and (
+        and themes.draft_rel_key(
             slug_of.get(str(r.get("from")), ""),
             str(r.get("rel")),
             slug_of.get(str(r.get("to"))) or str(r.get("to")),

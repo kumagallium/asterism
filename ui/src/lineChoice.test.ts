@@ -3,6 +3,7 @@ import type { Alignment } from './crosswalkApi'
 import {
   httpStatusOf,
   isDirectedRelation,
+  isEquivalenceRelation,
   isKnowledgeRelation,
   knowledgeRelationsFor,
   RELATION_ORDER,
@@ -173,17 +174,22 @@ describe('sharedLines — 共有のことばに掛かる線', () => {
 })
 
 describe('知識の関係（一部・下げる・上げる・変える）', () => {
-  it('閉集合は 9 述語で、知識の 4 つは後ろに足してある', () => {
-    expect(RELATION_ORDER).toHaveLength(9)
-    expect(RELATION_ORDER.slice(5)).toEqual(['isPartOf', 'lowers', 'raises', 'affects'])
+  it('閉集合は 15 述語で、知識の 10 は後ろに足してある', () => {
+    expect(RELATION_ORDER).toHaveLength(15)
+    expect(RELATION_ORDER.slice(5)).toEqual([
+      'isPartOf', 'lowers', 'raises', 'affects', 'makes', 'measuresProperty', 'measuresMaterial', 'becomes', 'competesWith', 'hasProperty',
+    ])
     expect(isKnowledgeRelation('lowers')).toBe(true)
     expect(isKnowledgeRelation('http://purl.obolibrary.org/obo/BFO_0000050')).toBe(false) // 述語名で持つ
     expect(isKnowledgeRelation('subClassOf')).toBe(false)
   })
   it('一部は同じ種別どうし・下げる系は「種類か項目 → 項目」（api の述語ごとの表と同じ）', () => {
-    expect(knowledgeRelationsFor('class', 'class')).toEqual(['isPartOf'])
+    expect(knowledgeRelationsFor('class', 'class')).toEqual(['isPartOf', 'makes', 'measuresMaterial', 'becomes', 'competesWith'])
     expect(knowledgeRelationsFor('property', 'property')).toEqual(['isPartOf', 'lowers', 'raises', 'affects'])
-    expect(knowledgeRelationsFor('class', 'property')).toEqual(['lowers', 'raises', 'affects'])
+    expect(knowledgeRelationsFor('class', 'property')).toEqual(['lowers', 'raises', 'affects', 'measuresProperty', 'hasProperty'])
+    // 量の種類の端には新しい関係を出さない
+    expect(knowledgeRelationsFor('quantity', 'class')).toEqual(['isPartOf'])
+    expect(knowledgeRelationsFor('class', 'quantity')).toEqual(['isPartOf'])
     expect(knowledgeRelationsFor('property', 'class')).toEqual([])
     expect(knowledgeRelationsFor('quantity', 'property')).toEqual([])
   })
@@ -201,5 +207,28 @@ describe('知識の関係（一部・下げる・上げる・変える）', () =
     expect(relationSymbol('raises')).toBe('↑')
     expect(relationSymbol('affects')).toBe('↕')
     expect(relationSymbol('isPartOf')).toBe('⊂')
+  })
+  it('isEquivalenceRelation: ≡ と未知の関係は「同じ」・向きのある関係と競合する（向きなし）は「同じ」ではない', () => {
+    expect(isEquivalenceRelation('equivalentClass')).toBe(true)
+    expect(isEquivalenceRelation('equivalentProperty')).toBe(true)
+    expect(isEquivalenceRelation('somethingUnknown')).toBe(true) // 未知は今まで通り両向き＝同じ
+    expect(isEquivalenceRelation('competesWith')).toBe(false)
+    expect(isEquivalenceRelation('REL#competesWith')).toBe(false)
+    for (const r of ['subClassOf', 'lowers', 'makes', 'hasQuantityKind']) expect(isEquivalenceRelation(r)).toBe(false)
+  })
+  it('新しい関係: 競合するだけ向きが無い・記号・知識の関係に数える', () => {
+    expect(isDirectedRelation('competesWith')).toBe(false)
+    expect(isDirectedRelation('REL#competesWith')).toBe(false)
+    for (const r of ['makes', 'measuresProperty', 'measuresMaterial', 'becomes', 'hasProperty']) {
+      expect(isDirectedRelation(r)).toBe(true)
+    }
+    for (const r of ['makes', 'measuresProperty', 'measuresMaterial', 'becomes', 'competesWith', 'hasProperty']) {
+      expect(isKnowledgeRelation(r)).toBe(true)
+    }
+    expect(relationSymbol('makes')).toBe('→')
+    expect(relationSymbol('measuresProperty')).toBe('→')
+    expect(relationSymbol('hasProperty')).toBe('→')
+    expect(relationSymbol('becomes')).toBe('⇒')
+    expect(relationSymbol('competesWith')).toBe('↔')
   })
 })

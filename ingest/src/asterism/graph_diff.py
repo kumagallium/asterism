@@ -7,7 +7,8 @@ AI は閉じた差分（``asterism_step0.graph_propose``: 7 操作）を**提案
 * :func:`apply_to_draft` — テーマの下書き（``themes.load_draft`` の形・v2）に差分を当てる。
   ``add_concept`` は :func:`asterism.themes.postprocess_draft` と同じ照合（完全一致が ``use`` に
   勝つ・2 文字以下の別名は標準に当てない・同じ名前の同じ種別は畳む）、``add_relation`` /
-  ``retarget`` は 9 述語の種別表と循環（:func:`asterism.shared_vocab.cycle_rels`）で検査、
+  ``retarget`` は 15 述語（下書きの名前は 12）の種別表・役割の札（新しい 5 つの関係だけ・
+  :func:`asterism.themes.experiment_relation_problem`）と循環（:func:`asterism.shared_vocab.cycle_rels`）で検査、
   ``remove`` は概念なら掛かる関係も外す、``rename`` は名前と別名、``add_question`` は問いと
   ``answers[]`` を 1 件足す。``bind_column`` はテーマでは拒む（データの当てはめ専用）。却下済み
   （``dismissed``）に当たる操作・検査に通らない操作は**落として**理由を ``report["dropped"]`` に
@@ -16,7 +17,7 @@ AI は閉じた差分（``asterism_step0.graph_propose``: 7 操作）を**提案
 * :func:`dismissal_keys` — 「✕」で保存する却下の鍵（``shared_vocab.dismiss_fit`` に渡す形）。
 
 ``report = {applied, dropped: [{index, op, reason, ref}], unlinked: [<key>]}``。``reason`` の
-値: ``unknown_key`` / ``same`` / ``mixed`` / ``cycle`` / ``quantity_target`` /
+値: ``unknown_key`` / ``same`` / ``mixed`` / ``role_mismatch`` / ``cycle`` / ``quantity_target`` /
 ``target_not_property`` / ``dismissed`` / ``duplicate`` / ``not_found`` / ``limit`` /
 ``not_renamable`` / ``dataset_only``。``unlinked`` = 問いの対象に関係でつながらない概念の key
 （画面の印に使う。問いの対象がまだ無ければ空）。
@@ -199,11 +200,31 @@ class _Applier:
             if src is None:
                 continue
             try:
-                pred = themes.relation_predicate(str(r.get("rel")), str(src.get("kind")))
+                pred = themes.relation_predicate(
+                    str(r.get("rel")), str(src.get("kind")), self.kind_of_end(str(r.get("to")))
+                )
             except themes.ThemeError:
                 continue
             out.add((str(r["from"]), pred, str(r["to"])))
         return out
+
+    def kind_of_end(self, ref: str) -> str | None:
+        """関係の端（下書きの行の key か標準の語の curie）の種別。引けなければ ``None``。"""
+        row = self.row_by_key(ref)
+        if row is not None:
+            return str(row.get("kind"))
+        std = themes.std_by_curie(ref) if ":" in ref else None
+        return std.kind if std is not None else None
+
+    def role_of(self, row: dict | None) -> str | None:
+        """役割の札: 既にある用語（``use: existing:``）はストアの札・それ以外は行の ``role``。"""
+        if row is None:
+            return None
+        if str(row.get("use") or "").startswith(_USE_EXISTING):
+            e = self.by_slug.get(str(row.get("slug") or ""))
+            return e.role if e is not None else None
+        r = row.get("role")
+        return r if r in sv.ROLES else None
 
     def check_relation(
         self,
@@ -225,9 +246,15 @@ class _Applier:
         elif rel in ("lowers", "raises", "affects"):
             if obj_kind != "property":
                 return "target_not_property"
+        elif rel in themes.EXPERIMENT_RELATIONS:
+            problem = themes.experiment_relation_problem(
+                rel, str(subj["kind"]), obj_kind, self.role_of(subj), self.role_of(obj)
+            )
+            if problem:
+                return problem
         elif obj_kind != subj["kind"]:  # sub / eq / part は同じ種別どうし
             return "mixed"
-        pred = themes.relation_predicate(rel, str(subj["kind"]))
+        pred = themes.relation_predicate(rel, str(subj["kind"]), obj_kind)
         cyc = sv.cycle_rels(pred)
         if cyc is not None and std is None and obj_key in sv._down_set(
             str(subj["key"]), self.triples(without=without), cyc
@@ -245,7 +272,9 @@ class _Applier:
             self.dismissed,
             themes.concept_end_key(subj),
             self.end_key_of(obj, std),
-            relation=themes.relation_predicate(rel, str(subj["kind"])),
+            relation=themes.relation_predicate(
+                rel, str(subj["kind"]), std.kind if std is not None else str(obj["kind"])  # type: ignore[index]
+            ),
         )
 
     # -- 操作 --------------------------------------------------------------------
@@ -296,6 +325,8 @@ class _Applier:
                 "reason": op.get("reason") or "",
                 "match": match,
                 "by": self.by,
+                # 役割の札（任意）。種類だけ・閉じた値だけ（違えば無視）
+                **({"role": op["role"]} if kind == "class" and op.get("role") in sv.ROLES else {}),
             }
         )
         self.applied += 1
@@ -314,9 +345,11 @@ class _Applier:
         return subj, obj, std
 
     def has_relation(self, frm: str, rel: str, to: str) -> bool:
-        """同じ関係が下書きにあるか（``eq`` は向きを問わない）。"""
+        """同じ関係が下書きにあるか（``eq``・``competes`` は向きを問わない）。"""
         have = {(r.get("from"), r.get("to"), r.get("rel")) for r in self.rels}
-        return (frm, to, rel) in have or (rel == "eq" and (to, frm, rel) in have)
+        return (frm, to, rel) in have or (
+            rel in ("eq", "competes") and (to, frm, rel) in have
+        )
 
     def add_relation(self, i: int, op: dict) -> None:
         got = self._resolve_pair(i, op, op["from"], op["to"])
@@ -357,7 +390,8 @@ class _Applier:
             (
                 r
                 for r in self.rels
-                if (r.get("from"), r.get("rel"), r.get("to")) == (row["key"], rel, to_key)
+                if themes.draft_rel_key(r.get("from"), r.get("rel"), r.get("to"))
+                == themes.draft_rel_key(row["key"], rel, to_key)  # 競合するは逆向きでも見つける
             ),
             None,
         )
@@ -376,7 +410,9 @@ class _Applier:
         if std is not None:
             self.remember_std(std)
         new_key = std.curie if std is not None else str(obj["key"])  # type: ignore[index]
-        if new_key == old["to"]:
+        # 競合する（向きなし）は逆向きの行が見つかることがある — 古い相手の端はその行の ``from``
+        old_end = old["to"] if old.get("from") == subj["key"] else old.get("from")
+        if new_key == old_end:
             return self.drop(i, op, "duplicate")
         if self.has_relation(str(subj["key"]), op["rel"], new_key):
             return self.drop(i, op, "duplicate")
@@ -385,6 +421,7 @@ class _Applier:
             return self.drop(i, op, problem)  # 元の関係は残る
         if self.is_dismissed(subj, op["rel"], obj, std):
             return self.drop(i, op, "dismissed")
+        old["from"] = str(subj["key"])  # 逆向きの行は、置き直して向きを op にそろえる
         old["to"] = new_key
         old["reason"] = op.get("reason") or old.get("reason") or ""
         old["problem"] = None
@@ -635,7 +672,11 @@ def plan_term_relations(
             target = (
                 str(to_kind["iri"]) if to_kind else ap.end_key_of(obj, std)  # type: ignore[arg-type]
             )
-            relation = themes.relation_predicate(str(op["rel"]), str(subj["kind"]))
+            relation = themes.relation_predicate(
+                str(op["rel"]),
+                str(subj["kind"]),
+                std.kind if std is not None else str(obj["kind"]),  # type: ignore[index]
+            )
             if name == "add_relation":
                 if from_kind or to_kind:  # 種類の端は IRI のまま比べる
                     gone = sv.is_dismissed(dismissed_rows, source, target, relation=relation)
@@ -725,6 +766,12 @@ def dismissal_keys(
         std = themes.std_by_curie(ref) if ":" in ref else None
         return std.iri if std is not None else None
 
+    def kind_of(ref: str) -> str | None:
+        if ref in rows:
+            return str(rows[ref]["kind"])
+        std = themes.std_by_curie(ref) if ":" in ref else None
+        return std.kind if std is not None else None
+
     for op in ops:
         name = op.get("op")
         if name not in ("add_relation", "retarget"):
@@ -737,7 +784,7 @@ def dismissal_keys(
         add(
             themes.concept_end_key(subj),
             term,
-            themes.relation_predicate(str(op["rel"]), str(subj["kind"])),
+            themes.relation_predicate(str(op["rel"]), str(subj["kind"]), kind_of(to_ref)),
         )
     return out
 
@@ -747,7 +794,7 @@ def dismissal_keys(
 # ---------------------------------------------------------------------------
 
 #: 述語（``crosswalk`` の線の ``relation``）→ 図の関係名（``themes.relation_predicate`` の逆）。
-#: 画面に出す線はこの 9 つの述語だけ。
+#: 画面に出す線はこの 15 の述語だけ（``measuresProperty`` と ``measuresMaterial`` は同じ「測る」）。
 PRED_TO_REL = {
     "subClassOf": "sub",
     "subPropertyOf": "sub",
@@ -758,6 +805,12 @@ PRED_TO_REL = {
     "lowers": "lowers",
     "raises": "raises",
     "affects": "affects",
+    "makes": "makes",
+    "measuresProperty": "measures",
+    "measuresMaterial": "measures",
+    "becomes": "becomes",
+    "competesWith": "competes",
+    "hasProperty": "has_property",
 }
 #: 図の関係名 → 線を言い表す文（``{s}`` = 主語の名前・``{o}`` = 目的語の名前）。
 REL_SENTENCE = {
@@ -769,6 +822,11 @@ REL_SENTENCE = {
         "lowers": "{s} は {o} を下げる",
         "raises": "{s} は {o} を上げる",
         "affects": "{s} は {o} を変える",
+        "makes": "{s} で {o} を作る",
+        "measures": "{s} で {o} を測る",
+        "becomes": "{s} が {o} に変わる",
+        "competes": "{s} と {o} は競合する",
+        "has_property": "{s} の {o}",
     },
     "en": {
         "sub": "{s} is a kind of {o}",
@@ -778,6 +836,11 @@ REL_SENTENCE = {
         "lowers": "{s} lowers {o}",
         "raises": "{s} raises {o}",
         "affects": "{s} changes {o}",
+        "makes": "{s} makes {o}",
+        "measures": "{s} measures {o}",
+        "becomes": "{s} turns into {o}",
+        "competes": "{s} competes with {o}",
+        "has_property": "{s} has the property {o}",
     },
 }
 

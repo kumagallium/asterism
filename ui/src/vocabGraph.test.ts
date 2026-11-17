@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Alignment } from './crosswalkApi'
+import type { SharedTerm } from './vocabApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import type { GroundCandidate } from './groundingApi'
 import {
@@ -292,6 +293,82 @@ describe('composeVocabGraph', () => {
     ])
     // a2 は source が解決できない（消えたデータセット）→ 描かない
     expect(shape.stats.alignments).toBe(1)
+  })
+
+  it('競合する（向きなし）は「同じ」の対応線として描かない・数えない', () => {
+    const shape = composeVocabGraph({
+      datasets: [{ id: 'x', name: 'XRD', rules: xrd() }],
+      candidates: {},
+      alignments: [
+        {
+          alignment_iri: 'a1',
+          source: `${XNS}name`,
+          target: 'https://schema.org/name',
+          relation: 'competesWith',
+          from_perspective: 'XRD',
+          to_perspective: 'Schema.org',
+          at: '',
+        },
+      ],
+      words: WORDS,
+    })
+    expect(shape.edges.filter((e) => e.kind === 'alignment')).toHaveLength(0)
+    expect(shape.stats.alignments).toBe(0)
+  })
+
+  it('競合する（向きなし）だけの標準の語は節にも出ない（線の無いときと同じ節の数）', () => {
+    const run = (alignments: Alignment[]) =>
+      composeVocabGraph({ datasets: [{ id: 'x', name: 'XRD', rules: xrd() }], candidates: {}, alignments, words: WORDS })
+    const competes: Alignment = {
+      alignment_iri: 'a1',
+      source: `${XNS}name`,
+      target: 'https://schema.org/name',
+      relation: 'competesWith',
+      from_perspective: '',
+      to_perspective: '',
+      at: '',
+    }
+    expect(run([competes]).nodes).toHaveLength(run([]).nodes.length)
+    expect(run([{ ...competes, relation: 'equivalentProperty' }]).nodes.length).toBeGreaterThan(run([]).nodes.length)
+  })
+
+  it('共有語の線: 競合する（向きなし）は描かず、標準の語の節も作らない（⊂ は描く）', () => {
+    const shared: SharedTerm = {
+      iri: 'https://example.org/sv#x',
+      slug: 'x',
+      kind: 'property',
+      label: 'X',
+      label_en: null,
+      comment: null,
+      created_at: '',
+      wired: true,
+      answering_datasets: 0,
+      narrower: [],
+      standards: [],
+      cqs: [],
+    }
+    const line = (relation: string): Alignment => ({
+      alignment_iri: relation,
+      source: shared.iri,
+      target: 'https://schema.org/name',
+      relation,
+      from_perspective: '',
+      to_perspective: '',
+      at: '',
+    })
+    const run = (alignments: Alignment[]) =>
+      composeVocabGraph({
+        datasets: [{ id: 'x', name: 'XRD', rules: xrd() }],
+        candidates: {},
+        alignments,
+        sharedTerms: [shared],
+        words: WORDS,
+      })
+    const none = run([])
+    const competes = run([line('competesWith')])
+    expect(competes.edges.filter((e) => e.kind === 'upper')).toHaveLength(0)
+    expect(competes.nodes).toHaveLength(none.nodes.length)
+    expect(run([line('subPropertyOf')]).edges.filter((e) => e.kind === 'upper')).toHaveLength(1)
   })
 
   it('標準のことばの箱は、語の IRI が符号でもカタログの表示名で出す', () => {

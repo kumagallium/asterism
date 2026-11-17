@@ -31,7 +31,7 @@ export interface PickEnd {
   termKind: TermKind
 }
 
-/** 閉集合の 9 述語（api の ALIGN_RELATIONS）。後ろの 4 つが知識の関係（標準の述語: BFO part of・RO regulates 系）。 */
+/** 閉集合の 15 述語（api の ALIGN_RELATIONS）。後ろの 10 が知識の関係（標準の述語: BFO part of・RO regulates 系・作る/測る/変わる/競合する/物性）。 */
 export const RELATION_ORDER = [
   'equivalentClass',
   'subClassOf',
@@ -42,11 +42,28 @@ export const RELATION_ORDER = [
   'lowers',
   'raises',
   'affects',
+  'makes',
+  'measuresProperty',
+  'measuresMaterial',
+  'becomes',
+  'competesWith',
+  'hasProperty',
 ] as const
 export type AlignRelation = (typeof RELATION_ORDER)[number]
 
 /** 人が確定する「知識の関係」（データの宣言には数えず、knowledge.json に数える）。 */
-export const KNOWLEDGE_RELATIONS = ['isPartOf', 'lowers', 'raises', 'affects'] as const
+export const KNOWLEDGE_RELATIONS = [
+  'isPartOf',
+  'lowers',
+  'raises',
+  'affects',
+  'makes',
+  'measuresProperty',
+  'measuresMaterial',
+  'becomes',
+  'competesWith',
+  'hasProperty',
+] as const
 export type KnowledgeRelation = (typeof KNOWLEDGE_RELATIONS)[number]
 export const isKnowledgeRelation = (relation: string | null | undefined): relation is KnowledgeRelation =>
   (KNOWLEDGE_RELATIONS as readonly string[]).includes(relationKey(relation))
@@ -63,15 +80,24 @@ export function relationKey(relation: string | null | undefined): string {
   return r.split(/[#/:]/).filter(Boolean).pop() ?? r
 }
 
-/** 向きのある関係か（⊂ と量の種類）。それ以外（≡・未知の対応）は両向きとして描く。 */
+/** 向きのある関係か（⊂・量の種類・知識の関係。競合する＝competesWith は向きが無い）。それ以外（≡・未知の対応）は両向きとして描く。 */
 export function isDirectedRelation(relation: string | null | undefined): boolean {
   const k = relationKey(relation)
+  if (k === 'competesWith') return false
   return (
     k === 'subClassOf' ||
     k === 'subPropertyOf' ||
     k === 'hasQuantityKind' ||
     (KNOWLEDGE_RELATIONS as readonly string[]).includes(k)
   )
+}
+
+/**
+ * 「同じもの（≡）」と読む関係か（≡ と、これまで両向きと読んでいた未知の関係）。競合する（competesWith）は
+ * 向きが無いが「同じ」ではないので含めない。≡ の線として数える・描く所はこちらで見る。
+ */
+export function isEquivalenceRelation(relation: string | null | undefined): boolean {
+  return relationKey(relation) !== 'competesWith' && !isDirectedRelation(relation)
 }
 
 /** 関係の記号（title・一覧用）。 */
@@ -83,6 +109,9 @@ export function relationSymbol(relation: string | null | undefined): string {
   if (k === 'lowers') return '↓'
   if (k === 'raises') return '↑'
   if (k === 'affects') return '↕'
+  if (k === 'makes' || k === 'measuresProperty' || k === 'measuresMaterial' || k === 'hasProperty') return '→'
+  if (k === 'becomes') return '⇒'
+  if (k === 'competesWith') return '↔'
   return '≡'
 }
 
@@ -102,6 +131,11 @@ export function knowledgeRelationsFor(source: TermKind, target: TermKind): Knowl
   if (target === 'unknown' && source !== 'unknown') out.push('isPartOf')
   if (target === 'property' || target === 'unknown') {
     if (source !== 'quantity') out.push('lowers', 'raises', 'affects')
+  }
+  // 作る・測る・変わる・競合する・物性（量の種類の端には出さない。見分けられない端は両方の候補に入れる）
+  if (source === 'class' || source === 'unknown') {
+    if (target === 'class' || target === 'unknown') out.push('makes', 'measuresMaterial', 'becomes', 'competesWith')
+    if (target === 'property' || target === 'unknown') out.push('measuresProperty', 'hasProperty')
   }
   return [...new Set(out)]
 }

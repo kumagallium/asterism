@@ -69,8 +69,23 @@ ANSWER_MODES = ("knowledge", "data", "memo")
 DIRECTIONS = ("lowers", "raises", "affects")
 TERM_KINDS = ("class", "property")
 #: ``sub`` 一種／``eq`` 同じ／``quantity`` 量は／``part`` 一部／``lowers`` 下げる／
-#: ``raises`` 上げる／``affects`` 変える（``asterism.themes`` が標準の述語 9 つに写す）。
-RELATIONS = ("sub", "eq", "quantity", "part", "lowers", "raises", "affects")
+#: ``raises`` 上げる／``affects`` 変える／``makes`` 作る／``measures`` 測る／``becomes`` 変わる／
+#: ``competes`` 競合する／``has_property`` 性質をもつ
+#: （``asterism.themes`` が標準の述語 15 に写す）。
+RELATIONS = (
+    "sub",
+    "eq",
+    "quantity",
+    "part",
+    "lowers",
+    "raises",
+    "affects",
+    "makes",
+    "measures",
+    "becomes",
+    "competes",
+    "has_property",
+)
 
 _LEN_LABEL = 80
 _LEN_ALIAS = 60
@@ -112,8 +127,9 @@ _SHAPE = """\
  "concepts": [{"key": "c1", "label_ja": "...", "label_en": "...", "aliases": ["..."],
                "kind": "class|property", "use": "new|existing:<slug>|standard:<curie>",
                "reason": "..."}],
- "relations": [{"from": "<key>", "rel": "sub|eq|quantity|part|lowers|raises|affects",
-                "to": "<key or curie>", "reason": "..."}],
+ "relations": [{"from": "<key>",
+   "rel": "sub|eq|quantity|part|lowers|raises|affects|makes|measures|becomes|competes|has_property",
+   "to": "<key or curie>", "reason": "..."}],
  "answers": [{"question": "<the question, copied verbatim>",
               "mode": "knowledge|data|memo",
               "op": "factors|parts|kinds|count|range|top|filter|group|trend|join or null",
@@ -141,7 +157,14 @@ Meaning:
   "part" = from is a part of to (both classes or both properties: "lattice thermal
   conductivity" is part of "thermal conductivity"); "lowers" / "raises" / "affects" =
   from lowers / raises / changes to — to MUST be a property; from may be a class or a
-  property ("grain boundary scattering" lowers "lattice thermal conductivity").
+  property ("grain boundary scattering" lowers "lattice thermal conductivity");
+  "makes" = the method or process from produces the material to (both classes: "arc melting"
+  makes "Mg2Si"); "measures" = the method from measures to, which is a material (class) or a
+  property ("X-ray diffraction" measures "lattice constant"); "becomes" = the material from
+  turns into the material to (both classes); "competes" = the materials from and to compete,
+  one forms instead of the other (both classes; no direction, write it once);
+  "has_property" = the material from (a class) has the property to ("Mg2Si" has_property
+  "thermal conductivity").
   "to" is a key, or a curie of a standard term.
 - "answers": for EVERY question, exactly one entry saying how it is answered:
   mode "knowledge": op "factors" (with direction lowers / raises / affects: what lowers /

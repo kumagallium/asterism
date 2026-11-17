@@ -61,8 +61,18 @@ export interface SkyHub {
   members: string[]
 }
 
-/** 語どうしの知識の線の関係（一部・下げる・上げる・変える）。 */
-export type SkyKnowledgeRelation = 'isPartOf' | 'lowers' | 'raises' | 'affects'
+/** 語どうしの知識の線の関係（一部・下げる・上げる・変える・作る・測る・変わる・競合する・物性）。 */
+export type SkyKnowledgeRelation =
+  | 'isPartOf'
+  | 'lowers'
+  | 'raises'
+  | 'affects'
+  | 'makes'
+  | 'measuresProperty'
+  | 'measuresMaterial'
+  | 'becomes'
+  | 'competesWith'
+  | 'hasProperty'
 
 /** 語（用語）どうしの知識の線。`from` が `to` を下げる／上げる／変える、`from` は `to` の一部。 */
 export interface SkyLine {
@@ -178,7 +188,7 @@ export interface DraftSkyConcept {
   proposed?: boolean
 }
 
-/** 下書きの関係 1 本。`from`/`to` は概念の key（標準の語は curie）。`rel` は sub|eq|quantity|part|lowers|raises|affects。 */
+/** 下書きの関係 1 本。`from`/`to` は概念の key（標準の語は curie）。`rel` は sub|eq|quantity|part|lowers|raises|affects|makes|measures|becomes|competes|has_property。 */
 export interface DraftSkyRelation {
   from: string
   to: string

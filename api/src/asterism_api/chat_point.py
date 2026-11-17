@@ -550,13 +550,15 @@ def _draft_line_point(
         (
             r
             for r in view.draft.get("relations") or []
-            if (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) == want
+            if themes.draft_rel_key(str(r.get("from")), str(r.get("rel")), str(r.get("to")))
+            == themes.draft_rel_key(*want)  # 向きの無い関係は両向き
         ),
         None,
     )
     if found is None:
         raise PointError(404, "その関係はありません")
-    mine = view.turn_for(want[0] if want[0] in view.concepts else None)
+    start = str(found.get("from"))  # 見つかった行の from（要求の向きに依らない）
+    mine = view.turn_for(start if start in view.concepts else None)
     sentence = view.sentence(found, mine)
     if sentence is None:
         raise PointError(404, "その関係は知識グラフに出していません")
@@ -625,12 +627,10 @@ async def build_point(
     if iri is not None and iri.startswith("paper:"):
         return _paper_point(ctx, iri)
     if all(line_given):
+        # 向きの無い関係（競合する）は、どちらの向きの指定でもストアの並びで引く
+        want = (str(relation), *crosswalk_runtime.canonical_ends(str(relation), source, target))
         ln = next(
-            (
-                x
-                for x in lines
-                if x["source"] == source and x["relation"] == relation and x["target"] == target
-            ),
+            (x for x in lines if (x["relation"], x["source"], x["target"]) == want),
             None,
         )
         if ln is None:

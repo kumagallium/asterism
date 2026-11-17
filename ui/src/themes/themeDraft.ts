@@ -17,9 +17,42 @@ export type Step = 1 | 2 | 3
 export const LAST_STEP: Step = 3
 
 export type TermKind = 'class' | 'property'
-export type RelKind = 'sub' | 'eq' | 'quantity' | 'part' | 'lowers' | 'raises' | 'affects'
-export const REL_KINDS: readonly RelKind[] = ['sub', 'eq', 'quantity', 'part', 'lowers', 'raises', 'affects']
-export type RelationProblem = 'same' | 'mixed' | 'cycle' | 'quantity_target' | 'target_not_property'
+export type RelKind =
+  | 'sub'
+  | 'eq'
+  | 'quantity'
+  | 'part'
+  | 'lowers'
+  | 'raises'
+  | 'affects'
+  | 'makes'
+  | 'measures'
+  | 'becomes'
+  | 'competes'
+  | 'has_property'
+export const REL_KINDS: readonly RelKind[] = [
+  'sub',
+  'eq',
+  'quantity',
+  'part',
+  'lowers',
+  'raises',
+  'affects',
+  'makes',
+  'measures',
+  'becomes',
+  'competes',
+  'has_property',
+]
+export type RelationProblem =
+  | 'same'
+  | 'mixed'
+  | 'cycle'
+  | 'quantity_target'
+  | 'target_not_property'
+  | 'role_mismatch'
+export type ConceptRole = 'material' | 'method' | 'concept' | 'other'
+const CONCEPT_ROLES: readonly string[] = ['material', 'method', 'concept', 'other']
 export type AnswerMode = 'knowledge' | 'data' | 'memo'
 export type MemoCode = 'op' | 'ai' | 'none' | 'human'
 
@@ -48,6 +81,8 @@ export interface ConceptRow {
   by: 'ai' | 'human'
   /** `use` を決めたのは誰か。`human`＝人が触った（機械の照合で上書きしない）。 */
   use_by?: 'machine' | 'human'
+  /** 役割の札（種類の語だけ・サーバから来たら保ち、送り返すだけ。編集の画面は 14e）。 */
+  role?: ConceptRole
 }
 
 /** 関係 1 本。`to` は概念の key か標準用語の curie。`problem` があれば確定から外す。 */
@@ -196,6 +231,7 @@ function conceptOf(c: Record<string, unknown>, by: 'ai' | 'human'): ConceptRow |
     match: isObj(c.match) && isStr(c.match.ref) ? (c.match as unknown as TermMatch) : null,
     by: c.by === 'human' ? 'human' : by,
     ...(c.use_by === 'human' || c.use_by === 'machine' ? { use_by: c.use_by } : {}),
+    ...(isStr(c.role) && CONCEPT_ROLES.includes(c.role) ? { role: c.role as ConceptRole } : {}),
   }
 }
 
@@ -746,8 +782,9 @@ export function conceptsFor(
 
 // ---- 述語・標準の語の IRI（✕ の保存に使う） ---------------------------------------------
 
-/** 下書きの関係 → alignment の述語名（api の ALIGN_RELATIONS のキー）。主語の種別で変わる。 */
-export function relationPredicate(rel: RelKind, subjectKind: TermKind): string {
+/** 下書きの関係 → alignment の述語名（api の ALIGN_RELATIONS のキー）。主語の種別で変わる。
+ *  `measures` だけは相手（to）の種別で決まる（項目＝measuresProperty・それ以外＝measuresMaterial）。 */
+export function relationPredicate(rel: RelKind, subjectKind: TermKind, objectKind?: TermKind): string {
   switch (rel) {
     case 'sub':
       return subjectKind === 'class' ? 'subClassOf' : 'subPropertyOf'
@@ -757,6 +794,12 @@ export function relationPredicate(rel: RelKind, subjectKind: TermKind): string {
       return 'hasQuantityKind'
     case 'part':
       return 'isPartOf'
+    case 'competes':
+      return 'competesWith'
+    case 'has_property':
+      return 'hasProperty'
+    case 'measures':
+      return objectKind === 'property' ? 'measuresProperty' : 'measuresMaterial'
     default:
       return rel
   }
@@ -872,6 +915,7 @@ export function buildCommitBody(draft: ThemeDraft, lang: string) {
       use: c.use,
       slug: conceptMints(c) ? c.slug : '',
       by: c.by,
+      ...(c.role ? { role: c.role } : {}),
     })),
     relations: relations.map((r) => ({ from: r.from, rel: r.rel, to: r.to, reason: r.reason, by: r.by })),
     answers: draft.answers.map((a) => {

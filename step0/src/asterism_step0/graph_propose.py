@@ -114,7 +114,8 @@ _SHAPE = """\
  "ops": [
   {"op": "add_concept", "key": "n1", "label_ja": "...", "label_en": "...", "aliases": ["..."],
    "kind": "class|property", "use": "new|existing:<slug>|standard:<curie>", "reason": "..."},
-  {"op": "add_relation", "from": "<key>", "rel": "sub|eq|quantity|part|lowers|raises|affects",
+  {"op": "add_relation", "from": "<key>",
+   "rel": "sub|eq|quantity|part|lowers|raises|affects|makes|measures|becomes|competes|has_property",
    "to": "<key or curie>", "reason": "..."},
   {"op": "retarget", "from": "<key>", "rel": "<same as the relation on the graph>",
    "to": "<its current to>", "new_to": "<key or curie>", "reason": "..."},
@@ -143,7 +144,12 @@ Meaning:
 - Relations: "sub" = from is a kind of to (same kind of concept); "eq" = the same thing;
   "quantity" = the property from measures the standard quantity kind to (a curie);
   "part" = from is a part of to (same kind of concept); "lowers" / "raises" / "affects" = from
-  lowers / raises / changes to; to MUST be a property, from may be a class or a property.
+  lowers / raises / changes to; to MUST be a property, from may be a class or a property;
+  "makes" = the method or process from produces the material to (both classes); "measures" =
+  the method from measures to, a material (class) or a property; "becomes" = the material from
+  turns into the material to (both classes); "competes" = the materials from and to compete,
+  one forms instead of the other (both classes; no direction, write it once);
+  "has_property" = the material from (a class) has the property to.
   "to" is a key, or a curie taken verbatim from the standard-term list.
 - "use": "existing:<slug>" / "standard:<curie>" ONLY when the name below says it is that exact
   term; otherwise "new". Copy slugs and curies verbatim. NEVER invent a slug, a curie or an IRI.

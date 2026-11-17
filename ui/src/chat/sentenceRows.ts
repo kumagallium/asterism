@@ -27,6 +27,11 @@ const SENTENCE = {
     lowers: '{s} は {o} を下げる',
     raises: '{s} は {o} を上げる',
     affects: '{s} は {o} を変える',
+    makes: '{s} で {o} を作る',
+    measures: '{s} で {o} を測る',
+    becomes: '{s} が {o} に変わる',
+    competes: '{s} と {o} は競合する',
+    has_property: '{s} の {o}',
   },
   en: {
     sub: '{s} is a kind of {o}',
@@ -36,6 +41,11 @@ const SENTENCE = {
     lowers: '{s} lowers {o}',
     raises: '{s} raises {o}',
     affects: '{s} changes {o}',
+    makes: '{s} makes {o}',
+    measures: '{s} measures {o}',
+    becomes: '{s} turns into {o}',
+    competes: '{s} competes with {o}',
+    has_property: '{s} has the property {o}',
   },
 } as const
 

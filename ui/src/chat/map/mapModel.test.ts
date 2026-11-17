@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EMPTY_SKY } from '../../sky/skyApi'
 import type { DraftSky, SkyData, SkyDataset, SkyTerm } from '../../sky/skyApi'
 import { draftNodeId, hubNodeId, kindId, termId } from '../../sky/skyLayout'
+import { isDirectedRelation } from '../../lineChoice'
 import { selectionOfNode } from '../chatState'
 import { buildMapGraph, DATASET_SIZE, datasetNodeId, kindSize, layoutMap, mapNeighborhood, mapSelection, mapSignature, relationLabel, safeResize, syncMapAttributes, termSize } from './mapModel'
 
@@ -267,6 +268,76 @@ describe('線の名前（label）', () => {
     expect(relationLabel('isPartOf', 'ja')).toBe('一部')
     expect(relationLabel('isA', 'en')).toBe('kind of')
     expect(relationLabel('zzz', 'ja')).toBeUndefined()
+  })
+
+  it('新しい関係の表示名（確定側・下書きの measures）', () => {
+    const ja = ['makes', 'measuresProperty', 'measuresMaterial', 'measures', 'becomes', 'competesWith', 'hasProperty'].map((r) => relationLabel(r, 'ja'))
+    expect(ja).toEqual(['作る', '測る', '測る', '測る', '変わる', '競合する', '物性'])
+    expect(relationLabel('competesWith', 'en')).toBe('competes with')
+    expect(relationLabel('becomes', 'en')).toBe('turns into')
+    expect(relationLabel('hasProperty', 'en')).toBe('has property')
+  })
+
+  it('competesWith の線は向きが無い（端の順に依らず同じ鍵）・makes は向きあり・知らない関係でも落ちない', () => {
+    const edge = (from: string, to: string, relation: string) =>
+      ({ ...sky, edges: [{ from, to, relation, reason: null }] }) as unknown as SkyData
+    const attrs = (s: SkyData) => {
+      const g = buildMapGraph(s, [], [], 'ja')
+      return g.mapEdges((_e, a) => a).filter((a) => a.kind === 'concept')
+    }
+    const ab = edge('urn:t:material', 'urn:t:measure', 'competesWith')
+    const ba = edge('urn:t:measure', 'urn:t:material', 'competesWith')
+    expect(mapSignature(buildMapGraph(ab, [], [], 'ja'))).toBe(mapSignature(buildMapGraph(ba, [], [], 'ja')))
+    expect(attrs(ab)[0]).toMatchObject({ relation: 'competesWith', label: '競合する' })
+    expect(isDirectedRelation('competesWith')).toBe(false)
+    expect(isDirectedRelation('makes')).toBe(true)
+    // 両向きの線を並べても 1 本（向きのある関係は 2 本）
+    const both = (relation: string) =>
+      ({
+        ...sky,
+        edges: [
+          { from: 'urn:t:material', to: 'urn:t:measure', relation, reason: null },
+          { from: 'urn:t:measure', to: 'urn:t:material', relation, reason: null },
+        ],
+      }) as unknown as SkyData
+    expect(attrs(both('competesWith'))).toHaveLength(1)
+    expect(attrs(both('makes'))).toHaveLength(2)
+    expect(() => buildMapGraph(edge('urn:t:material', 'urn:t:measure', 'zzzNew'), [], [], 'ja')).not.toThrow()
+  })
+
+  it('下書きの measures は相手の種別で確定側の名前に寄せる（本物の線と同じなら薄い線を張らない）・決められなければ「測る」', () => {
+    const base = { ...sky, edges: [{ from: 'urn:t:material', to: 'urn:t:measure', relation: 'measuresMaterial', reason: null }] } as unknown as SkyData
+    const mk = (toKind: 'class' | 'property'): DraftSky => ({
+      draft_id: 'dm',
+      theme_label: '',
+      concepts: [
+        { key: 'e1', label: '材料', kind: 'class', use: 'existing:material' },
+        { key: 'e2', label: '測定', kind: toKind, use: 'existing:measure' },
+      ],
+      relations: [{ from: 'e1', to: 'e2', rel: 'measures', state: 'thin' }],
+      questions: [],
+    })
+    const draftEdgeCount = (g: ReturnType<typeof buildMapGraph>) => g.mapEdges((_e, a) => a).filter((a) => a.kind === 'draft').length
+    expect(draftEdgeCount(buildMapGraph(base, [mk('class')], [], 'ja'))).toBe(0) // measuresMaterial と同じ
+    expect(draftEdgeCount(buildMapGraph(base, [mk('property')], [], 'ja'))).toBe(1) // measuresProperty は別の線
+    expect(relationLabel('measures', 'ja')).toBe('測る')
+  })
+
+  it('競合する（向きなし）は、本物の線が逆向きでも薄い提案の線を張らない', () => {
+    const base = { ...sky, edges: [{ from: 'urn:t:material', to: 'urn:t:measure', relation: 'competesWith', reason: null }] } as unknown as SkyData
+    const mk = (from: string, to: string): DraftSky => ({
+      draft_id: 'dc',
+      theme_label: '',
+      concepts: [
+        { key: 'e1', label: '材料', kind: 'class', use: 'existing:material' },
+        { key: 'e2', label: '測定', kind: 'class', use: 'existing:measure' },
+      ],
+      relations: [{ from, to, rel: 'competes', state: 'thin' }],
+      questions: [],
+    })
+    const draftEdgeCount = (g: ReturnType<typeof buildMapGraph>) => g.mapEdges((_e, a) => a).filter((a) => a.kind === 'draft').length
+    expect(draftEdgeCount(buildMapGraph(base, [mk('e1', 'e2')], [], 'ja'))).toBe(0)
+    expect(draftEdgeCount(buildMapGraph(base, [mk('e2', 'e1')], [], 'ja'))).toBe(0) // 逆向きも同じ線
   })
 
   it('syncMapAttributes は線の label も写す（ja で配置 → en を sync）', () => {

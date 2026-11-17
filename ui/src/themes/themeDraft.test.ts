@@ -12,6 +12,7 @@ import {
   applyDraftResponse,
   applyMatches,
   buildCommitBody,
+  REL_KINDS,
   confirmCounts,
   conceptDismissKey,
   defaultLabel,
@@ -394,5 +395,35 @@ describe('dismissal keys (the ✕ is kept for the next draft)', () => {
     expect(relationPredicate('lowers', 'class')).toBe('lowers')
     expect(relationPredicate('raises', 'property')).toBe('raises')
     expect(relationPredicate('affects', 'property')).toBe('affects')
+  })
+  it('maps the new relations (measures follows the kind of the other end)', () => {
+    expect(relationPredicate('makes', 'class', 'class')).toBe('makes')
+    expect(relationPredicate('becomes', 'class', 'class')).toBe('becomes')
+    expect(relationPredicate('competes', 'class', 'class')).toBe('competesWith')
+    expect(relationPredicate('has_property', 'class', 'property')).toBe('hasProperty')
+    expect(relationPredicate('measures', 'class', 'property')).toBe('measuresProperty')
+    expect(relationPredicate('measures', 'class', 'class')).toBe('measuresMaterial')
+    expect(relationPredicate('measures', 'class')).toBe('measuresMaterial')
+  })
+  it('keeps the new relations, role_mismatch and the role of a concept through parse and commit', () => {
+    expect(REL_KINDS).toHaveLength(12)
+    const d = thermal()
+    const withRole = { ...d, concepts: [{ ...d.concepts[0], role: 'method' as const }, ...d.concepts.slice(1)] }
+    const body = buildCommitBody(withRole, 'ja')
+    expect((body.concepts[0] as { role?: string }).role).toBe('method')
+    expect((body.concepts[1] as { role?: string }).role).toBeUndefined()
+    const raw = {
+      concepts: [
+        { key: 'a', label_ja: 'A', kind: 'class', role: 'material' },
+        { key: 'b', label_ja: 'B', kind: 'class', role: 'bogus' },
+      ],
+      relations: ['makes', 'measures', 'becomes', 'competes', 'has_property'].map((r) => ({ from: 'a', rel: r, to: 'b', problem: 'role_mismatch' })),
+      answers: [],
+    }
+    const res = validateDraftResponse(raw)!
+    expect(res.relations.map((r) => r.rel)).toEqual(['makes', 'measures', 'becomes', 'competes', 'has_property'])
+    expect(res.relations.every((r) => r.problem === 'role_mismatch')).toBe(true)
+    expect(res.concepts[0].role).toBe('material')
+    expect(res.concepts[1].role).toBeUndefined()
   })
 })

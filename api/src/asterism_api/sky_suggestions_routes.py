@@ -189,6 +189,10 @@ def register_sky_suggestions(
                         why = "cycle"
                     elif msg.startswith("kind mismatch"):
                         why = "mixed"
+                    elif msg.startswith("role mismatch"):
+                        why = "role_mismatch"
+                    elif msg == "self relation":
+                        why = "same"
                     dropped.append({"index": i, "reason": why})
                 except Exception as exc:
                     logger.warning("suggestions: alignment write failed", exc_info=True)

@@ -444,6 +444,42 @@ describe('提案の線（薄い線・図に入れると濃くなる）', () => {
     expect(draftEdges(layoutSky(sky, { width: 1000, drafts: [mk('lowers', 'b', 'a')] }))).toHaveLength(1)
   })
 
+  it('競合する（向きなし）は、本物の線が逆向きでも薄い提案の線を二重に引かない（向きのある関係は逆向きなら引く）', () => {
+    const base = makeSky(3, 12)
+    const [a, b] = base.terms
+    const sky: SkyData = { ...base, edges: [{ from: a.iri, to: b.iri, relation: 'competesWith', reason: null }] }
+    const mk = (from: string, to: string): DraftSky => ({
+      draft_id: 'x',
+      theme_label: 'x',
+      concepts: [
+        { key: 'a', label: a.label, kind: a.kind, use: `existing:${a.slug}`, state: 'solid' },
+        { key: 'b', label: b.label, kind: b.kind, use: `existing:${b.slug}`, state: 'solid' },
+      ],
+      relations: [{ from, to, rel: 'competes', state: 'thin', index: 0 }],
+      questions: [],
+    })
+    expect(draftEdges(layoutSky(sky, { width: 1000, drafts: [mk('a', 'b')] }))).toHaveLength(0)
+    expect(draftEdges(layoutSky(sky, { width: 1000, drafts: [mk('b', 'a')] }))).toHaveLength(0) // 逆向きも同じ線
+  })
+
+  it('測る（measures）は相手の種別で確定側の名前に寄せる（measuresMaterial と同じなら薄い線は引かない）', () => {
+    const base = makeSky(3, 12)
+    const [a, b] = base.terms
+    const sky: SkyData = { ...base, edges: [{ from: a.iri, to: b.iri, relation: 'measuresMaterial', reason: null }] }
+    const mk = (toKind: 'class' | 'property'): DraftSky => ({
+      draft_id: 'x',
+      theme_label: 'x',
+      concepts: [
+        { key: 'a', label: a.label, kind: a.kind, use: `existing:${a.slug}`, state: 'solid' },
+        { key: 'b', label: b.label, kind: toKind, use: `existing:${b.slug}`, state: 'solid' },
+      ],
+      relations: [{ from: 'a', to: 'b', rel: 'measures', state: 'thin', index: 0 }],
+      questions: [],
+    })
+    expect(draftEdges(layoutSky(sky, { width: 1000, drafts: [mk('class')] }))).toHaveLength(0)
+    expect(draftEdges(layoutSky(sky, { width: 1000, drafts: [mk('property')] }))).toHaveLength(1)
+  })
+
   it('図に入れた（solid）線は、本物の線と同じ関係でも引く（本物の線はそのまま残る・星図から選べる）', () => {
     const base = makeSky(3, 12)
     const [a, b] = base.terms

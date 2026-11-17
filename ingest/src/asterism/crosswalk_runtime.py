@@ -749,6 +749,9 @@ async def remove_hub(client, perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> No
 # auto-rewrite queries — it is a human-vetted, queryable FACT that a tool can follow
 # (consistent with the deterministic / citable product direction).
 
+#: 自前の関係の述語の名前空間（関係の述語だけ・利用者裁定 2026-11-17）。
+REL = "https://kumagallium.github.io/asterism/vocab/relation#"
+
 ALIGNMENT_GRAPH = substrate.ALIGNMENT_GRAPH
 _ALIGN_RESOURCE = "https://kumagallium.github.io/asterism/crosswalk/resource/alignment/"
 _PROV = "http://www.w3.org/ns/prov#"
@@ -779,11 +782,101 @@ ALIGN_RELATIONS: dict[str, str] = {
     "lowers": "http://purl.obolibrary.org/obo/RO_0002212",  # negatively regulates
     "raises": "http://purl.obolibrary.org/obo/RO_0002213",  # positively regulates
     "affects": "http://purl.obolibrary.org/obo/RO_0002211",  # regulates
+    # 実験の記録の関係（14a-1・design.md §23）。標準の述語を使い、自前は competesWith の 1 つだけ。
+    "makes": "http://purl.obolibrary.org/obo/RO_0002234",  # has output（手法 → 材料）
+    # assay measures characteristic
+    "measuresProperty": "http://purl.obolibrary.org/obo/RO_0009006",
+    "measuresMaterial": "http://www.w3.org/ns/sosa/hasFeatureOfInterest",
+    "becomes": "http://purl.obolibrary.org/obo/RO_0001001",  # derives into（材料 → 材料）
+    "competesWith": f"{REL}competesWith",  # 向きなし・自前（標準に無い）
+    "hasProperty": "http://purl.obolibrary.org/obo/RO_0000053",  # has characteristic
 }
 
 #: 人が確定する「知識の関係」。データの宣言（``wired.json``）には数えず、``knowledge.json``
 #: に数える（孤立の定義の改訂・利用者裁定 2026-10-20）。
-KNOWLEDGE_RELATIONS: tuple[str, ...] = ("isPartOf", "lowers", "raises", "affects")
+KNOWLEDGE_RELATIONS: tuple[str, ...] = (
+    "isPartOf",
+    "lowers",
+    "raises",
+    "affects",
+    "makes",
+    "measuresProperty",
+    "measuresMaterial",
+    "becomes",
+    "competesWith",
+    "hasProperty",
+)
+
+#: 向きの無い関係。A→B と B→A は同じ 1 本（:func:`canonical_ends` が IRI の文字列順に並べる）。
+SYMMETRIC_RELATIONS = frozenset({"competesWith"})
+
+#: 自分自身に結ぶのを拒む関係（実験の記録の 6 つ）。
+NO_SELF_RELATIONS = frozenset(
+    {"makes", "measuresProperty", "measuresMaterial", "becomes", "competesWith", "hasProperty"}
+)
+
+#: 語（種類）に付ける役割の札の閉じた値。
+ROLES = ("material", "method", "concept", "other")
+ROLES_JA = {"material": "材料", "method": "手法", "concept": "概念", "other": "そのほか"}
+_MATERIAL = frozenset({"material"})
+_NOT_MATERIAL = frozenset({"method", "concept", "other"})
+_ANY_ROLE: frozenset[str] = frozenset()  # 空 = その端は検査しない
+
+#: 確定側の関係名 → ``(from の許す役割, to の許す役割)``。表に無い関係（既存の 9 つ）は検査しない。
+ROLE_RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "makes": (_NOT_MATERIAL, _MATERIAL),
+    "measuresProperty": (_NOT_MATERIAL, _ANY_ROLE),
+    "measuresMaterial": (_NOT_MATERIAL, _MATERIAL),
+    "becomes": (_MATERIAL, _MATERIAL),
+    "competesWith": (_MATERIAL, _MATERIAL),
+    "hasProperty": (_MATERIAL, _ANY_ROLE),
+}
+
+#: 自前の述語の記録（ADR relations-for-experiments.md §3）。自前にするのは、標準を探して
+#: 無かったものだけ。``searched`` = 探した語彙（ラベル・定義とも該当なし）、``date`` = 探した日。
+#: 後で標準が見つかれば ``owl:equivalentProperty`` で結ぶ（IRI は変えない）。
+OWN_RELATIONS: dict[str, dict] = {
+    "competesWith": {
+        "label_ja": "競合する",
+        "label_en": "competes with",
+        "definition": (
+            "Two materials (phases) compete: under the same conditions, the formation of one "
+            "makes the other less likely to form. Symmetric."
+        ),
+        "searched": [
+            "RO (release 2026-09-04)",
+            "BFO",
+            "SOSA / SSN",
+            "OBI",
+            "IAO",
+            "CHMO",
+            "SIO",
+            "PATO",
+            "ENVO",
+            "OLS4 (all ontologies; only schema.org competitor, a sports term)",
+        ],
+        "date": "2026-11-17",
+    },
+}
+
+
+def canonical_ends(relation: str, source: str, target: str) -> tuple[str, str]:
+    """向きの無い関係（:data:`SYMMETRIC_RELATIONS`）は IRI の文字列順に並べ替える。
+    それ以外はそのまま返す。"""
+    if relation in SYMMETRIC_RELATIONS and target < source:
+        return target, source
+    return source, target
+
+
+def check_roles(relation: str, from_role: str | None, to_role: str | None) -> None:
+    """役割の札が合わなければ ``ValueError``。札の無い端（``None``）と、表で「—」の端は検査しない。
+    :data:`ROLE_RULES` に無い関係は何もしない。"""
+    rule = ROLE_RULES.get(relation)
+    if rule is None:
+        return
+    for end, role, allowed in (("from", from_role, rule[0]), ("to", to_role, rule[1])):
+        if role is not None and allowed and role not in allowed:
+            raise ValueError(f"role mismatch: {relation} cannot join a {role} ({end})")
 
 # An absolute IRI safe to inject into a SPARQL ``<...>`` (scheme + no delimiters).
 _IRI_RE = re.compile(r'^[a-z][a-z0-9+.\-]*://[^\s<>"{}|\\^`]+$', re.IGNORECASE)
@@ -797,6 +890,7 @@ def _check_iri(iri: str) -> None:
 def _alignment_iri(source: str, relation: str, target: str) -> str:
     import hashlib
 
+    source, target = canonical_ends(relation, source, target)
     h = hashlib.sha1(f"{source}|{relation}|{target}".encode()).hexdigest()[:16]
     return f"{_ALIGN_RESOURCE}{h}"
 
@@ -882,6 +976,13 @@ RELATION_SHAPES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     "lowers": (_EITHER, _PROPERTY_ONLY),
     "raises": (_EITHER, _PROPERTY_ONLY),
     "affects": (_EITHER, _PROPERTY_ONLY),
+    # 実験の記録（種類 → 種類／項目）
+    "makes": (_CLASS_ONLY, _CLASS_ONLY),
+    "measuresProperty": (_CLASS_ONLY, _PROPERTY_ONLY),
+    "measuresMaterial": (_CLASS_ONLY, _CLASS_ONLY),
+    "becomes": (_CLASS_ONLY, _CLASS_ONLY),
+    "competesWith": (_CLASS_ONLY, _CLASS_ONLY),
+    "hasProperty": (_CLASS_ONLY, _PROPERTY_ONLY),
 }
 SAME_SHAPE_RELATIONS = frozenset({"isPartOf"})
 assert set(RELATION_SHAPES) == set(ALIGN_RELATIONS)  # 述語を足したら表も足す
@@ -904,6 +1005,25 @@ def _check_same_shape(relation: str, source: str, target: str, shapes: dict[str,
         s_decl, t_decl = shapes.get(source), shapes.get(target)
         if s_decl and t_decl and not (s_decl & t_decl):
             raise ValueError(f"kind mismatch: {relation} joins a class to a property")
+
+
+async def _declared_roles(client, iris: list[str]) -> dict[str, str]:
+    """``{iri: role}`` — 共有語彙 graph の ``xw:role``（札のある語だけ）。"""
+    from asterism import shared_vocab
+
+    safe = sorted({i for i in iris if _IRI_RE.match(i)})
+    if not safe:
+        return {}
+    values = " ".join(f"<{i}>" for i in safe)
+    q = (
+        f"SELECT ?s ?r WHERE {{ GRAPH <{shared_vocab.SHARED_VOCAB_GRAPH}> "
+        f"{{ ?s <{XW}role> ?r }} VALUES ?s {{ {values} }} }}"
+    )
+    out: dict[str, str] = {}
+    for b in await _select_bindings(client, q):
+        if b["r"]["value"] in ROLES:
+            out[b["s"]["value"]] = b["r"]["value"]
+    return out
 
 
 async def _upper_path_reaches(client, relation: str, start: str, goal: str) -> bool:
@@ -947,6 +1067,8 @@ async def assert_alignment(
     - ``"unminted shared term"`` — an end is in the ``sv:`` namespace but was never
       minted;
     - ``"kind mismatch"`` — the ends do not fit :data:`RELATION_SHAPES` (as far as decidable);
+    - ``"self relation"`` — :data:`NO_SELF_RELATIONS` の関係で両端が同じ;
+    - ``"role mismatch"`` — :data:`ROLE_RULES` の関係で、語の役割の札が合わない（札の無い端は通す）;
     - ``"cycle"`` — ``subClassOf`` / ``subPropertyOf`` / ``isPartOf`` whose target already
       reaches the source going up (``≡`` included for the first two), or a term under
       itself. ``lowers`` / ``raises`` / ``affects`` allow cycles (feedback is legitimate).
@@ -967,6 +1089,7 @@ async def assert_alignment(
     sentence, drawn from the store by the machine — never a string the model wrote)."""
     if relation not in ALIGN_RELATIONS:
         raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    source, target = canonical_ends(relation, source, target)
     if drafted_by not in DRAFTED_BY:
         raise ValueError(f"drafted_by must be one of {DRAFTED_BY}, got {drafted_by!r}")
     batch_text = (batch or "").strip()
@@ -985,7 +1108,12 @@ async def assert_alignment(
     t_kind, t_dataset = _kind_of(target, ctx)
     if "shared_unminted" in (s_kind, t_kind):
         raise ValueError("unminted shared term")
+    if relation in NO_SELF_RELATIONS and source == target:
+        raise ValueError("self relation")
     _check_same_shape(relation, source, target, await _declared_shapes(client, [source, target]))
+    if relation in ROLE_RULES:
+        roles = await _declared_roles(client, [source, target])
+        check_roles(relation, roles.get(source), roles.get(target))
     if relation in _SUBSUMPTION and (
         source == target or await _upper_path_reaches(client, relation, target, source)
     ):
@@ -1180,6 +1308,7 @@ async def remove_alignment(client, source: str, target: str, relation: str) -> N
     node). Reversible counterpart of :func:`assert_alignment`."""
     if relation not in ALIGN_RELATIONS:
         raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    source, target = canonical_ends(relation, source, target)
     _check_iri(source)
     _check_iri(target)
     rel_iri = ALIGN_RELATIONS[relation]
@@ -1212,6 +1341,7 @@ async def add_evidence(
     返り = 新しく付いた数。来歴ノードが無ければ 0（何も書かない）。"""
     if relation not in ALIGN_RELATIONS:
         raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    source, target = canonical_ends(relation, source, target)
     _check_iri(source)
     _check_iri(target)
     wanted = _evidence_list(evidence)
@@ -1240,6 +1370,7 @@ async def remove_evidence(
     """指定の ``prov:wasDerivedFrom`` だけを来歴ノードから外す（線そのものは残す）。"""
     if relation not in ALIGN_RELATIONS:
         raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    source, target = canonical_ends(relation, source, target)
     _check_iri(source)
     _check_iri(target)
     wanted = _evidence_list(evidence)
@@ -1272,6 +1403,7 @@ async def move_provenance(
     batch_text = (batch or "").strip()
     if len(batch_text) > BATCH_MAX or any(ord(c) < 32 for c in batch_text):
         raise ValueError(f"batch must be a single line of at most {BATCH_MAX} characters")
+    source, target = canonical_ends(relation, source, target)
     _check_iri(source)
     _check_iri(target)
     if at is not None and not re.fullmatch(r"[0-9T:.+\-Z]+", at):

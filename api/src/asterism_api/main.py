@@ -12135,8 +12135,10 @@ def build_app(
         in a promoted alignment graph the FROM-merge unions (a citable, declared fact).
 
         Errors: a cycle through ⊑/≡ is 409; a shared term that was never minted, or a
-        class joined to a property, is 422; a bad relation / IRI stays 400. Any absolute
-        IRI (including one nothing knows) is still accepted."""
+        class joined to a property, a relation whose role label does not fit
+        (``role mismatch``) and a term joined to itself (``self relation``) are 422; a bad
+        relation / IRI stays 400. Any absolute IRI (including one nothing knows) is still
+        accepted."""
         client: OxigraphClient = app.state.client
         try:
             if body.remove:
@@ -12176,6 +12178,10 @@ def build_app(
                 raise HTTPException(422, "まだ作っていない共有の言葉には結べません") from exc
             if msg.startswith("kind mismatch"):
                 raise HTTPException(422, f"種類と項目は結べません: {msg}") from exc
+            if msg.startswith("role mismatch"):
+                raise HTTPException(422, f"役割が合いません: {msg}") from exc
+            if msg == "self relation":
+                raise HTTPException(422, "自分自身には結べません") from exc
             raise HTTPException(400, msg) from exc  # bad relation / non-IRI term
         except Exception as exc:  # surface a store error
             raise HTTPException(502, f"alignment failed: {exc}") from exc

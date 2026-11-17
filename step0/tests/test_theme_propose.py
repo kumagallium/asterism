@@ -120,7 +120,10 @@ def test_a_good_answer_passes_and_is_normalised() -> None:
 
 
 def test_the_vocabulary_is_the_closed_one_of_the_design() -> None:
-    assert RELATIONS == ("sub", "eq", "quantity", "part", "lowers", "raises", "affects")
+    assert RELATIONS == (
+        "sub", "eq", "quantity", "part", "lowers", "raises", "affects",
+        "makes", "measures", "becomes", "competes", "has_property",
+    )  # fmt: skip
     assert KNOWLEDGE_OPS == ("factors", "parts", "kinds")
     assert DATA_OPS == ("count", "range", "top", "filter", "group", "trend", "join")
 
@@ -165,6 +168,18 @@ def test_unknown_keys_are_dropped_not_read() -> None:
 def test_an_off_shape_answer_is_refused(patch: dict) -> None:
     with pytest.raises(ThemeDraftError):
         validate_theme_draft(_bad(**patch))
+
+
+@pytest.mark.parametrize("rel", ["makes", "measures", "becomes", "competes", "has_property"])
+def test_the_new_relations_pass_validation(rel: str) -> None:
+    raw = _bad(relations=[{"from": "c3", "to": "c2", "rel": rel, "reason": "r"}])
+    assert validate_theme_draft(raw)["relations"][0]["rel"] == rel
+
+
+def test_an_unknown_relation_is_still_refused() -> None:
+    raw = _bad(relations=[{"from": "c3", "to": "c2", "rel": "produces", "reason": "r"}])
+    with pytest.raises(ThemeDraftError):
+        validate_theme_draft(raw)
 
 
 def test_reason_and_wanted_data_are_cut_to_the_length_and_never_refused() -> None:

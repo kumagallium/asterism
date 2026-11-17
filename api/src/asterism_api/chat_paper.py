@@ -668,7 +668,7 @@ async def mark_supports(client: Any, ops: list[dict]) -> list[dict]:
     を付ける（13a: 承認すると新しい線は増えず、この論文の根拠の文だけが足される）。この論文の
     根拠が全部すでに付いている関係は、承認しても何も変わらないので提案から外す（注記にも数えない）。
     関係が無い・検索に失敗したときは ops をそのまま返す（札が出ないだけ）。"""
-    from asterism.crosswalk_runtime import ALIGN_RELATIONS, _alignment_iri
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS, _alignment_iri, canonical_ends
 
     concepts = {str(o.get("key")): o for o in ops if o.get("op") == "add_concept"}
     out: list[dict] = []
@@ -678,9 +678,12 @@ async def mark_supports(client: Any, ops: list[dict]) -> list[dict]:
             ua, ub = str((a or {}).get("use") or ""), str((b or {}).get("use") or "")
             if a and b and ua.startswith("existing:") and ub.startswith("existing:"):
                 try:
-                    pred = themes.relation_predicate(str(o.get("rel")), str(a.get("kind")))
+                    pred = themes.relation_predicate(
+                        str(o.get("rel")), str(a.get("kind")), str(b.get("kind"))
+                    )
                     src = shared_vocab.term_iri(ua.split(":", 1)[1])
                     dst = shared_vocab.term_iri(ub.split(":", 1)[1])
+                    src, dst = canonical_ends(pred, src, dst)  # 向きの無い関係はストアの並びで引く
                     if await shared_vocab._ask(
                         client,
                         f"ASK {{ GRAPH <{substrate.ALIGNMENT_GRAPH}> "

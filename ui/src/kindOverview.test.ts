@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { crossingCount, frameTitleCrossingCount, labelCrossingCount } from './edgeRoutingTestUtil'
 import { makeScale } from './overviewScaleFixture'
 import type { Alignment, CrosswalkPerspective } from './crosswalkApi'
+import type { SharedTerm } from './vocabApi'
 import type { DatasetRules, RuleMap } from './galleryApi'
 import {
   hubCountsOf,
@@ -288,6 +289,54 @@ describe('layoutKindOverview — 標準のことばと対応', () => {
     expect(a).toHaveLength(2)
     expect(a.every((x) => x.both)).toBe(true)
     expect(l.stds.map((s) => s.id)).toEqual(['https://schema.org/Place'])
+  })
+
+  it('競合する（向きなし）は「同じ」の対応線として描かない（同じ両端の exactMatch は描く）', () => {
+    const al = (relation: string): Alignment => ({
+      alignment_iri: relation,
+      source: `${NS}Tree`,
+      target: `${NS}Station`,
+      relation,
+      from_perspective: '',
+      to_perspective: '',
+      at: '',
+    })
+    const edges = (relation: string) =>
+      layoutKindOverview(base({ datasets: [apple, weather], alignments: [al(relation)] })).edges.filter(
+        (x) => x.kind === 'alignment',
+      )
+    expect(edges('competesWith')).toHaveLength(0)
+    expect(edges('exactMatch')).toHaveLength(1)
+  })
+
+  it('共有語に掛かる線: 競合する（向きなし）は描かない（⊂ は描く）', () => {
+    const shared: SharedTerm = {
+      iri: 'https://example.org/sv#x',
+      slug: 'x',
+      kind: 'class',
+      label: 'X',
+      label_en: null,
+      comment: null,
+      created_at: '',
+      wired: true,
+      answering_datasets: 0,
+      narrower: [],
+      standards: [],
+      cqs: [],
+    }
+    const line = (relation: string): Alignment => ({
+      alignment_iri: relation,
+      source: `${NS}Tree`,
+      target: shared.iri,
+      relation,
+      from_perspective: '',
+      to_perspective: '',
+      at: '',
+    })
+    const edges = (relation: string) =>
+      layoutKindOverview(base({ datasets: [apple, weather], alignments: [line(relation)], sharedTerms: [shared] })).edges
+    expect(edges('subClassOf').filter((e) => e.kind === 'upper')).toHaveLength(1)
+    expect(edges('competesWith').filter((e) => e.kind === 'upper' || e.kind === 'alignment')).toHaveLength(0)
   })
 
   it('対応: 同じ種類 IRI を複数のデータセットが名乗るときは全ての丸へ張る', () => {

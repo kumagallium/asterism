@@ -79,6 +79,13 @@ class SharedTermBody(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     declined_standard: DeclinedStandardBody | None = None
     cqs: list[CQBody] = Field(default_factory=list)
+    #: 役割の札（``material`` / ``method`` / ``concept`` / ``other``）。種類（class）の語だけ。
+    role: str | None = None
+
+
+class RoleBody(BaseModel):
+    #: ``null`` で札を外す。ROLES に無い値・項目の語は ``set_term_role`` の ValueError → 422。
+    role: str | None = None
 
 
 class AddCqBody(BaseModel):
@@ -157,6 +164,7 @@ def register_vocab(
                 declined_reason=body.declined_standard.reason if body.declined_standard else None,
                 cqs=[CQSpec(title=c.title, op=c.op) for c in body.cqs],
                 at=_now(),
+                role=body.role,
             )
         except shared_vocab.TermExists as exc:
             raise HTTPException(409, str(exc)) from exc
@@ -166,6 +174,23 @@ def register_vocab(
             logger.warning("vocab mint failed", exc_info=True)
             raise HTTPException(502, f"shared vocab write failed: {exc}") from exc
         return JSONResponse({"term": term}, status_code=201)
+
+    @app.put("/api/vocab/terms/{slug}/role", dependencies=list(write_auth))
+    async def vocab_term_role(slug: str, body: RoleBody) -> JSONResponse:
+        """語の役割の札を置き換える（``role: null`` で外す）。無い語は 404・項目の語や
+        ROLES に無い値は 422。札を変えても既にある線は調べ直さない。更新後の語を返す。"""
+        try:
+            term = await shared_vocab.set_term_role(
+                _client(), slug, body.role, at=_now(), by="human"
+            )
+        except shared_vocab.TermNotFound as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except Exception as exc:
+            logger.warning("vocab role failed", exc_info=True)
+            raise HTTPException(502, f"shared vocab write failed: {exc}") from exc
+        return JSONResponse({"term": term})
 
     @app.delete("/api/vocab/shared/{slug}", dependencies=list(write_auth))
     async def vocab_shared_remove(slug: str) -> Response:
@@ -397,7 +422,7 @@ def register_vocab(
         """線を 1 本足したら（``remove`` なら外したら）、用語ごとの答えるデータセット数と
         問いの答える数がどう変わるか。**store には何も書かない**（Python で上位パスを辿る）。
         結べない組み合わせは ``valid=false`` と ``reason``（``same`` / ``unminted`` /
-        ``mixed`` / ``cycle``）で返す（HTTP は 200。保存の側が 409 / 422 で止める）。"""
+        ``mixed`` / ``cycle`` / ``role``）で返す（HTTP は 200。保存の側が 409 / 422 で止める）。"""
         try:
             out = await shared_vocab.preview_alignment(
                 _client(),
