@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.70.0](https://github.com/kumagallium/asterism/compare/v0.69.0...v0.70.0) - 2026-11-18
+
+- feat: 答えに未確認の印と根拠を出し、使った分だけ確認できるようにする（14e-2） by @kumagallium in https://github.com/kumagallium/asterism/pull/819
+- docs(manual): v0.69.0 の節目とバッジ（Graphium とつなぐ・知識グラフの確認） by @kumagallium in https://github.com/kumagallium/asterism/pull/818
+- docs: マニュアルの 3 つの場所と狭い幅の画像を今の画面に撮り直す by @kumagallium in https://github.com/kumagallium/asterism/pull/820
+
 ## [v0.69.0](https://github.com/kumagallium/asterism/compare/v0.68.0...v0.69.0) - 2026-11-18
 
 - feat: 「取り込み」の裏側 — 写す → 関係を選ぶ を 1 本のジョブに・入れた物の一覧・外す（PR 14d-2a） by @kumagallium in https://github.com/kumagallium/asterism/pull/812
