@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from asterism_api import chat_attach, registry
 from asterism_api.chat_routes import _ai_unset
 from asterism_api.converse_routes import _llm_coords, _llm_max_tokens, _record_usage
-from asterism_api.knowledge_copy import copy_is_current, find_copy_dataset
+from asterism_api.knowledge_copy import busy_kind, copy_is_current, find_copy_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,7 @@ async def run_relations(
     emit: Callable[..., None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
     concurrency: int = CONCURRENCY,
+    ask: bool = True,
 ) -> dict[str, Any]:
     """語の組ごとに関係を聞いて台帳に残す。
     返り ``{summary, asked, reused, failed, kept_stale, cancelled, aborted, abort_reason}``。
@@ -90,6 +91,10 @@ async def run_relations(
     guided decoding のスキーマをクライアントの属性に置くので、並行すると互いに上書きする）。
     ``on_usage`` は AI が答えを返すたび（聞き直しの各回も・失敗した呼び出しは除く）に、その回の
     使用量の写し（``last_usage`` など）を持つ object で、イベントループ側から呼ばれる。
+
+    ``ask=False`` は AI を呼ばない仕上げ（聞く組を 0 件にする。``make_llm`` も呼ばない）: 台帳を
+    ``finalize``・保存・``summarize`` するだけで、取り込み元の関係と前の回の結果は残る
+    （14d-2a・AI 未設定と ``relations: false``）。台帳の扱いは普段と同じ。
 
     止まり方: 取り消し・時間切れ・途中の例外でも、済んだ答えは台帳に入れ、``finalize`` して保存して
     から抜ける。最初の :data:`ABORT_AFTER_FAILURES` 件が全部失敗なら（鍵が切れているなど）残りは
@@ -107,11 +112,15 @@ async def run_relations(
     ledger = pr.load_ledger(registry_root, source)
     todo_all, base = pr.plan_run(ledger, tasks)
     reused = len(tasks) - len(todo_all)
-    todo = todo_all[:limit] if limit else todo_all
+    todo = (todo_all[:limit] if limit else todo_all) if ask else []
     total = len(todo)
 
     # 呼び出し 1 本に AI クライアント 1 つ（同時に最大 ``concurrency`` 本）
-    pool = [make_llm() for _ in range(max(1, min(concurrency, total) if total else 1))]
+    pool = (
+        [make_llm() for _ in range(max(1, min(concurrency, total) if total else 1))]
+        if ask
+        else []
+    )
     model = next((m for m in (getattr(c, "model", None) for c in pool) if isinstance(m, str)), None)
     sem = asyncio.Semaphore(len(pool))
     terms = {str(t["id"]): t for t in copy.terms if "id" in t}
@@ -395,6 +404,9 @@ def register_knowledge_relations_routes(
         running = _running()
         if source in running:
             raise HTTPException(409, f"{source} の関係選びは走っている途中です")
+        other = busy_kind(app, source)  # 取り込み・外すも同じ取り込み元では 1 つずつ
+        if other is not None:
+            raise HTTPException(409, f"{source} は別の作業 ({other}) が走っている途中です")
 
         # 「作る AI」をブラウザの X-LLM-* から組む（論文の提案と同じ）
         headers = chat_attach.llm_headers_of(request.headers)
