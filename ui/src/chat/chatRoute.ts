@@ -31,6 +31,19 @@ export function placeOf(route: ChatRoute): Place | null {
   return null
 }
 
+/** 同じチャット（どちらも新しいチャット、または同じ id）か。 */
+export function sameView(a: ChatView, b: ChatView): boolean {
+  return a.kind === 'session' ? b.kind === 'session' && a.id === b.id : b.kind === 'new'
+}
+
+/** 今の場所のルート（設定を閉じたときに戻る先）。場所が決まる前（null）は `#/`。 */
+export function placeRouteOf(place: Place | null, view: ChatView, importAdd: boolean): ChatRoute {
+  if (place === 'chat') return view
+  if (place === 'import') return importAdd ? { kind: 'import', add: true } : { kind: 'import' }
+  if (place === 'graph') return { kind: 'graph' }
+  return { kind: 'root' }
+}
+
 function sessionId(raw: string | undefined): string | null {
   if (!raw) return null
   let id = raw

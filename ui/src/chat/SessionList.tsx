@@ -119,7 +119,7 @@ export function SessionList(p: SessionListProps) {
             }
             return (
               <div key={s.id} className={`chat-row${active ? ' is-active' : ''}`} data-testid="session-row">
-                <button type="button" className="chat-row-main" aria-current={active ? 'page' : undefined} onClick={() => p.onOpen(s.id)}>
+                <button type="button" className="chat-row-main" aria-current={active ? 'true' : undefined} onClick={() => p.onOpen(s.id)}>
                   <span className="chat-row-title">{title}</span>
                   {s.proposed > 0 && <span className="chat-row-badge">{t('list.proposed', { n: s.proposed })}</span>}
                 </button>

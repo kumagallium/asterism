@@ -38,7 +38,7 @@ import {
   type ScopeBody,
   type TurnInput,
 } from './chatApi'
-import { chatHash, legacyHashRewrite, parseChatHash, placeOf, type ChatRoute, type ChatView, type Place } from './chatRoute'
+import { chatHash, legacyHashRewrite, parseChatHash, placeOf, placeRouteOf, sameView, type ChatRoute, type ChatView, type Place } from './chatRoute'
 import { firstPlace, readLastPlace, writeLastPlace } from './firstPlace'
 import { pointQueryOf, removeOf, sameSel, thinPointOf, type Highlight, type PointSel } from './chatState'
 import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded, runningJobs } from './chatState'
@@ -108,7 +108,8 @@ export function ChatApp() {
   const [importAdd, setImportAdd] = useState(() => route.kind === 'import' && !!route.add)
   const show = useCallback((r: ChatRoute) => {
     setRoute(r)
-    if (r.kind === 'new' || r.kind === 'session') setView(r)
+    // 同じチャットなら前の値のまま（戻る・進むのたびに作り直すと、開いている論文が閉じる）
+    if (r.kind === 'new' || r.kind === 'session') setView((cur) => (sameView(cur, r) ? cur : r))
     if (r.kind === 'import') setImportAdd(!!r.add)
     const p = placeOf(r)
     if (p) setPlace(p)
@@ -130,10 +131,7 @@ export function ChatApp() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [show])
   /** 今の場所のルート（設定を閉じたときに戻る先）。 */
-  const placeRoute = useCallback(
-    (): ChatRoute => (place === 'chat' ? view : place === 'import' ? (importAdd ? { kind: 'import', add: true } : { kind: 'import' }) : place === 'graph' ? { kind: 'graph' } : { kind: 'root' }),
-    [place, view, importAdd],
-  )
+  const placeRoute = useCallback((): ChatRoute => placeRouteOf(place, view, importAdd), [place, view, importAdd])
   // 手番を生む操作は「チャット」に移って続ける（契約 §1 ⑤）。最新の場所と今のチャットを ref で読む
   const placeRef = useRef(place)
   const viewRef = useRef(view)
@@ -365,8 +363,9 @@ export function ChatApp() {
   const runTurn = useCallback(
     async (input: TurnInput): Promise<boolean> => {
       if (busy) return false
-      if (view.kind === 'session' && !session) return false // 話を読み込み中
+      // 先に「チャット」へ移る（今のチャットが読み込み中・読み込めないときも、その 1 行はチャットの列に出る）
       toChat()
+      if (view.kind === 'session' && !session) return false // 話を読み込み中
       setBusy('send')
       setError(null)
       setPendingUser(input.text ?? null)
@@ -455,8 +454,6 @@ export function ChatApp() {
         openAdd()
         return false
       }
-      // 作った話を消したあとの戻り先: 取り込みからなら取り込み、チャットからなら新しいチャット
-      const back: ChatRoute = fresh ? { kind: 'import' } : { kind: 'new' }
       setBusy('send')
       setError(null)
       setPendingUser(label)
@@ -467,10 +464,11 @@ export function ChatApp() {
         if (!s) {
           s = await createSession('')
           created = true
-          if (fresh) resetChat()
-          setLoaded({ id: s.id, session: s })
-          // 取り込みからは履歴に積む（戻ると取り込みへ）。チャットの `#/chat` は置き換える
-          navigate({ kind: 'session', id: s.id }, { replace: !fresh })
+          // チャットからは、すぐ `#/chat` を置き換える。取り込みからは、送れてから移る（失敗したら取り込みに居たまま）
+          if (!fresh) {
+            setLoaded({ id: s.id, session: s })
+            navigate({ kind: 'session', id: s.id }, { replace: true })
+          }
         }
         const id = s.id
         let res: Awaited<ReturnType<typeof postAttach>>
@@ -480,17 +478,23 @@ export function ChatApp() {
           // 例外のときだけ空の話を消す（201 で job_id が無いのは成功）
           if (created) {
             await deleteSession(id).catch(() => undefined)
-            setLoaded(null)
+            if (!fresh) setLoaded(null)
             reloadSessions()
           }
           if (isAiUnset(e)) {
-            // 作った話は消したので、「取り込み」にかんたんを出す
-            if (created) navigate({ kind: 'import', add: true }, { replace: true })
+            // 作った話は消したので、「取り込み」にかんたんを出す（チャットからは `#/chat/<id>` を置き換える）
+            if (created && !fresh) navigate({ kind: 'import', add: true }, { replace: true })
             else openAdd()
             return false
           }
-          if (created) navigate(back, { replace: true })
+          if (created && !fresh) navigate({ kind: 'new' }, { replace: true })
           throw e
+        }
+        if (fresh) {
+          // 送れた: 新しいチャットを開いて「チャット」に移る（履歴に積むので、戻ると取り込みへ）
+          resetChat()
+          setLoaded({ id, session: s })
+          navigate({ kind: 'session', id })
         }
         await reread(id, (cur) => applyTurnResponse(cur, { turn: res.turn, session: res.session, draft: null }))
         if (res.job_id) watch(id, res.turn.id, res.job_id)
@@ -847,16 +851,15 @@ export function ChatApp() {
   const [mapH, setMapH] = useState(420)
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (!el) return
     const apply = () => {
       if (layout.tabs) return setMapH(Math.round(window.innerHeight * 0.55))
-      const h = el.clientHeight
+      const h = el?.clientHeight ?? 0
       // 「チャット」の右は下に関係とデータが続くので 6 割。ほかの場所は入れ物いっぱい（凡例と余白の分を引く）
       if (h > 0) setMapH(Math.max(260, place === 'chat' ? Math.round(h * 0.6) : h - MAP_CHROME_PX))
     }
     apply()
     window.addEventListener('resize', apply)
-    if (typeof ResizeObserver === 'undefined') return () => window.removeEventListener('resize', apply)
+    if (typeof ResizeObserver === 'undefined' || !el) return () => window.removeEventListener('resize', apply)
     const ro = new ResizeObserver(apply)
     ro.observe(el)
     return () => {
@@ -1120,6 +1123,8 @@ export function ChatApp() {
             </div>
             {layout.tabs && <div className="place-stack">{graphSide}</div>}
           </div>
+          {/* 375 の「チャット」には右の領域が無いので、AI 無しで手で追加するフォームはここに出す（送ると「チャット」に移る） */}
+          {layout.tabs && showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
         </section>
       )}
 

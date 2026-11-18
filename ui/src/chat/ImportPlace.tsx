@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import type { SkyDataset } from '../sky/skyApi'
 import { SourcePicker } from './SourcePicker'
 import { ATTACH_EXTS } from './sourcePickerUtil'
-import { importRows } from './importRows'
+import { importRows, type ImportRow } from './importRows'
 
 export interface ImportPlaceProps {
   /** 公開済み。 */
@@ -32,7 +32,6 @@ export function ImportPlace(p: ImportPlaceProps) {
   const fileInput = useRef<HTMLInputElement>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const rows = importRows(p.datasets, p.proposed)
-  const num = (n: number) => n.toLocaleString(p.lang)
 
   return (
     <div className="import-place" data-testid="import-place">
@@ -69,6 +68,11 @@ export function ImportPlace(p: ImportPlaceProps) {
                 {t('compose.attachFrom', { server: p.sourceHome })}
               </button>
             )}
+            {p.busy && (
+              <span className="chat-note-line" role="status" data-testid="import-reading">
+                {t('attach.reading')}
+              </span>
+            )}
           </div>
           {pickerOpen && p.sourceHome && (
             <SourcePicker server={p.sourceHome} onAttach={p.onAttachFromSource} onClose={() => setPickerOpen(false)} />
@@ -91,22 +95,31 @@ export function ImportPlace(p: ImportPlaceProps) {
           {t('import.empty')}
         </p>
       ) : (
-        <ul className="import-rows">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <button type="button" className="import-row" data-testid="import-dataset-row" onClick={() => p.onOpenDataset(r.id)}>
-                <span className="import-row-name">{r.name}</span>
-                {r.paper && <span className="import-row-tag">{t('import.paper')}</span>}
-                {!r.published && <span className="import-row-tag import-row-tag--soft">{t('import.unpublished')}</span>}
-                <span className="import-row-meta">
-                  {r.kinds !== null && r.rows !== null && t('import.row', { kinds: num(r.kinds), rows: num(r.rows) })}
-                  {r.created && <span className="import-row-date">{r.created.toLocaleDateString(p.lang)}</span>}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <ImportRowList rows={rows} lang={p.lang} onOpen={p.onOpenDataset} />
       )}
     </div>
+  )
+}
+
+/** 一覧の行。行そのものがボタンで、押すとそのデータセットの id を渡す（行に別のボタンは置かない）。 */
+export function ImportRowList({ rows, lang, onOpen }: { rows: ImportRow[]; lang: 'ja' | 'en'; onOpen: (id: string) => void }) {
+  const { t } = useTranslation('chat')
+  const num = (n: number) => n.toLocaleString(lang)
+  return (
+    <ul className="import-rows">
+      {rows.map((r) => (
+        <li key={r.id}>
+          <button type="button" className="import-row" data-testid="import-dataset-row" onClick={() => onOpen(r.id)}>
+            <span className="import-row-name">{r.name}</span>
+            {r.paper && <span className="import-row-tag">{t('import.paper')}</span>}
+            {!r.published && <span className="import-row-tag import-row-tag--soft">{t('import.unpublished')}</span>}
+            <span className="import-row-meta">
+              {r.kinds !== null && r.rows !== null && t('import.row', { kinds: num(r.kinds), rows: num(r.rows) })}
+              {r.created && <span className="import-row-date">{r.created.toLocaleDateString(lang)}</span>}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }

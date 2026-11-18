@@ -95,21 +95,21 @@ export function NavRail({ place, onPlace, folded, showToggle, sheet, onToggle, o
       </div>
       <nav aria-label={t('nav.label')} className="nav-items">
         {PLACES.map((p) => (
-          <div key={p} className="nav-group">
-            <button
-              type="button"
-              className={`nav-item${place === p ? ' is-active' : ''}`}
-              data-testid={`nav-${p}`}
-              aria-current={place === p ? 'page' : undefined}
-              onClick={() => onPlace(p)}
-            >
-              <PlaceIcon place={p} />
-              <span className="nav-item-name">{t(`nav.${p}`)}</span>
-            </button>
-            {p === 'chat' && <div className="nav-rail-list">{children}</div>}
-          </div>
+          <button
+            key={p}
+            type="button"
+            className={`nav-item${place === p ? ' is-active' : ''}`}
+            data-testid={`nav-${p}`}
+            aria-current={place === p ? 'page' : undefined}
+            onClick={() => onPlace(p)}
+          >
+            <PlaceIcon place={p} />
+            <span className="nav-item-name">{t(`nav.${p}`)}</span>
+          </button>
         ))}
       </nav>
+      {/* チャットの一覧は「チャット」（最後の項目）のすぐ下。場所のナビ（nav）の外に置く */}
+      <div className="nav-rail-list">{children}</div>
       <div className="chat-list-foot">{gear}</div>
     </div>
   )

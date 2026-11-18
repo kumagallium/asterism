@@ -36,19 +36,6 @@
   background: var(--surface-alt);
   border-right: 1px solid var(--border);
 }
-.chat-list-inner {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-}
-.chat-list-inner--folded {
-  align-items: center;
-  padding: var(--space-4) var(--space-3);
-}
 .chat-list-spacer {
   flex: 1;
 }
@@ -652,12 +639,6 @@
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.chat-tabs {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  gap: var(--space-1);
-}
 .chat-tab {
   padding: 0 var(--space-3);
   font-size: 0.85rem;
@@ -1129,15 +1110,6 @@ button.chat-question-title:hover {
 }
 
 /* 375 でも 3 つのタブが溢れない */
-.chat-tabs .chat-tab {
-  flex: 1 1 0;
-  min-width: 0;
-  padding-left: 0.6em;
-  padding-right: 0.6em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* 「文」「データ」のタブ・文の一覧・範囲の札（PR 11o）。.chat-rtabs の規則を再利用 */
 .chat-subtabs {
@@ -1457,7 +1429,7 @@ button.chat-question-title:hover {
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-4);
-  overflow-y: auto;
+  overflow: hidden;
 }
 .nav-rail--folded {
   align-items: center;
@@ -1472,12 +1444,6 @@ button.chat-question-title:hover {
 .nav-rail--folded .nav-items {
   align-items: center;
   margin-top: var(--space-2);
-}
-.nav-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
 }
 .nav-item {
   display: flex;
@@ -1552,7 +1518,7 @@ button.chat-question-title:hover {
   background: var(--primary-soft);
 }
 .place-tab-name {
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   line-height: 1.2;
 }
 
@@ -1700,24 +1666,9 @@ button.chat-question-title:hover {
 .chat-app.is-tabs .import-place {
   padding: var(--space-4);
 }
-/* ナビ: 3 つの項目とチャットの一覧が伸び、⚙ は下に残る */
-.nav-rail {
-  overflow: hidden;
-}
-.nav-rail .nav-items {
-  flex: 1;
-  min-height: 0;
-}
-.nav-rail .nav-group:last-child,
+/* ナビ: チャットの一覧だけが伸びて中でスクロールし、⚙ は下に残る */
 .nav-rail .nav-rail-list,
 .nav-rail .chat-list-rows-wrap {
-  flex: 1;
-  min-height: 0;
-}
-.nav-rail--folded .nav-items {
-  flex: none;
-}
-.nav-rail--sheet .nav-rail-list {
   flex: 1;
   min-height: 0;
 }
