@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { DraftSky, SkyData, SkyDataset } from '../../sky/skyApi'
 import type { PointSel } from '../chatState'
 import { bindMapEvents, buildMapGraph, layoutMap, mapNeighborhood, mapSignature, safeResize, syncMapAttributes } from './mapModel'
-import type { MapNodeAttrs } from './mapModel'
+import type { MapNodeAttrs, Tone } from './mapModel'
 import { mapNodePrograms } from './mapNodePrograms'
 import { mapEdgeAppearance } from './mapEdgeAppearance'
 import { makeGraphLabelDrawer } from '../../graphLabels'
@@ -33,6 +33,8 @@ export interface MapViewProps {
   fitLabel: string
   /** 点が 1 つも無いときの 1 行。 */
   emptyLabel?: string
+  /** 大きい図: 名前つきの線の名前を常に出す（小さい図は hover だけ）。 */
+  showEdgeNames?: boolean
 }
 
 /** CSS 変数を実際の色に解決する（sigma は CSS 変数を読めない）。 */
@@ -66,6 +68,8 @@ interface Palette {
   surface: string
   border: string
   paper: string
+  /** 役割の 4 色（材料・物性・手法・概念）。 */
+  tone: Record<Tone, string>
 }
 
 type EdgeLabelCtx = CanvasRenderingContext2D
@@ -133,6 +137,12 @@ function readPalette(): Palette {
     surface: cssColor('--surface', '#ffffff'),
     border,
     paper: cssColor('--graph-paper', '#fbfcfe'),
+    tone: {
+      m: cssColor('--g-m', '#c2701f'),
+      p: cssColor('--g-p', '#2f6fb0'),
+      t: cssColor('--g-t', '#2f8a5b'),
+      c: cssColor('--g-c', '#7a5bb0'),
+    },
   }
 }
 
@@ -150,6 +160,7 @@ export function MapView({
   ariaLabel,
   fitLabel,
   emptyLabel,
+  showEdgeNames,
 }: MapViewProps) {
   // グラフは sky／drafts／proposedDatasets／lang が変わるたびに作る（速い）。形（点の id と線）が前と同じなら、
   // 配置済みのグラフと sigma を使い回して属性（色・大きさ・薄さ）だけ写す（配置は遅い・作り直すとカメラが戻る）
@@ -163,9 +174,9 @@ export function MapView({
   const laidRef = useRef<{ sig: string; graph: Graph } | null>(null)
   const roRef = useRef<ResizeObserver | null>(null)
   const themeUnsubscribeRef = useRef<(() => void) | null>(null)
-  const propsRef = useRef({ focusIds, selectedId, highlightIds, removeIds, onSelect, lang })
+  const propsRef = useRef({ focusIds, selectedId, highlightIds, removeIds, onSelect, lang, showEdgeNames })
   useEffect(() => {
-    propsRef.current = { focusIds, selectedId, highlightIds, removeIds, onSelect, lang }
+    propsRef.current = { focusIds, selectedId, highlightIds, removeIds, onSelect, lang, showEdgeNames }
   })
 
   useEffect(() => {
@@ -189,7 +200,8 @@ export function MapView({
     refreshRef.current = null
     hovRef.current = null
     hovEdgeRef.current = null
-    layoutMap(fresh)
+    const box = host.getBoundingClientRect()
+    layoutMap(fresh, box.width > 0 && box.height > 0 ? box.width / box.height : undefined)
     laidRef.current = { sig, graph: fresh }
     const graph = fresh
     const pal = readPalette()
@@ -235,7 +247,8 @@ export function MapView({
         // hover も同じ紙色で描き、暗い面で白い地や影を出さない。
         defaultDrawNodeHover: drawNodeLabel,
         labelRenderedSizeThreshold: 2,
-        labelDensity: 1,
+        // 大きい図（知識グラフの場所）では語の名前を間引かない。
+        labelDensity: showEdgeNames ? 4 : 1,
         labelGridCellSize: 100,
         labelColor: { color: pal.label },
         defaultEdgeColor: pal.edge,
@@ -250,13 +263,15 @@ export function MapView({
           const base = a.role === 'entity' ? pal.entity : a.role === 'dataset' ? pal.dataset : pal.activity
           const thin = a.role === 'entity' ? pal.entityThin : pal.activityThin
           let color = a.proposed ? thin : base
+          // 役割の 4 色（用語・台帳の語）。台帳の未確認は薄く（確認済みは濃く）
+          if (a.tone && !a.proposed) color = a.unconfirmed ? withAlpha(pal.tone[a.tone], 0.75) : pal.tone[a.tone]
           if (isRemove) color = pal.accent
           // この話の点は前に出す（名前は重なりの規則に任せる。必ず出すのは選んだ点と hover の近傍だけ。
           // この話の名前は下の「この話の周り」で全部読める）
           const out: Record<string, unknown> = {
             ...data,
             type: a.role === 'entity' ? 'map-filled' : a.role === 'dataset' ? 'map-dataset' : 'map-outline',
-            label: a.proposed ? `${a.label} (${p.lang === 'ja' ? '提案' : 'proposed'})` : a.label,
+            label: a.proposed && !a.ledger ? `${a.label} (${p.lang === 'ja' ? '提案' : 'proposed'})` : a.label,
             color, zIndex: isFocus ? 2 : 0,
           }
           // データセットの丸（表の名前）は星座の見出し。名前を必ず出す
@@ -287,7 +302,7 @@ export function MapView({
             (p.highlightIds !== null && (p.highlightIds.has(s) || p.highlightIds.has(t)))
           )
           // hover 中だけ名前を出す。提案の印も描画時だけ足す。
-          return mapEdgeAppearance(data, pal, { hovered, on, faded: !!em && !on, lang: p.lang })
+          return mapEdgeAppearance(data, pal, { hovered, on, faded: !!em && !on, lang: p.lang, names: p.showEdgeNames, quiet: true })
         },
       })
     } catch {
@@ -337,6 +352,32 @@ export function MapView({
       ro.observe(host)
       roRef.current = ro
     }
+    // 画面の密度（devicePixelRatio）が変わった（別のモニタへ移す・拡大率を変える）: 容器の大きさは同じでも、
+    // sigma は測り直さないので点（WebGL）だけ古い大きさで描かれ、名前の札とずれる。強制で測り直す
+    if (typeof window !== 'undefined') {
+      let dpr = window.devicePixelRatio
+      const onDensity = (): void => {
+        if (window.devicePixelRatio === dpr) return
+        dpr = window.devicePixelRatio
+        try {
+          sigma.resize(true)
+          sigma.refresh()
+        } catch {
+          // 隠れている間は何もしない（見えたら ResizeObserver が測り直す）
+        }
+      }
+      window.addEventListener('resize', onDensity)
+      const mq = typeof window.matchMedia === 'function' ? window.matchMedia(`(resolution: ${dpr}dppx)`) : null
+      mq?.addEventListener?.('change', onDensity)
+      const stop = themeUnsubscribeRef.current
+      themeUnsubscribeRef.current = () => {
+        stop?.()
+        window.removeEventListener('resize', onDensity)
+        mq?.removeEventListener?.('change', onDensity)
+      }
+    }
+  // showEdgeNames は作るときの名前の密度だけに使う（場所ごとに別の図なので、変わったら作り直さなくてよい）
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fresh])
 
   // 外すときだけ壊す
@@ -356,7 +397,7 @@ export function MapView({
 
   useEffect(() => {
     refreshRef.current?.()
-  }, [focusIds, selectedId, highlightIds, removeIds])
+  }, [focusIds, selectedId, highlightIds, removeIds, showEdgeNames])
 
   // 高さが変わったら描き直す（隠れているときは何もしない）
   useEffect(() => {

@@ -48,8 +48,10 @@ __all__ = [
     "TENTATIVE",
     "LedgerError",
     "annotate",
+    "assign",
     "build_tasks",
     "check_answer",
+    "confirm",
     "counts_by_state",
     "drop_cycles",
     "empty_ledger",
@@ -62,12 +64,15 @@ __all__ = [
     "origin_relations",
     "plan_run",
     "questions",
+    "reject",
     "relation_problem",
     "remove_ledger",
+    "restore",
     "save_ledger",
     "shown_relations",
     "strip_unconfirmed",
     "summarize",
+    "unconfirm",
 ]
 
 #: 語の組で選べる関係（``quantity`` の相手は標準の量の種類で、語の組にならない）。
@@ -445,6 +450,9 @@ def origin_check(row: Mapping[str, Any], pairs: Mapping[str, Any]) -> str:
     ``pairs`` は台帳の ``pairs``（``key`` は 2 語の id を文字列順に ``|`` でつないだもの）。"""
     frm, to = str(row.get("from")), str(row.get("to"))
     entry = pairs.get("|".join(sorted((frm, to))))
+    if entry and _is_rejected(entry, str(row.get("rel")), frm, to, origin_only=True):
+        # 取り込み元の行を人が「違う」とした（組が orphan でも・件が変わっても出さない）
+        return "rejected"
     if not entry or entry.get("orphan") or entry.get("state") in (None, "failed"):
         return "unseen"  # state の無い件（外したあとに縮めた「違う」の記録）も、まだ答えの無い組
     if entry.get("state") != "relation" or entry.get("rel") != row.get("rel"):
@@ -565,7 +573,10 @@ def plan_run(
     keys = {t["key"] for t in tasks}
     for k in sorted(pairs):
         if k not in keys:
-            if pairs[k].get("confirmed") or pairs[k].get("rejected"):
+            if pairs[k].get("by") == "origin" and pairs[k].get("confirmed"):
+                # 取り込み元の行を確認した件は、組に知見が無いのが普通（残す）
+                pairs[k].pop("orphan", None)
+            elif pairs[k].get("confirmed") or pairs[k].get("rejected"):
                 pairs[k]["orphan"] = True
             else:
                 del pairs[k]
@@ -650,7 +661,8 @@ def finalize(ledger: Mapping[str, Any], copy: KnowledgeCopy, *, dataset_id: str 
     for o in origin:
         mark = origin_check(o, out["pairs"])
         g = edges.get(o["rel"])
-        if g is not None and mark not in ("disputes", "agrees"):  # agrees は輪の検査に通さない
+        # agrees は輪の検査に通さない
+        if g is not None and mark not in ("disputes", "agrees", "rejected"):
             if _reaches(g, str(o["to"]), str(o["from"])):
                 mark = "disputes"
             else:
@@ -688,6 +700,8 @@ def summarize(ledger: Mapping[str, Any]) -> dict:
     origin = list(ledger.get("origin") or [])
     check = {"agrees": 0, "disputes": 0, "unseen": 0}
     for o in origin:
+        if o.get("ai") == "rejected":  # 人が「違う」とした行は数に入れない
+            continue
         mark = o.get("ai") if o.get("ai") in check else "unseen"
         check[mark] += 1
     shown = shown_relations(ledger)
@@ -738,7 +752,7 @@ def shown_relations(ledger: Mapping[str, Any]) -> list[dict]:
             }
         )
     for o in ledger.get("origin") or []:
-        if o.get("ai") in ("agrees", "disputes"):
+        if o.get("ai") in ("agrees", "disputes", "rejected"):
             continue
         row = {"from": str(o["from"]), "rel": o.get("rel"), "to": str(o["to"]), "by": "origin"}
         out.append(row)
@@ -923,3 +937,298 @@ def remove_ledger(root: str | Path, source: str, *, at: str) -> dict:
     else:
         ledger_path(root, source).unlink(missing_ok=True)
     return removed
+
+
+# ---- 確認・違う・人が付ける（14e-1） ----------------------------------------------------------
+#
+# どれも ``(新しい台帳, {changed: [key], skipped: [{key, reason}]})`` を返す純関数
+# （入力は変えない）。
+# 知らない key・状態が合わない key は ``skipped``（全体を失敗にしない）。``at`` は呼び手が渡す時刻。
+# 取り込み元の関係（``origin``）の行は、組の鍵（2 語の id を文字列順に ``|`` でつないだもの）で
+# 指す。
+
+
+def _same_triple(rel_a: str, a: tuple[str, str], rel_b: str, b: tuple[str, str]) -> bool:
+    return rel_a == rel_b and _order(rel_a, *a) == _order(rel_b, *b)
+
+
+def _is_rejected(
+    entry: Mapping[str, Any], rel: str, frm: str, to: str, *, origin_only: bool = False
+) -> bool:
+    """組の件の ``rejected`` に、この 3 つ組（向きの無い関係は向きを問わない）があるか。
+    ``origin_only`` は、取り込み元の行を「違う」とした記録（``origin: True``）だけを見る
+    （AI の関係の「違う」は、取り込み元の同じ関係を「まだ読んでいない」のままにする）。"""
+    for r in entry.get("rejected") or []:
+        if origin_only and not r.get("origin"):
+            continue
+        if _same_triple(str(r.get("rel")), (str(r.get("from")), str(r.get("to"))), rel, (frm, to)):
+            return True
+    return False
+
+
+def _outcome(changed: list[str], skipped: list[dict]) -> dict:
+    return {"changed": changed, "skipped": skipped}
+
+
+def _live(entry: Mapping[str, Any] | None) -> bool:
+    """見せている AI の（または人の）関係か。"""
+    return bool(entry) and not entry.get("orphan") and entry.get("state") == "relation"  # type: ignore[union-attr]
+
+
+def _unseen_origin(ledger: Mapping[str, Any], key: str) -> dict | None:
+    """この組の、まだ見せている取り込み元の行（``unseen``）。無ければ ``None``。"""
+    pairs = ledger.get("pairs") or {}
+    for o in ledger.get("origin") or []:
+        if "|".join(sorted((str(o.get("from")), str(o.get("to"))))) != key:
+            continue
+        mark = o.get("ai") or origin_check(o, pairs)
+        if mark == "unseen":
+            return o
+    return None
+
+
+def _confirmation(rel: Any, frm: Any, to: Any, evidence: Any, at: str) -> dict:
+    return {
+        "rel": rel,
+        "from": frm,
+        "to": to,
+        "at": at,
+        "by": "user",
+        "evidence": [str(c) for c in evidence or []],
+    }
+
+
+def _strip_annotations(e: dict) -> None:
+    for k in _ANNOTATED:
+        e.pop(k, None)
+
+
+def confirm(ledger: Mapping[str, Any], keys: Iterable[str], *, at: str) -> tuple[dict, dict]:
+    """見せている関係に ``confirmed = {rel, from, to, at, by: "user", evidence}`` を書く。
+
+    ``evidence`` は確認した時の根拠の知見の id の控え（題は読む口が写しから引く。写しから知見が
+    消えても、確認した事実と根拠の id は残る）。取り込み元の行（まだ AI が読んでいない
+    ``unseen``）は、組の鍵で指すと、その関係を ``by: "origin"``・根拠なしの件として台帳に置いて
+    確認する（``finalize`` が AI の関係と同じ 1 本として数える）。確認済みは ``plan_run``・
+    ``merge_entry``・``finalize`` で上書きされない。skipped の理由:
+    ``unknown``（無い鍵・見せていない）・``already_confirmed``。"""
+    out = _copy.deepcopy(dict(ledger))
+    pairs: dict[str, dict] = out.setdefault("pairs", {})
+    changed: list[str] = []
+    skipped: list[dict] = []
+    for key in dict.fromkeys(str(k) for k in keys):
+        e = pairs.get(key)
+        if _live(e):
+            if e.get("confirmed"):
+                skipped.append({"key": key, "reason": "already_confirmed"})
+                continue
+            e["confirmed"] = _confirmation(
+                e.get("rel"), e.get("from"), e.get("to"), e.get("evidence"), at
+            )
+            changed.append(key)
+            continue
+        row = _unseen_origin(out, key) if not (e or {}).get("confirmed") else None
+        if row is None:
+            skipped.append({"key": key, "reason": "unknown"})
+            continue
+        a, _, b = key.partition("|")
+        base = dict(e or {})
+        base.update(
+            key=key, a=a, b=b, state="relation", rel=row["rel"], reason=None, note=None,
+            evidence=[], by="origin",
+            confirmed=_confirmation(row["rel"], row["from"], row["to"], [], at),
+        )
+        base["from"], base["to"] = str(row["from"]), str(row["to"])
+        base.setdefault("fingerprint", None)
+        base.setdefault("claims", [])
+        base.setdefault("claims_total", 0)
+        base.setdefault("rejected", [])
+        base.pop("orphan", None)
+        _strip_annotations(base)
+        pairs[key] = base
+        changed.append(key)
+    return out, _outcome(changed, skipped)
+
+
+def unconfirm(ledger: Mapping[str, Any], keys: Iterable[str]) -> tuple[dict, dict]:
+    """``confirmed`` を消す（関係は未確認に戻る）。skipped の理由: ``unknown``・``not_confirmed``。
+
+    根拠が無いと未確認で残れない件は、確認を消すと元の形に戻る: 取り込み元の行から確認した件は
+    台帳から外れて取り込み元の行（未確認）に戻り（「違う」の記録があれば記録だけ残す）、人が付けた
+    関係で根拠の知見も無い件は候補（``none``）に戻る。"""
+    out = _copy.deepcopy(dict(ledger))
+    pairs: dict[str, dict] = out.setdefault("pairs", {})
+    changed: list[str] = []
+    skipped: list[dict] = []
+    for key in dict.fromkeys(str(k) for k in keys):
+        e = pairs.get(key)
+        if e is None:
+            skipped.append({"key": key, "reason": "unknown"})
+            continue
+        if not e.get("confirmed"):
+            skipped.append({"key": key, "reason": "not_confirmed"})
+            continue
+        e["confirmed"] = None
+        if not e.get("evidence"):
+            if e.get("by") == "origin":
+                if e.get("rejected"):
+                    pairs[key] = {"key": key, "a": e.get("a"), "b": e.get("b"), "orphan": True,
+                                  "rejected": e["rejected"]}
+                else:
+                    del pairs[key]
+            elif e.get("by") == "user":
+                for f in ("rel", "from", "to", "note", "reason", "by", "model", "proposed_at"):
+                    e[f] = None
+                e["state"] = _NONE
+                _strip_annotations(e)
+        changed.append(key)
+    return out, _outcome(changed, skipped)
+
+
+def reject(ledger: Mapping[str, Any], keys: Iterable[str], *, at: str) -> tuple[dict, dict]:
+    """その 3 つ組を ``rejected`` に足し、関係を見せない（``dropped``・理由 ``rejected``）。
+
+    ``confirmed`` があれば消す（消す前の確認は ``rejected`` の記録の ``was_confirmed`` に残し、
+    :func:`restore` が根拠の無い件を戻すのに使う）。取り込み元の行（``unseen``）は、組の件に
+    記録だけ足す（件が無ければ ``orphan`` と ``rejected`` だけの件を作る）。次の読み直しでも
+    同じ 3 つ組は出ない（``check_answer`` の ``rejected``・``origin_check`` の ``rejected``）。
+    skipped の理由: ``unknown``・``already_rejected``。"""
+    out = _copy.deepcopy(dict(ledger))
+    pairs: dict[str, dict] = out.setdefault("pairs", {})
+    changed: list[str] = []
+    skipped: list[dict] = []
+    for key in dict.fromkeys(str(k) for k in keys):
+        e = pairs.get(key)
+        if _live(e):
+            rec = {"rel": e.get("rel"), "from": e.get("from"), "to": e.get("to"), "at": at}
+            if e.get("confirmed"):
+                rec["was_confirmed"] = e["confirmed"]
+            e.setdefault("rejected", [])
+            e["rejected"] = [*(e.get("rejected") or []), rec]
+            e["state"], e["reason"], e["confirmed"] = "dropped", "rejected", None
+            _strip_annotations(e)
+            changed.append(key)
+            continue
+        row = _unseen_origin(out, key)
+        if row is None:
+            who = "already_rejected" if e and e.get("rejected") else "unknown"
+            skipped.append({"key": key, "reason": who})
+            continue
+        a, _, b = key.partition("|")
+        if e is None:
+            e = pairs[key] = {"key": key, "a": a, "b": b, "orphan": True, "rejected": []}
+        e["rejected"] = [
+            *(e.get("rejected") or []),
+            {
+                "rel": row["rel"], "from": str(row["from"]), "to": str(row["to"]),
+                "at": at, "origin": True,
+            }
+        ]
+        changed.append(key)
+    return out, _outcome(changed, skipped)
+
+
+def restore(ledger: Mapping[str, Any], keys: Iterable[str]) -> tuple[dict, dict]:
+    """最後に足した ``rejected`` を外し、関係を未確認で戻す。skipped の理由: ``unknown``・
+    ``not_rejected``。
+
+    - 「違う」で落とした件（``dropped``・理由 ``rejected``・``rel`` が残っている）→ 関係
+      （``relation``）に戻す。根拠の無い件（人が付けた・取り込み元の行から確認した）は、その確認も
+      戻す（根拠が無いと未確認で残れないため。確認が元から無ければ戻さない）。
+    - 関係が台帳に残っていない件（``orphan``・``state`` が無い・別の関係に変わった件）→
+      記録だけ外す。
+      ``orphan``・``state`` が無く、``confirmed`` も ``rejected`` も空になった件は台帳から消す
+      （次の読み直しで聞き直される。取り込み元の行はまた出る）。"""
+    out = _copy.deepcopy(dict(ledger))
+    pairs: dict[str, dict] = out.setdefault("pairs", {})
+    changed: list[str] = []
+    skipped: list[dict] = []
+    for key in dict.fromkeys(str(k) for k in keys):
+        e = pairs.get(key)
+        if e is None:
+            skipped.append({"key": key, "reason": "unknown"})
+            continue
+        rej = list(e.get("rejected") or [])
+        if not rej:
+            skipped.append({"key": key, "reason": "not_rejected"})
+            continue
+        last = rej.pop()
+        e["rejected"] = rej
+        if (
+            not e.get("orphan")
+            and e.get("state") == "dropped"
+            and e.get("reason") == "rejected"
+            and e.get("rel")
+        ):
+            e["state"], e["reason"] = "relation", None
+            if not e.get("evidence") and last.get("was_confirmed"):
+                e["confirmed"] = last["was_confirmed"]
+        if not rej and not e.get("confirmed") and (e.get("orphan") or not e.get("state")):
+            del pairs[key]
+        changed.append(key)
+    return out, _outcome(changed, skipped)
+
+
+def assign(
+    ledger: Mapping[str, Any],
+    terms: Mapping[str, Any] | Iterable[Mapping[str, Any]],
+    key: str,
+    rel: str,
+    subject: str,
+    *,
+    at: str,
+) -> tuple[dict, dict]:
+    """候補（``none``）や落ちた組（``dropped``・``failed``）に、人が関係を付ける。
+
+    ``subject``（``"a"``／``"b"``）は組のどちらが主語（``from``）か（向きの無い関係では語の id の
+    順に並べ直すので無視）。機械の検査（:func:`relation_problem`・自分自身・``sub``／``part`` の
+    輪）を通ったものだけ。``by: "user"``・確認済みで置く。``evidence`` は組の知見（``claims``）の
+    先頭 :data:`_MAX_EVIDENCE` 件。AI の関係（``relation``）が付いている組には付けない
+    （先に「違う」）。
+    skipped の理由: ``unknown``・``already_related``・``relation``（集合の外）・``direction``・
+    ``term``・``same``／``mixed``／``target_not_property``／``role_mismatch``・``cycle``・
+    ``rejected``（同じ 3 つ組を「違う」とした記録がある。先に戻す）。"""
+    out = _copy.deepcopy(dict(ledger))
+    pairs: dict[str, dict] = out.setdefault("pairs", {})
+    key = str(key)
+    e = pairs.get(key)
+
+    def no(reason: str) -> tuple[dict, dict]:
+        return out, _outcome([], [{"key": key, "reason": reason}])
+
+    if e is None or e.get("orphan") or not e.get("a") or not e.get("b"):
+        return no("unknown")
+    if e.get("state") == "relation":
+        return no("already_related")
+    if rel not in PAIR_RELATIONS:
+        return no("relation")
+    if subject not in ("a", "b"):
+        return no("direction")
+    frm, to = (str(e["a"]), str(e["b"])) if subject == "a" else (str(e["b"]), str(e["a"]))
+    frm, to = _order(rel, frm, to)
+    by_id = _terms_by_id(terms)
+    tf, tt = by_id.get(frm), by_id.get(to)
+    if tf is None or tt is None:
+        return no("term")
+    problem = relation_problem(rel, tf, tt)
+    if problem:
+        return no(problem)
+    if _is_rejected(e, rel, frm, to):
+        return no("rejected")
+    if rel in _CYCLE_RELS:
+        edges: dict[str, set[str]] = {}
+        for r in shown_relations(out):
+            if r["rel"] == rel and r.get("key") != key:
+                edges.setdefault(r["from"], set()).add(r["to"])
+        if _reaches(edges, to, frm):
+            return no("cycle")
+    ev = [str(c) for c in (e.get("claims") or [])][:_MAX_EVIDENCE]
+    e.update(
+        state="relation", rel=rel, reason=None, note=None, by="user", evidence=ev,
+        confirmed=_confirmation(rel, frm, to, ev, at),
+    )
+    e["from"], e["to"] = frm, to
+    for f in ("model", "proposed_at"):
+        e.pop(f, None)
+    _strip_annotations(e)
+    return out, _outcome([key], [])

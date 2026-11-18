@@ -31,6 +31,37 @@ export interface MapNodeAttrs {
   y: number
   /** 色の役割: 用語・視点・提案＝activity／データの種類＝entity／データセット（表の名前）＝dataset（灰）。 */
   role: 'activity' | 'entity' | 'dataset'
+  /** 役割の 4 色（材料 m・物性 p・手法 t・概念 c）。用語と台帳の語だけが持つ。 */
+  tone?: Tone
+  /** 取り込み元の台帳の語（14e-1）。「提案」とは言わない。 */
+  ledger?: boolean
+  /** 台帳の語のうち、確認済みの関係が 1 本も無いもの（薄く描く）。 */
+  unconfirmed?: boolean
+}
+
+/** 役割の 4 色の札: 材料・物性・手法・概念。 */
+export type Tone = 'm' | 'p' | 't' | 'c'
+
+/** 台帳の下書きの `draft_id` の頭（`ledger:<取り込み元>`）。点の id は `draft|ledger:<取り込み元>|<語の id>`。 */
+export const LEDGER_PREFIX = 'ledger:'
+
+/** 語の役割と種別 → 4 色。物性（項目）＝p、材料＝m、手法＝t、それ以外（概念・役割なし）＝c。 */
+export function toneOf(role: string | null | undefined, kind?: string | null): Tone {
+  if (kind === 'property') return 'p'
+  if (role === 'material') return 'm'
+  if (role === 'method') return 't'
+  return 'c'
+}
+
+/** 台帳の下書きだけが足す追加の欄（`DraftSky` の形はそのまま）。 */
+export interface LedgerConceptExtra {
+  role?: string | null
+  confirmed?: boolean
+}
+export interface LedgerRelationExtra {
+  confirmed?: boolean
+  /** 関係の無い候補（名前の無い薄い線）。 */
+  candidate?: boolean
 }
 
 export interface MapEdgeAttrs {
@@ -42,6 +73,11 @@ export interface MapEdgeAttrs {
   thin?: boolean
   /** 未承認の提案。線幅とは独立した意味状態。 */
   proposed?: boolean
+  /** 台帳の未確認の関係（薄い・「提案」の印は付けない）。 */
+  unconfirmed?: boolean
+  /** 台帳の候補（関係が無い組）。 */
+  candidate?: boolean
+  ledger?: boolean
 }
 
 /** 件数の固定の対数の半径（1 件 5・10 件 7・100 件 9・1,000 件 12・1 万件以上 13）。11f の札の図から引き継いだ式。 */
@@ -74,6 +110,17 @@ const RELATION_LABEL: Record<'ja' | 'en', Record<string, string>> = {
     isA: 'kind of', isPartOf: 'part of', lowers: 'lowers', raises: 'raises', affects: 'changes',
     makes: 'makes', measuresProperty: 'measures', measuresMaterial: 'measures', measures: 'measures', becomes: 'turns into', competesWith: 'competes with', hasProperty: 'has property',
   },
+}
+
+/** 下書き側の関係名（sub・eq・…）の短い名前。台帳の線・一覧・絞り込みで使う。 */
+const DRAFT_SHORT: Record<'ja' | 'en', Record<string, string>> = {
+  ja: { sub: '一種', eq: '同じ', quantity: '量', part: '一部', lowers: '下げる', raises: '上げる', affects: '変える', makes: '作る', measures: '測る', becomes: '変わる', competes: '競合する', has_property: '物性' },
+  en: { sub: 'kind of', eq: 'same as', quantity: 'quantity', part: 'part of', lowers: 'lowers', raises: 'raises', affects: 'changes', makes: 'makes', measures: 'measures', becomes: 'turns into', competes: 'competes with', has_property: 'has property' },
+}
+
+/** 下書き側の関係名の短い表示名。知らない名前はそのまま。 */
+export function draftRelationLabel(rel: string, lang: 'ja' | 'en'): string {
+  return DRAFT_SHORT[lang][rel] ?? rel
 }
 
 /** 関係の表示名。引けなければ undefined。 */
@@ -145,6 +192,7 @@ export function buildMapGraph(
       label: termLabel(t, lang),
       iri: t.iri,
       ...(removedTerms.has(t.iri) ? { remove: true } : {}),
+      tone: toneOf(null, t.kind),
       size: 0,
       role: 'activity',
     })
@@ -188,8 +236,48 @@ export function buildMapGraph(
     for (const d of datasets) for (const k of d.kinds) if (mem.has(k.iri)) addEdge(hid, kindId(d.id, k.iri), { kind: 'hub' }, false)
   }
 
+  // 台帳（取り込み元の関係）: 語は役割の色・確認済みは濃く、線は名前つき（確認済み＝実線の濃さ・未確認＝薄く）
+  for (const d of drafts) {
+    if (!d.draft_id.startsWith(LEDGER_PREFIX)) continue
+    const ends = new Map<string, string>()
+    for (const c of d.concepts) {
+      const x = c as DraftSky['concepts'][number] & LedgerConceptExtra
+      const id = draftNodeId(d.draft_id, c.key)
+      addNode(id, {
+        type: 'draft',
+        label: c.label,
+        draftId: d.draft_id,
+        conceptKey: c.key,
+        ledger: true,
+        ...(x.confirmed ? {} : { unconfirmed: true }),
+        tone: toneOf(x.role, c.kind),
+        size: 0,
+        role: 'activity',
+      })
+      ends.set(c.key, id)
+    }
+    for (const r of d.relations) {
+      const a = ends.get(r.from)
+      const b = ends.get(r.to)
+      if (!a || !b || a === b) continue
+      const x = r as DraftSky['relations'][number] & LedgerRelationExtra
+      if (x.candidate) {
+        addEdge(a, b, { kind: 'draft', relation: 'candidate', thin: true, unconfirmed: true, candidate: true, ledger: true }, false)
+        continue
+      }
+      const label = draftRelationLabel(r.rel, lang)
+      addEdge(
+        a,
+        b,
+        { kind: 'draft', relation: r.rel, label, ledger: true, ...(x.confirmed ? {} : { thin: true, unconfirmed: true }) },
+        r.rel !== 'competes' && r.rel !== 'eq',
+      )
+    }
+  }
+
   // 提案の札（既にある用語に寄せる札は作らない）と提案の線
   for (const d of drafts) {
+    if (d.draft_id.startsWith(LEDGER_PREFIX)) continue
     const ends = new Map<string, string>()
     for (const c of draftCardConcepts(d)) {
       const id = draftNodeId(d.draft_id, c.key)
@@ -308,10 +396,78 @@ export function safeResize(sigma: { resize: () => void; refresh: () => void }, w
   }
 }
 
-/** 決定論の配置（グラフを直接書き換える）。初期位置を hashPosition に戻してから配置するので、何度呼んでも同じ。 */
-export function layoutMap(g: Graph): void {
+/** 台帳の語（主役）を広く取る倍率。ほかの点とは別の群として配置し、右へ寄せる。 */
+const LEDGER_SPREAD = 3
+
+/** グラフの一部（`ids`）だけの写しを作る（線は両端が入るものだけ）。 */
+function subgraphOf(g: Graph, ids: string[]): Graph {
+  const sub = new Graph({ type: 'undirected', multi: true })
+  for (const id of ids) sub.addNode(id, { ...g.getNodeAttributes(id) })
+  g.forEachEdge((_e, at, s, t) => {
+    if (sub.hasNode(s) && sub.hasNode(t)) sub.addEdge(s, t, { ...at })
+  })
+  return sub
+}
+
+/** 全体の外枠が `aspect`（幅÷高さ）になるよう、狭いほうの向きだけ引き伸ばす（図の枠を使い切る）。 */
+function stretchToAspect(g: Graph, aspect: number): void {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+  g.forEachNode((_i, a) => {
+    x0 = Math.min(x0, a.x); x1 = Math.max(x1, a.x)
+    y0 = Math.min(y0, a.y); y1 = Math.max(y1, a.y)
+  })
+  const w = x1 - x0
+  const h = y1 - y0
+  if (!(w > 0) || !(h > 0) || !(aspect > 0)) return
+  const kx = w / h < aspect ? (aspect * h) / w : 1
+  const ky = w / h > aspect ? w / (aspect * h) : 1
+  const cx = (x0 + x1) / 2
+  const cy = (y0 + y1) / 2
+  g.forEachNode((id, a) => g.mergeNodeAttributes(id, { x: cx + (a.x - cx) * kx, y: cy + (a.y - cy) * ky }))
+}
+
+/** 決定論の配置（グラフを直接書き換える）。初期位置を hashPosition に戻してから配置するので、何度呼んでも同じ。
+ *  `aspect`（枠の幅÷高さ）を渡すと、台帳の語を持つ図は枠いっぱいに伸ばす（既定 1.4）。 */
+export function layoutMap(g: Graph, aspect = 1.4): void {
   g.forEachNode((id) => g.mergeNodeAttributes(id, hashPosition(id)))
-  layoutNetwork(g)
+  const ledger = g.filterNodes((_id, a) => (a as unknown as MapNodeAttrs).ledger === true)
+  const rest = g.filterNodes((_id, a) => (a as unknown as MapNodeAttrs).ledger !== true)
+  if (ledger.length === 0) {
+    layoutNetwork(g)
+    return
+  }
+  if (rest.length === 0) {
+    layoutNetwork(g)
+    stretchToAspect(g, aspect)
+    return
+  }
+  // 台帳の語が主役: 台帳の群を広げ、ほかの点は横長の枠なら右・縦長の枠なら下に小さく寄せる
+  const gl = subgraphOf(g, ledger)
+  const gr = subgraphOf(g, rest)
+  layoutNetwork(gl)
+  layoutNetwork(gr)
+  const box = (h: Graph, k: number) => {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+    h.forEachNode((_i, a) => {
+      x0 = Math.min(x0, a.x * k); x1 = Math.max(x1, a.x * k)
+      y0 = Math.min(y0, a.y * k); y1 = Math.max(y1, a.y * k)
+    })
+    return { x0, x1, y0, y1 }
+  }
+  const bl = box(gl, LEDGER_SPREAD)
+  const br = box(gr, 1)
+  let dx: number
+  let dy: number
+  if (aspect >= 1) {
+    dx = bl.x1 + 0.1 * (bl.x1 - bl.x0) - br.x0
+    dy = (bl.y0 + bl.y1) / 2 - (br.y0 + br.y1) / 2
+  } else {
+    dx = (bl.x0 + bl.x1) / 2 - (br.x0 + br.x1) / 2
+    dy = bl.y1 + 0.1 * (bl.y1 - bl.y0) - br.y0
+  }
+  gl.forEachNode((id, a) => g.mergeNodeAttributes(id, { x: a.x * LEDGER_SPREAD, y: a.y * LEDGER_SPREAD }))
+  gr.forEachNode((id, a) => g.mergeNodeAttributes(id, { x: a.x + dx, y: a.y + dy }))
+  stretchToAspect(g, aspect)
 }
 
 /** 点とそのつながる相手の id。 */

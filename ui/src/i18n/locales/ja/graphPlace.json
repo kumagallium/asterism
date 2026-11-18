@@ -1,0 +1,97 @@
+{
+  "title": "知識グラフ",
+  "filters": {
+    "source": "取り込み元",
+    "status": "状態",
+    "rel": "関係",
+    "all": "すべて",
+    "aria": "知識グラフの絞り込み"
+  },
+  "status": {
+    "all": "すべて",
+    "unconfirmed": "未確認",
+    "confirmed": "確認済み",
+    "rejected": "違うとしたもの"
+  },
+  "candidates": {
+    "toggle": "まだ意味の無いつながり（候補）も出す",
+    "count": "候補 {{n}} 本",
+    "note": "一緒に出てくるが、関係を言えなかった組です。",
+    "pairEvidence": "知見 {{n}}"
+  },
+  "tab": {
+    "aria": "取り込んだ知識",
+    "relations": "関係 {{n}}",
+    "terms": "用語 {{n}}",
+    "candidates": "候補 {{n}}"
+  },
+  "row": {
+    "unconfirmed": "未確認",
+    "confirmed": "確認済み",
+    "rejected": "違う",
+    "tentative": "見込み",
+    "evidence": "根拠 {{n}}",
+    "about": "{{names}} について",
+    "evidenceLabel": "根拠の知見",
+    "untitled": "（題なし）",
+    "openSource": "取り込み元で開く",
+    "reason": "AI の理由",
+    "byUser": "人が付けた関係",
+    "noKey": "取り込み元の関係です。確認や「違う」はできません。"
+  },
+  "term": {
+    "relations": "関係 {{n}}",
+    "unconfirmed": "未確認 {{n}}",
+    "confirmAll": "この語の関係を確認",
+    "relationsOf": "この語の関係"
+  },
+  "act": {
+    "confirm": "確認",
+    "unconfirm": "確認を取り消す",
+    "reject": "違う",
+    "restore": "戻す",
+    "assign": "関係を付ける",
+    "assignDo": "付ける",
+    "cancel": "やめる",
+    "more": "もっと見る（残り {{n}}）",
+    "close": "閉じる"
+  },
+  "assign": {
+    "rel": "関係",
+    "subject": "主語",
+    "preview": "こうなります:",
+    "pick": "選ぶ…"
+  },
+  "error": {
+    "busy": "取り込みが終わってから操作してください。",
+    "other": "うまくいきませんでした: {{message}}",
+    "rejected": "この関係は付けられません: {{reason}}",
+    "skipped": "{{n}} 件は変えられませんでした。"
+  },
+  "state": {
+    "loading": "読み込み中…",
+    "failedSources": "{{names}} の台帳を読めませんでした。",
+    "loadFailed": "取り込んだ知識を読めませんでした。",
+    "none": "この絞り込みに合う行はありません。"
+  },
+  "empty": {
+    "title": "まだ何も取り込んでいません",
+    "link": "取り込み"
+  },
+  "role": {
+    "material": "材料",
+    "method": "手法",
+    "concept": "概念",
+    "other": "概念",
+    "property": "物性"
+  },
+  "legend": {
+    "aria": "役割の色",
+    "material": "材料",
+    "property": "物性",
+    "method": "手法",
+    "concept": "概念",
+    "confirmed": "確認済み",
+    "unconfirmed": "未確認（薄い）"
+  }
+}

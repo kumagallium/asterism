@@ -1,0 +1,97 @@
+{
+  "title": "Knowledge graph",
+  "filters": {
+    "source": "Source",
+    "status": "Status",
+    "rel": "Relation",
+    "all": "All",
+    "aria": "Knowledge graph filters"
+  },
+  "status": {
+    "all": "All",
+    "unconfirmed": "Unconfirmed",
+    "confirmed": "Confirmed",
+    "rejected": "Marked wrong"
+  },
+  "candidates": {
+    "toggle": "Also show links with no meaning yet (candidates)",
+    "count": "{{n}} candidates",
+    "note": "Pairs that appear together but could not be given a relation.",
+    "pairEvidence": "{{n}} findings"
+  },
+  "tab": {
+    "aria": "Imported knowledge",
+    "relations": "Relations {{n}}",
+    "terms": "Terms {{n}}",
+    "candidates": "Candidates {{n}}"
+  },
+  "row": {
+    "unconfirmed": "Unconfirmed",
+    "confirmed": "Confirmed",
+    "rejected": "Wrong",
+    "tentative": "Likely",
+    "evidence": "{{n}} evidence",
+    "about": "About {{names}}",
+    "evidenceLabel": "Evidence findings",
+    "untitled": "(untitled)",
+    "openSource": "Open in source",
+    "reason": "Reason from the AI",
+    "byUser": "Relation set by a person",
+    "noKey": "This relation comes from the source. It cannot be confirmed or marked wrong."
+  },
+  "term": {
+    "relations": "{{n}} relations",
+    "unconfirmed": "{{n}} unconfirmed",
+    "confirmAll": "Confirm this term's relations",
+    "relationsOf": "Relations of this term"
+  },
+  "act": {
+    "confirm": "Confirm",
+    "unconfirm": "Undo confirmation",
+    "reject": "Wrong",
+    "restore": "Restore",
+    "assign": "Set a relation",
+    "assignDo": "Set",
+    "cancel": "Cancel",
+    "more": "Show more ({{n}} left)",
+    "close": "Close"
+  },
+  "assign": {
+    "rel": "Relation",
+    "subject": "Subject",
+    "preview": "It will read:",
+    "pick": "Choose…"
+  },
+  "error": {
+    "busy": "Please wait until the import has finished.",
+    "other": "Something went wrong: {{message}}",
+    "rejected": "This relation cannot be set: {{reason}}",
+    "skipped": "{{n}} could not be changed."
+  },
+  "state": {
+    "loading": "Loading…",
+    "failedSources": "Could not read the ledger of {{names}}.",
+    "loadFailed": "Could not read the imported knowledge.",
+    "none": "No rows match these filters."
+  },
+  "empty": {
+    "title": "Nothing has been imported yet",
+    "link": "Import"
+  },
+  "role": {
+    "material": "Material",
+    "method": "Method",
+    "concept": "Concept",
+    "other": "Concept",
+    "property": "Property"
+  },
+  "legend": {
+    "aria": "Role colors",
+    "material": "Material",
+    "property": "Property",
+    "method": "Method",
+    "concept": "Concept",
+    "confirmed": "Confirmed",
+    "unconfirmed": "Unconfirmed (light)"
+  }
+}

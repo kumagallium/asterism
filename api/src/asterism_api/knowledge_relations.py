@@ -260,7 +260,14 @@ def build_rows(
 
     ``origin``（取り込み元の関係）は AI の判定との印 ``ai`` を持ち、``state`` ごとに出し分ける:
     ``relation`` は ``unseen`` だけ（``agrees`` は同じ関係が ``relations`` 側に根拠つきで
-    出るので、その行に ``origin_iri`` を足す）・``none`` は ``disputes`` だけ（候補）・ほかは空。"""
+    出るので、その行に ``origin_iri`` を足す）・``none`` は ``disputes`` だけ（候補）・
+    ``dropped`` は人が「違う」とした行（``rejected``）だけ。``state == "all"`` は全部の状態の件と、
+    ``agrees`` 以外の取り込み元の行（14e-1）。
+
+    行の ``by`` は ``ai``／``origin``／``user``・``confirmed`` は今の確認の有無（``True``・
+    無ければ ``None``。既存の読み手と形を変えない）・``rejected`` は今「違う」で見せていない件か
+    （bool）。取り込み元の行（``origin``）にも組の鍵 ``key`` を付ける
+    （確認・「違う」の対象を指す）。"""
     terms = {str(t["id"]): t for t in copy.terms if "id" in t}
     claims = {str(c["id"]): c for c in copy.claims if "id" in c}
     sentences = REL_SENTENCE.get(lang) or REL_SENTENCE["ja"]
@@ -284,7 +291,8 @@ def build_rows(
     rows: list[dict] = []
     for key in sorted(pairs):
         e = ledger["pairs"][key]
-        if e.get("orphan") or e.get("state") != state:  # orphan は記録として残すだけ（出さない）
+        # orphan・state の無い件は記録として残すだけ（出さない）
+        if e.get("orphan") or not e.get("state") or (state != "all" and e.get("state") != state):
             continue
         # 関係が無い件（none・failed・集合の外）は、組の 2 語を両端に出す
         tf = terms.get(str(e.get("from") or e.get("a")))
@@ -326,16 +334,22 @@ def build_rows(
             "note": e.get("note"),
             "reason": e.get("reason"),
             "by": e.get("by"),
-            "confirmed": e.get("confirmed"),
+            "confirmed": True if e.get("confirmed") else None,
+            "rejected": e.get("state") == "dropped" and e.get("reason") == "rejected",
         }
-        if state == "relation" and key in agreed:
+        if e.get("state") == "relation" and key in agreed:
             row["origin_iri"] = agreed[key]
         rows.append(row)
 
-    show = {"relation": "unseen", "none": "disputes"}.get(state)
+    show = {
+        "relation": ("unseen",),
+        "none": ("disputes",),
+        "dropped": ("rejected",),
+        "all": ("unseen", "disputes", "rejected"),
+    }.get(state, ())
     origin: list[dict] = []
     for o, mark in marked:
-        if mark != show:
+        if mark not in show:
             continue
         tf, tt = terms.get(str(o.get("from"))), terms.get(str(o.get("to")))
         if tf is None or tt is None:
@@ -343,6 +357,7 @@ def build_rows(
         frm, to = _term_card(tf), _term_card(tt)
         origin.append(
             {
+                "key": "|".join(sorted((frm["id"], to["id"]))),
                 "rel": o.get("rel"),
                 "from": frm,
                 "to": to,
@@ -350,6 +365,7 @@ def build_rows(
                 "origin_iri": o.get("origin_iri"),
                 "ai": mark,
                 "by": "origin",
+                "rejected": mark == "rejected",
             }
         )
     return rows, origin
@@ -470,8 +486,8 @@ def register_knowledge_relations_routes(
         lang: str = Query("ja"),
     ) -> dict[str, Any]:
         """台帳を、写しの名前・欄で引いて返す。"""
-        if state not in pr.STATES:
-            raise HTTPException(422, f"state は {', '.join(pr.STATES)} のどれかです")
+        if state != "all" and state not in pr.STATES:
+            raise HTTPException(422, f"state は {', '.join((*pr.STATES, 'all'))} のどれかです")
         lang = "en" if lang == "en" else "ja"
         dataset_id, _meta = _current_copy(source)
         src = registry.source_dir(root, dataset_id)

@@ -85,6 +85,57 @@ Asterism は「文が言っているか」だけを見る。
 
 どちらも書き込みの認証（未確認の知見の題を返すため）。MCP には出さない（外の AI に出すのは確認済みだけ）。
 
+### 6. 確認・「違う」・人が付ける（PR 14e-1）
+
+台帳に「人が確認した」と書く口。ストア（用語・確定した関係・MCP）に置くのは次の 14e-1b で、台帳の
+`confirmed` を冪等に写す形にするので、この PR の確認は後から全部載る。5 つの純関数（`pair_relations.py`）は
+どれも `(新しい台帳, {changed, skipped})` を返し、入力を変えず、何度かけても同じ結果になる。
+
+| 関数 | 中身 | skipped の理由 |
+|---|---|---|
+| `confirm` | 見せている関係に `confirmed = {rel, from, to, at, by: "user", evidence}` | `unknown`・`already_confirmed` |
+| `unconfirm` | `confirmed` を消す（未確認に戻る） | `unknown`・`not_confirmed` |
+| `reject` | その 3 つ組を `rejected` に足し、`dropped`（理由 `rejected`）にする。`confirmed` は消す | `unknown`・`already_rejected` |
+| `restore` | 最後の `rejected` を外し、関係を未確認で戻す | `unknown`・`not_rejected` |
+| `assign` | 候補（`none`）・落ちた組・失敗した組に、人が関係を付ける（`by: "user"`・確認済み） | 機械の検査の理由（`mixed`・`role_mismatch`・`cycle` など）・`rejected`・`already_related` |
+
+決めたこと:
+
+- **`confirmed` の中身**: `evidence` は確認した時の根拠の知見の **id の控えだけ**（題は読む口が写しから引く）。
+  写しから知見が消えても、確認した事実と根拠の id は台帳に残る。題まで写さないのは、写しを正本にして
+  二重に持たないため（写しが無いと確認済みの行は出せないが、それは下の穴）。
+- **取り込み元の行（未確認）の確認**: 組の鍵（2 語の id を文字列順に `|` でつないだもの）で指す。AI がまだ読んでいない
+  行（`unseen`）を、`by: "origin"`・根拠なしの件として台帳に置いて確認する。`finalize` はこの件を AI の関係と
+  同じ 1 本（`agrees`）として数える。組に知見が無いのが普通なので、`plan_run` はこの件を `orphan` にしない。
+  確認を取り消すと件ごと外れ、取り込み元の行（未確認）に戻る。
+- **取り込み元の行の「違う」**: 組の件（無ければ `orphan` ＋ `rejected` だけの件）に、`origin: true` の記録を足す。
+  `origin_check` はこの記録に当たる行を `rejected` と印し、見せない・数えない（`shown_relations`・`summarize`）。
+  AI の関係を「違う」としたときの記録（`origin` の無い記録）は、取り込み元の同じ関係を「まだ読んでいない」のまま
+  にする（14d-2a の約束を変えない）。
+- **`restore`**: 「違う」で落とした件は関係を未確認で戻す。根拠が無い件（人が付けた・取り込み元から確認した）は
+  未確認で残れない（`finalize` が根拠なしを落とす）ので、`reject` が記録に残した `was_confirmed` で確認も戻す。
+  関係が台帳に残っていない件（`orphan`・`state` なし）は記録だけ外し、空になれば件ごと消す
+  （次の読み直しで聞き直される）。
+- **`unconfirm` の例外**: 根拠が無い件は未確認で残れないので、取り込み元から確認した件は台帳から外れ（取り込み元の
+  行に戻る）、人が付けた関係は候補（`none`）に戻る。
+- **`assign`**: 検査は AI の答えと同じ（`relation_problem`・自分自身・「一種」「一部」の輪）。輪は見せている関係に対して見る。
+  `evidence` は組の知見の先頭 3 件。AI の関係が付いている組には付けない（先に「違う」）。
+  「違う」とした同じ 3 つ組には付けない（先に戻す）。
+- 台帳に `confirmed`・`rejected` がある件は、`plan_run`・`merge_entry`・`finalize`・`strip_unconfirmed`（外す）で
+  消えない。「違う」は次の聞き直しでも出ない（`check_answer` の `rejected`）。
+
+口（`knowledge_review.py`）:
+
+| 口 | 中身 |
+|---|---|
+| `POST /api/knowledge-copies/{source}/relations/review` | `{action: confirm／unconfirm／reject／restore, keys: [1〜50 件]}` → `{changed, skipped, summary}`。「全部」の指定は無い |
+| `POST /api/knowledge-copies/{source}/relations/assign` | `{key, rel, subject: "a"／"b", lang?}` → `{changed, skipped, summary}`。検査に落ちたら 422 `{detail: 文, reason: 記号}`・組が無ければ 404 |
+| `GET …/relations` | 行に `confirmed`（`true`・無ければ `null`）・`by`（`ai`／`origin`／`user`）・`rejected`（bool）を足した。`state=all` で全部の状態を 1 回で返す。取り込み元の行にも `key` を付けた |
+
+書く間は `busy_kind` の印 `review` を短く握る（写す・関係を選ぶ・取り込み・外すと排他。走っている間は 409）。
+台帳は読む → 書き換える → `finalize` → 保存（既存の保存の関数）。書いたあとの `finalize` は、取り込み元の行の印を
+最新にするためで、AI は呼ばない。MCP には出さない。
+
 ## 本物のデータで確かめたこと（2026-11-18）
 
 手元の実データ（知見 1,515・語 390）で、製品のプロンプトと検査をそのまま通した。AI の役は 2 通り
@@ -140,6 +191,12 @@ Asterism は「文が言っているか」だけを見る。
 - 予定・計画の文（「〜を測定する予定」）が根拠でも、確からしさの印は付かない（取り込み元の `epistemic_status` が
   `interpretation` などになっているため）。
 
+- 確認した関係を **写しが取り下げ済みの取り込み元** では一覧に出せない（読む口が写しの名前・知見の題を引くため）。
+  台帳には残るので、入れ直せば出る（14e-1）。
+- 取り込み元の行は、同じ 2 語に別の関係が複数あっても、組の鍵では先頭の 1 本しか指せない（14e-1）。
+- 取り込み元の行から確認した件は、取り込み元がその関係を消しても台帳に残る（14e-1）。
+
 ## 更新 log
 
 - 2026-11-18: 起案・決定（PR 14c）。
+- 2026-11-18: 確認・「違う」・人が付ける口を追記（PR 14e-1・§6）。
