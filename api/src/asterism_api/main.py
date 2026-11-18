@@ -172,6 +172,7 @@ from asterism_api.dataset_summary_routes import register_dataset_summary
 from asterism_api.export_routes import register_export
 from asterism_api.jobs import JobManager
 from asterism_api.knowledge_copy import register_knowledge_copy_routes
+from asterism_api.knowledge_import import register_knowledge_import_routes
 from asterism_api.knowledge_relations import register_knowledge_relations_routes
 from asterism_api.mcp_client_routes import register_mcp_client_routes
 from asterism_api.questions_routes import (
@@ -12420,6 +12421,8 @@ def build_app(
     register_knowledge_copy_routes(app, cfg)  # 知識の束を写す（ADR knowledge-copy）
     # 写した知識の語の組ごとに関係を選ぶ（PR 14c）
     register_knowledge_relations_routes(app, cfg, _resolve_llm, write_auth=_write_auth)
+    # 写す → 関係を選ぶ を 1 本にした取り込み・入れた物の一覧・外す（PR 14d-2a）
+    register_knowledge_import_routes(app, cfg, _resolve_llm, write_auth=_write_auth)
     register_classes(
         app, cfg, label_resolvers=_crosswalk_label_resolvers
     )  # 契約メモ contract_pr_f9.md §3（担当 api）
