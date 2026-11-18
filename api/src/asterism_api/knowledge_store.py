@@ -29,7 +29,7 @@ __all__ = ["catch_up", "pair_keys", "sync_ledger"]
 
 #: 追い付きで回す最大の回数（1 回 50 件）。
 _MAX_ROUNDS = 40
-_EMPTY = {"placed": 0, "removed": 0, "failed": []}
+_EMPTY = {"placed": 0, "removed": 0, "failed": [], "backlog_failed": 0, "remaining": 0}
 
 
 def pair_keys(keys: Iterable[str]) -> list[str]:
@@ -64,36 +64,50 @@ async def sync_ledger(
     save: bool = True,
 ) -> tuple[dict, dict]:
     """1 回分（最大 50 件）を置いて、台帳に結果を写して保存する。
-    返りは ``(台帳, 口の返りの store)``。ストアが無い・何か落ちたときは、台帳をそのまま・
-    ``store`` は ``error: True``。"""
+
+    「ほかの台帳を読む → 置く・外す → 自分の台帳を保存 → ``knowledge_sources.json`` を保存」を
+    **1 つの排他（``themes_lock``）の中で**やる（保存が終わるまで放さない。放すと、別の取り込み元の
+    同期が保存前の台帳を読み、置いたばかりの線を外す）。呼び手は、確認そのものの台帳を保存してから
+    呼ぶこと。
+
+    返りは ``(台帳, 口の返りの store)``。``store`` は ``{placed, removed, failed, backlog_failed,
+    remaining}``。``failed`` は ``focus``（その操作で指した件）のうち置けなかった件だけ
+    ``[{key, reason}]``で、追い付きで落ちた無関係な件は数 ``backlog_failed`` だけ。ストアが無い・
+    何か落ちたときは、台帳をそのまま・``error: True``。"""
     client = getattr(app.state, "client", None)
     if client is None:
         return ledger, dict(_EMPTY)
     meta = registry.load_meta(root, dataset_id) or {}
     graph = meta.get("live_graph") or None
+    focus_keys = list(focus)
+
+    async def _save(new: dict) -> None:
+        if save and new != ledger:
+            await asyncio.to_thread(pr.save_ledger, root, new, at=datetime.now(UTC).isoformat())
+
     try:
         async with _lock(app):
             new, rep = await cs.sync(
-                client, root, ledger, copy, claim_graph=graph, focus=list(focus),
-                title=(meta.get("knowledge_source") or {}).get("title"),
-            )
-        if save and (new != ledger):
-            await asyncio.to_thread(
-                pr.save_ledger, root, new, at=datetime.now(UTC).isoformat()
+                client, root, ledger, copy, claim_graph=graph, focus=focus_keys,
+                title=(meta.get("knowledge_source") or {}).get("title"), save=_save,
             )
         out = rep.summary()
+        mine = [f for f in out["failed"] if f["key"] in set(focus_keys)]
+        out["backlog_failed"] = len(out["failed"]) - len(mine)
+        out["failed"] = mine
         out["remaining"] = rep.remaining
+        out["attempted"] = rep.attempted
         return new, out
     except Exception:
         logger.warning("knowledge store: could not place confirmed relations", exc_info=True)
-        return ledger, {**_EMPTY, "failed": [], "error": True}
+        return ledger, {**_EMPTY, "error": True}
 
 
 async def catch_up(app: FastAPI, root: Path, source: str, dataset_id: str) -> dict:
-    """台帳の確認済みのうち、ストアに置いていない件（14e-1 で先に付けた確認）を、置き終わるまで
-    （1 回 50 件を最大 :data:`_MAX_ROUNDS` 回）追い付かせる。呼び手が取り込み元を押さえている前提。
-    落ちても例外にしない（返りの ``error``）。"""
-    total = {"placed": 0, "removed": 0, "failed": []}
+    """台帳の確認済みのうち、ストアに置いていない件（14e-1 で先に付けた確認）を、試す件が無くなる
+    まで（1 回 50 件を最大 :data:`_MAX_ROUNDS` 回）追い付かせる。呼び手が取り込み元を押さえている
+    前提。落ちても例外にしない（返りの ``error``）。"""
+    total = {"placed": 0, "removed": 0, "failed": [], "backlog_failed": 0}
     try:
         src = registry.source_dir(root, dataset_id)
         if src is None:
@@ -102,14 +116,14 @@ async def catch_up(app: FastAPI, root: Path, source: str, dataset_id: str) -> di
         ledger = await asyncio.to_thread(pr.load_ledger, root, source)
     except Exception:
         logger.warning("knowledge store: could not read the ledger to catch up", exc_info=True)
-        return {**_EMPTY, "failed": [], "error": True}
+        return {**_EMPTY, "error": True}
     for _ in range(_MAX_ROUNDS):
         ledger, out = await sync_ledger(app, root, ledger, copy, dataset_id)
         total["placed"] += out["placed"]
         total["removed"] += out["removed"]
-        total["failed"] = [*total["failed"], *out["failed"]]
+        total["backlog_failed"] += out.get("backlog_failed", 0)
         if out.get("error"):
             return {**total, "error": True}
-        if not out.get("remaining") or not out["placed"]:
+        if not out.get("remaining"):  # 試す件が無くなった
             break
     return total

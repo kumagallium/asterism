@@ -45,10 +45,15 @@ def test_review_returns_store_and_syncs_in_the_lock_with_the_changed_keys(
         seen["locked"] = env.app.state.themes_lock.locked()  # 話の確定と同じ排他
         seen["claim_graph"] = kw["claim_graph"]
         led = pr.load_ledger(root, "lab")
-        rep = cs.Report(placed=[seen["focus"][0]], removed=["x"], failed=[{"key": "k", "reason": "cycle"}])
+        rep = cs.Report(
+            placed=[seen["focus"][0]], removed=["x"],
+            failed=[{"key": seen["focus"][0], "reason": "cycle"}, {"key": "other", "reason": "error"}],
+        )  # fmt: skip
         for k in seen["focus"]:
             led["pairs"][k]["store"] = {"ok": True, "at": "2026-11-18T00:00:00Z", "of": "o"}
         led["stored_terms"] = {"t-aaaaaaaaaaaa": {"slug": "kt_aaaaaaaaaaaa", "minted": True}}
+        seen["locked_at_save"] = env.app.state.themes_lock.locked()
+        await kw["save"](led)  # 台帳の保存も排他の中（放すのは保存のあと）
         return led, rep
 
     monkeypatch.setattr(cs, "sync", fake_sync)
@@ -57,10 +62,13 @@ def test_review_returns_store_and_syncs_in_the_lock_with_the_changed_keys(
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["changed"] == [row["key"]]
+        # failed はその操作で指した件だけ。ほかの件は数（backlog_failed）だけ
         assert body["store"] == {
-            "placed": 1, "removed": 1, "failed": [{"key": "k", "reason": "cycle"}], "remaining": 0,
-        }
+            "placed": 1, "removed": 1, "failed": [{"key": row["key"], "reason": "cycle"}],
+            "backlog_failed": 1, "remaining": 0, "attempted": 0,
+        }  # fmt: skip
         assert seen["focus"] == [row["key"]] and seen["locked"] is True
+        assert seen["locked_at_save"] is True
         assert seen["claim_graph"]  # 公開中の写しの graph
         # 台帳に写った結果が保存されている（保存は 1 回きりでなくてよい）
         led = pr.load_ledger(env.root, "lab")
@@ -164,3 +172,41 @@ def test_catch_up_never_raises_and_reports_an_error(tmp_path: Path) -> None:
         assert got["placed"] == 0 and got["failed"] == []
         got = asyncio.run(ks.catch_up(env.app, env.root, "lab", "no-such-dataset"))
         assert got["placed"] == 0
+
+
+def test_two_sources_never_interleave_inside_the_lock_and_the_save_is_inside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A が置いてから台帳を保存するまでの間に、別の取り込み元の同期を挟ませない（挟むと、置いた
+    ばかりの線を外される）。順番を固定して確かめる: A 開始 → A 保存 → A 終了 → B 開始。"""
+    import asyncio
+
+    env = _env(tmp_path)
+    events: list[str] = []
+
+    async def fake_sync(client_, root, ledger, copy, **kw):
+        name = ledger["source"]
+        events.append(f"{name}:start")
+        await asyncio.sleep(0.05 if name == "a" else 0)  # A が遅い間に B が来る
+        await kw["save"]({**ledger, "marker": name})
+        events.append(f"{name}:saved")
+        await asyncio.sleep(0)
+        events.append(f"{name}:end")
+        return {**ledger, "marker": name}, cs.Report()
+
+    with TestClient(env.app, headers=_AUTH) as client:
+        out = _go(client)  # 写しを作って、メタ（live_graph）を用意する
+        monkeypatch.setattr(cs, "sync", fake_sync)
+        copy = ks.kb.KnowledgeCopy()
+        ds = out["dataset_id"]
+        led_a, led_b = pr.empty_ledger("a"), pr.empty_ledger("b")
+
+        async def both() -> None:
+            env.app.state.themes_lock = asyncio.Lock()  # このループの鍵
+            await asyncio.gather(
+                ks.sync_ledger(env.app, env.root, led_a, copy, ds),
+                ks.sync_ledger(env.app, env.root, led_b, copy, ds),
+            )
+
+        asyncio.run(both())
+    assert events == ["a:start", "a:saved", "a:end", "b:start", "b:saved", "b:end"]

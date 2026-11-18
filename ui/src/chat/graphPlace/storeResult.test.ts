@@ -53,3 +53,10 @@ describe('確認の返りの store', () => {
     expect(l.rows[0].store).toEqual({ ok: false, reason: 'kind_mismatch' })
   })
 })
+
+describe('backlog_failed（この操作と関係のない落ちた件の数）', () => {
+  it('あれば数を持つ・無い返りでも落ちない。failed はその操作の件だけ', () => {
+    expect(normalizeStoreReport({ placed: 1, removed: 0, failed: [{ key: 'k', reason: 'cycle' }], remaining: 0, backlog_failed: 3 })).toMatchObject({ failed: [{ key: 'k', reason: 'cycle' }], backlogFailed: 3 })
+    expect(normalizeStoreReport({ placed: 1, removed: 0, failed: [], remaining: 0 })?.backlogFailed).toBeUndefined()
+  })
+})

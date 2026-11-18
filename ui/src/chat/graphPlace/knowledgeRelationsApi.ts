@@ -38,6 +38,8 @@ export interface StoreReport {
   remaining: number
   /** 置く段そのものが落ちた（台帳の確認は通っている）。 */
   error: boolean
+  /** 追い付きで落ちた、この操作と関係のない件の数（画面には出さない）。 */
+  backlogFailed?: number
 }
 
 export interface EvidenceItem {
@@ -142,6 +144,7 @@ export function normalizeStoreReport(x: unknown): StoreReport | null {
     failed: Array.isArray(x.failed) ? x.failed.filter(isObj).map((f) => ({ key: String(f.key ?? ''), reason: String(f.reason ?? '') })) : [],
     remaining: num(x.remaining),
     error: x.error === true,
+    ...(typeof x.backlog_failed === 'number' ? { backlogFailed: x.backlog_failed } : {}),
   }
 }
 

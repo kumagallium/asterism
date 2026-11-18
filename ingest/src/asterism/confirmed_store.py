@@ -24,7 +24,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,13 +44,14 @@ from asterism.crosswalk_runtime import (
     remove_alignment,
 )
 from asterism.knowledge_bundle import KN_NS, KnowledgeCopy
-from asterism.themes import ThemeError, _match_existing, relation_predicate
+from asterism.themes import ThemeError, _match_existing, load_themes_file, relation_predicate
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "BATCH_PREFIX",
     "MAX_PUTS",
+    "MAX_TRIES",
     "REASONS",
     "Holders",
     "Plan",
@@ -58,6 +59,7 @@ __all__ = [
     "apply",
     "batch_name",
     "holders_of_others",
+    "is_stage_slug",
     "plan",
     "record",
     "slug_for",
@@ -72,6 +74,9 @@ REASONS = ("role_mismatch", "kind_mismatch", "cycle", "self", "error")
 DEFAULT_REASON = "取り込み元の知見から、人が確認した関係"
 
 _TERM_ID = re.compile(r"^t-([0-9a-f]{12})\Z")
+_STAGE_SLUG = re.compile(r"^kt_[0-9a-f]{12}\Z")
+#: 確認が変わらないまま ``error`` で落ち続けた件を、試すのをやめる回数
+MAX_TRIES = 3
 _DRAFTED_BY = {"ai": "ai", "user": "human", "origin": "machine"}
 
 #: 線の鍵 ``(source IRI, 述語の名前, target IRI)``（向きの無い関係は :func:`canonical_ends` の順）
@@ -92,6 +97,11 @@ def slug_for(term_id: str) -> str:
     """写しの語の id → 用語の slug。``t-<12 桁>`` → ``kt_<12 桁>``（それ以外の id は sha1）。"""
     m = _TERM_ID.match(term_id)
     return "kt_" + (m.group(1) if m else hashlib.sha1(term_id.encode("utf-8")).hexdigest()[:12])
+
+
+def is_stage_slug(slug: str) -> bool:
+    """この段が作る語の slug の形（``kt_`` ＋ 12 桁）か。どの取り込み元が作ったかには依らない。"""
+    return bool(_STAGE_SLUG.match(slug or ""))
 
 
 def _line_str(line: Line) -> str:
@@ -167,6 +177,14 @@ class Plan:
     of: dict[str, str] = field(default_factory=dict)
     #: 今の確認で、ストアにあるべき線（置けた件・既にある件）
     wanted: set[Line] = field(default_factory=set)
+    #: 前に ``error`` で落ちた回数（確認が変わっていなければ引き継ぐ）``key → n``
+    tries: dict[str, int] = field(default_factory=dict)
+    #: ストアにあるこの段の語（``kt_…``）と、この回に作る語。要らなければ外す候補
+    stage_slugs: set[str] = field(default_factory=set)
+    #: ほかの取り込み元・話が使っている語（外さない）
+    protected: set[str] = field(default_factory=set)
+    #: この回に試した件数
+    attempted: int = 0
     at: str = ""
 
 
@@ -179,6 +197,7 @@ class Report:
     used: list[str] = field(default_factory=list)
     removed_terms: list[str] = field(default_factory=list)
     remaining: int = 0
+    attempted: int = 0
     #: 件ごとの ``store``（台帳に写す）
     store: dict[str, dict] = field(default_factory=dict)
     cleared: list[str] = field(default_factory=list)
@@ -199,7 +218,7 @@ def _stored_terms(ledger: Mapping[str, Any]) -> dict[str, dict]:
     if isinstance(raw, dict):
         for k, v in raw.items():
             if isinstance(v, dict) and isinstance(v.get("slug"), str) and v["slug"]:
-                out[str(k)] = {"slug": v["slug"], "minted": bool(v.get("minted"))}
+                out[str(k)] = {"slug": v["slug"], "minted": is_stage_slug(v["slug"])}
     return out
 
 
@@ -244,16 +263,17 @@ def plan(
                 return slug, have.kind
             if t is None:
                 return None
-            mapping[tid] = {"slug": slug, "minted": True}  # 外された物はもう一度作る
-            minting.setdefault(slug, _mint(tid, slug, t, at))
-            return slug, str(t.get("kind"))
+            if is_stage_slug(slug):  # この段の語が外された: もう一度作る
+                minting.setdefault(slug, _mint(tid, slug, t, at))
+                return slug, "property" if t.get("kind") == "property" else "class"
+            del mapping[tid]  # 乗っていた既存の語が無くなった: 決め直す
         if t is None:
             return None
         kind = "property" if t.get("kind") == "property" else "class"
         name = str(t.get("name") or "")
         hit = _match_existing(name, "", [str(a) for a in t.get("aliases") or []], kind, existing)
         if hit is not None:
-            mapping[tid] = {"slug": hit[0].slug, "minted": False}
+            mapping[tid] = {"slug": hit[0].slug, "minted": is_stage_slug(hit[0].slug)}
             return hit[0].slug, kind
         slug = slug_for(tid)
         mapping[tid] = {"slug": slug, "minted": True}
@@ -262,6 +282,7 @@ def plan(
         return slug, kind
 
     todo: list[str] = []
+    rank: dict[str, int] = {}
     for key in sorted(pairs):
         e = pairs[key]
         c = e.get("confirmed") if isinstance(e, dict) else None
@@ -280,9 +301,18 @@ def plan(
             if not st.get("ok") and st.get("reason") != "error":
                 out.unchanged[key] = dict(st)  # 同じ確認の断りは、確認が変わるまで置き直さない
                 continue
+            if not st.get("ok"):  # error: 3 回落ちたら確認が変わるまで試さない
+                n = int(st.get("tries") or 1)
+                out.tries[key] = n
+                if n >= MAX_TRIES:
+                    out.unchanged[key] = dict(st)
+                    continue
+        # 回す順: まだ試していない件 → 確認が変わった件 → 前に error だった件
+        rank[key] = 0 if st is None else (1 if st.get("of") != c.get("at") else 2)
         todo.append(key)
-    todo.sort(key=lambda k: (k not in focus_set, k))
+    todo.sort(key=lambda k: (k not in focus_set, rank[k], k))
     out.remaining = max(0, len(todo) - max(0, limit))
+    out.attempted = min(len(todo), max(0, limit))
     for key in todo[: max(0, limit)]:
         e = pairs[key]
         c = e["confirmed"]
@@ -323,7 +353,16 @@ def plan(
             )
         )
     out.mints = [minting[k] for k in sorted(minting)]
-    out.mapping = mapping
+    # 台帳に残す対応: 確認済みの件が使う語だけ
+    used_ids = {
+        str(x)
+        for e in pairs.values()
+        if isinstance(e, dict) and e.get("confirmed")
+        for x in (e["confirmed"].get("from"), e["confirmed"].get("to"))
+    }
+    out.mapping = {k: v for k, v in mapping.items() if k in used_ids}
+    out.stage_slugs = {t.slug for t in existing if is_stage_slug(t.slug)} | set(minting)
+    out.protected = set(other_holders.terms)
     # 外す線: ``knowledge:`` の線のうち、どの台帳も確認していないもの
     keep = set(out.wanted) | {p.line for p in out.puts} | other_holders.lines
     # 回せなかった件（上限の外）の線は、前の結果にある物を残す
@@ -377,12 +416,14 @@ async def apply(
     plan: Plan,
     *,
     source: str,
-    other_terms: Iterable[str] = (),
+    claim_graph: str | None = None,
+    verify_claims: bool = True,
 ) -> Report:
-    """計画をストアに書く。外す → 語を作る → 置く → 要らなくなった（この段で作った）語を外す。
-    1 件の失敗は ``Report.failed`` に入れて続ける（何度流しても同じ・次の回でやり直せる）。
-    ``other_terms`` はほかの取り込み元が使っている用語の slug（外さない）。"""
-    rep = Report(remaining=plan.remaining, cleared=list(plan.cleared))
+    """計画をストアに書く。外す → 語を作る → 置く → 要らなくなったこの段の語（``kt_…``）を外す →
+    線が変わったら ``recompute_wired``。1 件の失敗は ``Report.failed`` に入れて続ける（何度流しても
+    同じ・次の回でやり直せる）。根拠の知見は、置く件の分だけを 1 回で確かめ、公開中の写しに無い物は
+    外す（``verify_claims``）。"""
+    rep = Report(remaining=plan.remaining, attempted=plan.attempted, cleared=list(plan.cleared))
     at = plan.at
     wanted = set(plan.wanted)
 
@@ -416,6 +457,18 @@ async def apply(
             logger.warning("confirmed_store: could not mint a term", exc_info=True)
             bad_terms.add(m.slug)
 
+    if verify_claims:
+        wanted_claims = {i for p in plan.puts for i in p.evidence}
+        if wanted_claims:
+            try:
+                present = await present_claims(client, wanted_claims, claim_graph)
+                for p in plan.puts:
+                    p.evidence = [i for i in p.evidence if i in present]
+            except Exception:
+                logger.warning("confirmed_store: could not check the claims", exc_info=True)
+                for p in plan.puts:
+                    p.evidence = []
+
     failed: dict[str, str] = dict(plan.failed)
     for p in plan.puts:
         ends = {sv.slug_of(p.source), sv.slug_of(p.target)}
@@ -448,28 +501,32 @@ async def apply(
     for key, st in plan.unchanged.items():
         rep.store.setdefault(key, st)
     for key, reason in failed.items():
-        rep.store[key] = {"ok": False, "reason": reason, "at": at, "of": plan.of.get(key)}
+        st = {"ok": False, "reason": reason, "at": at, "of": plan.of.get(key)}
+        if reason == "error":
+            st["tries"] = plan.tries.get(key, 0) + 1  # 確認が変わらないまま落ちた回数
+        rep.store[key] = st
         rep.failed.append({"key": key, "reason": reason})
 
-    # 要らなくなった（この段で作った）語を外す。線が触れていれば外せない（残す）
+    # 要らなくなったこの段の語（slug が ``kt_…``）を外す。外す条件は「どの台帳の置けた件も使わず、
+    # 話にも使われず、ストアで線が 1 本も触れていない」（線が触れていれば remove_term が断る）
     used_slugs = {s for ln in wanted for s in (sv.slug_of(ln[0]), sv.slug_of(ln[2])) if s}
-    mapping = {k: dict(v) for k, v in plan.mapping.items()}
-    keep_slugs = set(other_terms)
-    for tid, v in sorted(mapping.items()):
-        slug = v["slug"]
-        if not v.get("minted") or slug in used_slugs or slug in keep_slugs:
-            continue
+    for slug in sorted(plan.stage_slugs - used_slugs - plan.protected - bad_terms):
         try:
             await sv.remove_term(client, root, slug)
             rep.removed_terms.append(slug)
-            del mapping[tid]
         except sv.TermNotFound:
-            del mapping[tid]
+            pass
         except sv.TermHasLines:
             pass
         except Exception:
             logger.warning("confirmed_store: could not remove a term", exc_info=True)
-    rep.used = sorted({v["slug"] for v in mapping.values() if not v.get("minted")} & used_slugs)
+    if rep.placed or rep.removed:
+        try:  # 線が変わった回は最後に数え直す（話の確定・取り消しと同じ）
+            await sv.recompute_wired(client, root)
+        except Exception:
+            logger.warning("confirmed_store: could not recompute the counts", exc_info=True)
+    mapping = {k: dict(v) for k, v in plan.mapping.items()}
+    rep.used = sorted({v["slug"] for v in mapping.values() if not v["minted"]} & used_slugs)
     rep.mapping = mapping
     return rep
 
@@ -554,7 +611,13 @@ def holders_of_others(root: Path | str, source: str) -> Holders:
             line = _line_of(st.get("line")) if isinstance(st, dict) and st.get("ok") else None
             if line is not None:
                 out.lines.add(line)
-        out.terms.update(v["slug"] for v in _stored_terms(data).values())
+    # 外さない語: ほかの取り込み元が置いた線の端（台帳の対応が残っているだけでは守らない）と、
+    # 話が使っている・作った語
+    for ln in out.lines:
+        out.terms.update(x for x in (sv.slug_of(ln[0]), sv.slug_of(ln[2])) if x)
+    for theme in (load_themes_file(root) or {}).get("themes", []):
+        for k in ("uses", "minted"):
+            out.terms.update(str(x) for x in theme.get(k) or [] if isinstance(x, str))
     return out
 
 
@@ -569,32 +632,34 @@ async def sync(
     limit: int = MAX_PUTS,
     now: str | None = None,
     title: str | None = None,
+    save: Callable[[dict], Any] | None = None,
 ) -> tuple[dict, Report]:
-    """ストアを読んで :func:`plan` → :func:`apply` → :func:`record`。返りは ``(新しい台帳, 結果)``。
+    """ほかの台帳を読む → :func:`plan` → :func:`apply`（置く・外す）→ :func:`record` →
+    ``save``（自分の台帳の保存）→ ``knowledge_sources.json`` の作り直し。
+    返りは ``(新しい台帳, 結果)``。
+    呼び手は、これ全部を 1 つの排他の中で呼ぶ（保存が終わるまで別の取り込み元の同期を挟ませない。
+    挟むと、置いたばかりの線を「どの台帳も確認していない線」と見て外される）。``save`` が無ければ
     台帳は保存しない（呼び手が保存する）。"""
     source = str(ledger.get("source") or "")
     holders = holders_of_others(root, source)
     existing = await sv._read_terms(client)
     lines = await read_lines(client)
-    iris = {
-        str(c["iri"])
-        for c in copy.claims
-        if c.get("iri") and c.get("id") is not None
-    }
-    claims = await present_claims(client, iris, claim_graph) if iris else set()
     p = plan(
         ledger,
         copy,
         existing_terms=existing,
         other_holders=holders,
         lines=lines,
-        claim_iris=claims,
         focus=focus,
         limit=limit,
         now=now,
     )
-    rep = await apply(client, root, p, source=source, other_terms=holders.terms)
+    rep = await apply(client, root, p, source=source, claim_graph=claim_graph)
     new = record(ledger, rep)
+    if save is not None:
+        res = save(new)
+        if hasattr(res, "__await__"):
+            await res
     try:  # 置けた件から、この取り込み元の知識の問いを作り直す（落ちても置いた結果は残す）
         ks.update_source(
             root, source, new, copy, mapping=rep.mapping, title=title, now=p.at

@@ -55,8 +55,10 @@ def _empty() -> dict:
     return {"version": VERSION, "sources": {}}
 
 
-def load_sources(root: Path | str) -> dict:
-    """読む。無ければ空。壊れていれば ``.bad`` に退避して空として読む（上書きしない）。"""
+def load_sources(root: Path | str, *, set_aside: bool = False) -> dict:
+    """読む。無ければ空。壊れていれば空として読む。``set_aside``（書く側だけが付ける）なら、壊れた
+    ファイルを ``.bad``（あれば ``.bad.1``・``.bad.2``…）に退避する。読む側（MCP・星図）は
+    退避しない。"""
     path = _path(root)
     try:
         text = path.read_text(encoding="utf-8")
@@ -73,10 +75,16 @@ def load_sources(root: Path | str) -> dict:
         or data.get("version") != VERSION
         or not isinstance(data.get("sources"), dict)
     ):
-        try:
-            os.replace(path, path.with_name(path.name + ".bad"))
-        except OSError:
-            logger.warning("knowledge_sources: could not set the broken file aside")
+        if set_aside:
+            target = path.with_name(path.name + ".bad")
+            n = 0
+            while target.exists() and n < 1000:
+                n += 1
+                target = path.with_name(f"{path.name}.bad.{n}")
+            try:
+                os.replace(path, target)
+            except OSError:
+                logger.warning("knowledge_sources: could not set the broken file aside")
         return _empty()
     data["sources"] = {k: v for k, v in data["sources"].items() if isinstance(v, dict)}
     return data
@@ -121,8 +129,8 @@ def build_entry(
     for key, e in sorted((ledger.get("pairs") or {}).items()):
         c = e.get("confirmed") if isinstance(e, dict) else None
         st = e.get("store") if isinstance(e, dict) else None
-        if not c or not isinstance(st, dict) or not st.get("ok"):
-            continue
+        if not c or not isinstance(st, dict) or not st.get("ok") or st.get("of") != c.get("at"):
+            continue  # まだ置いていない（再確認など）件は問いに出さない
         a, b = mapping.get(str(c.get("from"))), mapping.get(str(c.get("to")))
         if a is None or b is None:
             continue
@@ -186,7 +194,7 @@ def update_source(
     now: str,
 ) -> bool:
     """この取り込み元の分を作り直して保存する（変わらなければ書かない）。返りは書いたか。"""
-    data = load_sources(root)
+    data = load_sources(root, set_aside=True)
     taken: set[str] = set()
     for theme in (load_themes_file(root) or {}).get("themes", []):
         sels = theme.get("selections")

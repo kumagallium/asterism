@@ -67,6 +67,7 @@ import { GraphFilters, GraphPlaceSide, MapLegend } from './graphPlace/GraphPlace
 import { ledgerNodeId, parseLedgerNode, withoutCopyDatasets } from './graphPlace/ledgerDrafts'
 import { placedIndex, placedIriOf, withTermRoles } from './graphPlace/placedTerms'
 import { useStoreRoles } from './graphPlace/useStoreRoles'
+import { filterStoreSky } from './graphPlace/storeFilter'
 import { datasetsShown, hasWords, isDatasetNode, withoutDatasetSide } from './graphPlace/datasetVisibility'
 import { useLedgers } from './graphPlace/useLedgers'
 import { ReaderSlot } from './ReaderSlot'
@@ -998,9 +999,11 @@ export function ChatApp() {
   const mapSky = useMemo(() => {
     if (!okSky) return undefined
     // 用語の役割は /api/sky に載らない。台帳の行（term_iri つき）から引いて、ストアの用語の点を 4 色にする
-    const sky = withTermRoles({ ...okSky.sky, datasets: withoutCopyDatasets(okSky.sky.datasets, ledger.ledgers) }, ledger.ledgers, storeRoles)
+    const withRoles = withTermRoles({ ...okSky.sky, datasets: withoutCopyDatasets(okSky.sky.datasets, ledger.ledgers) }, ledger.ledgers, storeRoles)
+    // 絞り込みは置いた語と線にも効かせる（ledger.filter は取り込み元・状態・関係の種類）
+    const sky = filterStoreSky(withRoles, ledger.ledgers, ledger.filter)
     return showDatasets ? sky : withoutDatasetSide(sky)
-  }, [okSky, ledger.ledgers, showDatasets, storeRoles])
+  }, [okSky, ledger.ledgers, ledger.filter, showDatasets, storeRoles])
   const mapProposed = useMemo(() => (okSky && showDatasets ? withoutCopyDatasets(okSky.proposedDatasets, ledger.ledgers) : []), [okSky, ledger.ledgers, showDatasets])
   const placedByIri = useMemo(() => placedIndex(ledger.ledgers), [ledger.ledgers])
   /** 図で選んでいる点の id。台帳の語の focus は、その語がストアの用語の点になっていればその点（無ければ台帳の点）。 */

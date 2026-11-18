@@ -142,6 +142,17 @@ def _snapshot(c: _Client, root: Path) -> dict:
     return {"quads": quads, "files": files}
 
 
+def _kt_terms(c: _Client) -> set[str]:
+    """この段の語（slug が ``kt_…``）。IRI は ``…/shared#kt_…``。"""
+    return {t for t in _terms_in_store(c) if "#kt_" in t}
+
+
+async def _orphan_kt(c: _Client) -> set[str]:
+    """線が 1 本も触れていない、この段の語（残ってはいけない）。"""
+    touched = {x for ln in await cs.read_lines(c) for x in (ln[0], ln[2])}
+    return _kt_terms(c) - touched
+
+
 def _my_lines(c: _Client, batch: str) -> set[str]:
     rows = c.store.query(
         f"SELECT ?s ?r ?t WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?a <{cs.XW}batch> \"{batch}\" ; "
@@ -194,6 +205,7 @@ async def test_confirmed_relation_lands_with_terms_line_and_evidence(tmp_path: P
     assert rep.summary() == {"placed": 1, "removed": 0, "failed": []}
     s1, s2 = cs.slug_for(_tid(1)), cs.slug_for(_tid(2))
     assert {sv.term_iri(s1), sv.term_iri(s2)} <= _terms_in_store(c)
+    assert len(_kt_terms(c)) == 2  # 検査が当たる形（…/shared#kt_…）になっている
     assert new["stored_terms"] == {
         _tid(1): {"slug": s1, "minted": True}, _tid(2): {"slug": s2, "minted": True},
     }  # fmt: skip
@@ -271,7 +283,7 @@ async def test_unconfirm_and_reject_take_the_line_and_the_minted_terms_out(
     led, _ = pr.reject(led, [k_part], at=AT2)
     led, _ = await _run(c, root, led, copy)
     assert _my_lines(c, "knowledge:lab") == set()
-    assert not [t for t in _terms_in_store(c) if "/kt_" in t]
+    assert _kt_terms(c) == set()
     assert led["stored_terms"] == {}
     # 戻す（AI の関係は未確認に戻る）→ 確認し直すと、もう一度置かれる
     led, out = pr.restore(led, [k_part])
@@ -317,7 +329,9 @@ async def test_a_line_someone_else_confirmed_is_not_taken_out(tmp_path: Path) ->
     a, _ = await _run(c, root, a, copy)
     b = _confirm(_ledger("memo", [(1, 2, "lowers")]), keys)
     b, rep_b = await _run(c, root, b, copy)  # 同じ線は置き直さない・語は a の物に乗る
-    assert rep_b.placed == [] and b["stored_terms"][_tid(1)]["minted"] is False
+    # b は a の作った語（kt_…）に乗る。kt_ の語は「この段の語」として扱う
+    assert rep_b.placed == [] and b["stored_terms"][_tid(1)] == a["stored_terms"][_tid(1)]
+    assert cs.is_stage_slug(b["stored_terms"][_tid(1)]["slug"])
     a, _ = pr.unconfirm(a, keys)
     a, rep = await _run(c, root, a, copy)
     assert rep.removed == [] and len(_my_lines(c, "knowledge:lab")) == 1
@@ -327,7 +341,7 @@ async def test_a_line_someone_else_confirmed_is_not_taken_out(tmp_path: Path) ->
     assert len(rep.removed) == 1 and _my_lines(c, "knowledge:lab") == set()
     a, _ = await _run(c, root, a, copy)  # a の台帳はもう何も確認していない
     assert _my_lines(c, "knowledge:lab") == set()
-    assert not [t for t in _terms_in_store(c) if "/kt_" in t]
+    assert _kt_terms(c) == set()
 
 
 async def test_a_line_a_theme_owns_is_left_alone(tmp_path: Path) -> None:
@@ -465,11 +479,8 @@ async def _trial(seed: int, root: Path) -> None:
         for line in want:
             s, _r, t = line.split("|")
             assert {s, t} <= _terms_in_store(c), (seed, op)
-        # 作った語は、線が使っているものだけ
-        minted = {sv.term_iri(v["slug"]) for v in led.get("stored_terms", {}).values() if v["minted"]}
-        used = {x for ln in want for x in (ln.split("|")[0], ln.split("|")[2])}
-        assert {t for t in _terms_in_store(c) if "/kt_" in t} <= used | minted, (seed, op)
-        assert minted <= used, (seed, op)
+        # この段の語は、線が触れているものだけ残る
+        assert await _orphan_kt(c) == set(), (seed, op)
         await _check_questions(c, root, led, copy)
     del kind, ledger_roots
 
@@ -600,8 +611,16 @@ def test_a_broken_sources_file_is_set_aside_and_read_as_empty(tmp_path: Path) ->
     path = tmp_path / "vocab-shared" / ksrc.FILE
     path.parent.mkdir(parents=True)
     path.write_text("{not json", encoding="utf-8")
+    # 読む側（MCP・星図）は退避せず、空として読むだけ
     assert ksrc.load_sources(tmp_path) == {"version": 1, "sources": {}}
+    assert ksrc.selections(tmp_path) == [] and path.is_file()
+    # 書く側だけが退避する。連番を付けて、前の退避を上書きしない
+    assert ksrc.load_sources(tmp_path, set_aside=True) == {"version": 1, "sources": {}}
     assert path.with_name(path.name + ".bad").is_file() and not path.exists()
+    path.write_text("{again", encoding="utf-8")
+    ksrc.load_sources(tmp_path, set_aside=True)
+    assert path.with_name(path.name + ".bad.1").is_file()
+    assert path.with_name(path.name + ".bad").read_text(encoding="utf-8") == "{not json"
 
 
 def test_the_sky_counts_an_import_source_question_for_its_term(tmp_path: Path) -> None:
@@ -617,3 +636,218 @@ def test_the_sky_counts_an_import_source_question_for_its_term(tmp_path: Path) -
     assert sky_view.questions_of_term(tmp_path, iri) == ["kq_kt_aaaaaaaaaaaa_parts"]
     (src,) = [x for x in sky_view._knowledge_question_selections(tmp_path)]
     assert src[0]["label"] == "作り物の束" and src[0]["id"] is None and src[3] == iri
+
+
+# ---- 反証（checker）で出た穴の回帰 ---------------------------------------------------------------
+
+
+async def test_a_term_a_source_made_goes_when_the_last_user_lets_go(tmp_path: Path) -> None:
+    """A が作った語に B が乗る → B が取り消す → A が取り消す、で語が残らない。"""
+    root, c = tmp_path / "registry", _Client()
+    await _claims_world(c, root)
+    copy = _copy(SPEC)
+    keys = _keys(_ledger(rels=[(1, 2, "lowers")]))
+    a = _confirm(_ledger("lab", [(1, 2, "lowers")]), keys)
+    a, _ = await _run(c, root, a, copy)
+    b = _confirm(_ledger("memo", [(1, 2, "lowers")]), keys)
+    b, _ = await _run(c, root, b, copy)
+    b, _ = pr.unconfirm(b, keys)
+    b, _ = await _run(c, root, b, copy)
+    assert b.get("stored_terms", {}) == {}  # 取り消した側の対応は消える
+    assert len(_kt_terms(c)) == 2  # a がまだ使っている
+    a, _ = pr.unconfirm(a, keys)
+    a, rep = await _run(c, root, a, copy)
+    assert len(rep.removed_terms) == 2 and _kt_terms(c) == set()
+    assert a.get("stored_terms", {}) == {}
+
+
+async def test_a_lost_ledger_save_does_not_turn_our_own_term_into_an_existing_one(
+    tmp_path: Path,
+) -> None:
+    root, c = tmp_path / "registry", _Client()
+    await _claims_world(c, root)
+    copy = _copy(SPEC)
+    keys = _keys(_ledger(rels=[(1, 2, "lowers")]))
+    led = _confirm(_ledger("lab", [(1, 2, "lowers")]), keys)
+    await cs.sync(c, root, led, copy, claim_graph=GRAPH, now=AT2)  # 置いたが、台帳の保存は落ちた
+    assert len(_kt_terms(c)) == 2
+    led2, _ = await _run(c, root, led, copy)  # 台帳は stored_terms も store も無いまま
+    assert all(cs.is_stage_slug(v["slug"]) and v["minted"] for v in led2["stored_terms"].values())
+    led2, _ = pr.unconfirm(led2, keys)
+    led2, _ = await _run(c, root, led2, copy)
+    assert _my_lines(c, "knowledge:lab") == set() and _kt_terms(c) == set()
+
+
+async def test_a_lost_save_keeps_the_line_for_the_next_source_only_if_saved(tmp_path: Path) -> None:
+    """保存が済んだ台帳は、別の取り込み元の同期から見える（置いたばかりの線を外されない）。"""
+    root, c = tmp_path / "registry", _Client()
+    await _claims_world(c, root)
+    copy = _copy(SPEC)
+    keys = _keys(_ledger(rels=[(1, 2, "lowers")]))
+    a = _confirm(_ledger("lab", [(1, 2, "lowers")]), keys)
+    order: list[str] = []
+
+    def save(led: dict) -> None:
+        order.append("save")
+        assert not (root / "vocab-shared" / ksrc.FILE).exists()  # 問いの保存より先
+        pr.save_ledger(root, led, at=AT2)
+
+    new_a, _ = await cs.sync(c, root, a, copy, claim_graph=GRAPH, now=AT2, save=save)
+    assert order == ["save"] and (root / "vocab-shared" / ksrc.FILE).is_file()
+    # 別の取り込み元（何も確認していない）が、保存のあとに同期しても、A の線は残る
+    _b, rep_b = await cs.sync(c, root, _ledger("memo", [(1, 3, "part")]), copy, claim_graph=GRAPH, now=AT2)
+    assert rep_b.removed == [] and len(_my_lines(c, "knowledge:lab")) == 1
+    assert new_a["pairs"][keys[0]]["store"]["ok"] is True
+
+
+async def test_failing_entries_do_not_starve_the_healthy_one_and_stop_after_three_tries(
+    tmp_path: Path,
+) -> None:
+    root, c = tmp_path / "registry", _Client()
+    await _claims_world(c, root)
+    copy = _copy(SPEC)
+    led = _ledger("lab", [(1, 2, "lowers")])
+    ok_key = _keys(led)[0]
+    for i in range(60):  # 写しに語が無い確認 60 件（error）。ok_key より先に並ぶ id
+        a, b = "t-000000000000", f"t-{0x100 + i:012x}"
+        x, y = sorted((a, b))
+        led["pairs"][f"{x}|{y}"] = {"key": f"{x}|{y}", "a": x, "b": y, "state": "relation", "rel": "part",
+            "from": a, "to": b, "evidence": [], "by": "ai", "reason": "r", "claims": [],
+            "claims_total": 0, "rejected": [], "confirmed": None, "fingerprint": "f"}  # fmt: skip
+    led = _confirm(led, sorted(led["pairs"]))
+    # 1 回目は 50 件（どれも error）。2 回目は、まだ試していない件が先なので、後ろの正常な件が置かれる
+    led, rep = await _run(c, root, led, copy)
+    assert rep.attempted == 50 and "store" not in led["pairs"][ok_key]
+    led, rep = await _run(c, root, led, copy)
+    assert led["pairs"][ok_key]["store"]["ok"] is True
+    # error の件は 3 回まで（確認が変わるまで）。あとは試さない
+    for _ in range(4):
+        led, rep = await _run(c, root, led, copy)
+    assert rep.attempted == 0 and rep.remaining == 0
+    bad = [e["store"] for k, e in led["pairs"].items() if k != ok_key]
+    assert all(st["reason"] == "error" and st["tries"] == cs.MAX_TRIES for st in bad)
+
+
+async def test_the_order_is_untried_then_changed_then_errors(tmp_path: Path) -> None:
+    led = _ledger("lab", [(1, 2, "lowers"), (1, 3, "part"), (5, 2, "has_property")])
+    k_err, k_new, k_chg = sorted(led["pairs"])  # 並びは id の順
+    led = _confirm(led, [k_err, k_new, k_chg])
+    p = led["pairs"]
+    p[k_err]["store"] = {"ok": False, "reason": "error", "at": AT, "of": AT, "tries": 1}
+    p[k_chg]["store"] = {"ok": False, "reason": "error", "at": AT, "of": "古い確認", "tries": 2}
+    plan = cs.plan(led, _copy(SPEC), existing_terms=[], other_holders=cs.Holders(), limit=3)
+    assert [x.key for x in plan.puts] == [k_new, k_chg, k_err]
+    assert plan.tries == {k_err: 1}  # 確認が変わった件は数え直す
+
+
+async def test_a_confirmation_over_existing_terms_recounts_the_knowledge_numbers(
+    tmp_path: Path,
+) -> None:
+    root, c = tmp_path / "registry", _Client()
+    await _claims_world(c, root)
+    for slug, kind, label in (("pore", "class", "気孔"), ("k", "property", "熱の伝わりやすさ")):
+        await sv.mint_term(c, root, slug=slug, kind=kind, label=label, cqs=[], theme_id="x", at=AT)
+    keys = _keys(_ledger(rels=[(1, 2, "lowers")]))
+    led = _confirm(_ledger("lab", [(1, 2, "lowers")]), keys)
+    led, rep = await _run(c, root, led, _copy(SPEC))
+    assert rep.placed == keys and rep.minted == []  # 語は作らない（乗るだけ）
+    assert sv.load_knowledge(root) == await sv.knowledge_counts(c)
+    assert sv.load_knowledge(root).get(sv.term_iri("pore"))
+    led, _ = pr.unconfirm(led, keys)
+    led, _ = await _run(c, root, led, _copy(SPEC))
+    assert sv.load_knowledge(root) == await sv.knowledge_counts(c)
+    assert not sv.load_knowledge(root).get(sv.term_iri("pore"))
+
+
+async def test_claims_are_checked_only_for_the_entries_that_are_tried(tmp_path: Path) -> None:
+    root, c = tmp_path / "registry", _Client()
+    await _claims_world(c, root)
+    asked: list[str] = []
+    real = c.sparql_select
+
+    async def spy(q: str) -> dict:
+        asked.append(q)
+        return await real(q)
+
+    c.sparql_select = spy  # type: ignore[method-assign]
+    led = _confirm(_ledger("lab", [(1, 2, "lowers")]), _keys(_ledger("lab", [(1, 2, "lowers")])))
+    copy = _copy(SPEC, claims=40)  # 写しの知見は 40 件・確認が指すのは c1・c2 だけ
+    await cs.sync(c, root, led, copy, claim_graph=GRAPH, now=AT2)
+    q = [x for x in asked if f"<{KN_NS}Claim>" in x]
+    assert len(q) == 1 and f"{CLAIM}c1" in q[0] and f"{CLAIM}c2" in q[0] and f"{CLAIM}c3>" not in q[0]
+
+
+def test_a_reconfirmation_not_placed_yet_is_not_a_question() -> None:
+    copy = _copy(SPEC)
+    led = _confirm(_ledger("lab", [(1, 3, "part")]), _keys(_ledger("lab", [(1, 3, "part")])))
+    e = next(iter(led["pairs"].values()))
+    e["store"] = {"ok": True, "at": AT, "of": "前の確認の時刻", "line": "a|b|c"}  # 確認が変わった
+    mapping = {_tid(1): {"slug": cs.slug_for(_tid(1)), "minted": True},
+               _tid(3): {"slug": cs.slug_for(_tid(3)), "minted": True}}  # fmt: skip
+    got = ksrc.build_entry(led, copy, mapping=mapping, title=None, taken_names=set(), updated_at=AT)
+    assert got is None
+    e["store"]["of"] = e["confirmed"]["at"]
+    got = ksrc.build_entry(led, copy, mapping=mapping, title=None, taken_names=set(), updated_at=AT)
+    assert got and got["selections"]
+
+
+# ---- 乱数の操作列（2 つの取り込み元・保存が落ちる回・話の線） ----------------------------------
+
+
+async def _trial_multi(seed: int, root: Path) -> None:
+    rnd = random.Random(1000 + seed)
+    c = _Client()
+    await _claims_world(c, root)
+    specs = [(i, f"語{seed}-{i}", rnd.choice(["class", "class", "property"]), None)
+             for i in range(1, rnd.randint(4, 7))]  # fmt: skip
+    copy = _copy(specs)
+    ids = [n for n, *_ in specs]
+    # 話が置いた用語と線（取り込み元の操作で 1 つも変わってはいけない）
+    for slug, label in (("th_a", "話の語 A"), ("th_b", "話の語 B")):
+        await sv.mint_term(c, root, slug=slug, kind="class", label=label, cqs=[], theme_id="th", at=AT)
+    await assert_alignment(c, sv.term_iri("th_a"), sv.term_iri("th_b"), "subClassOf", at=AT,
+                           drafted_by="human", batch="theme-1")  # fmt: skip
+    (root / "vocab-shared" / "themes.json").write_text(
+        json.dumps({"themes": [{"id": "th", "uses": ["th_a", "th_b"], "minted": ["th_a", "th_b"],
+                                "selections": {}}], "migrated": True}), encoding="utf-8")  # fmt: skip
+    theme_quads = {q for q in _snapshot(c, root)["quads"]
+                   if "theme-1" in q[3] or "th_" in q[1] or "th_" in q[3]}  # fmt: skip
+    ledgers = {"lab": _ledger("lab"), "memo": _ledger("memo")}
+    for _ in range(rnd.randint(10, 24)):
+        src = rnd.choice(["lab", "memo"])
+        led = ledgers[src]
+        pairs = led["pairs"]
+        op = rnd.choice(["add", "add", "confirm", "confirm", "unconfirm", "reject", "lost", "remove"])
+        if op == "add":
+            a, b = rnd.sample(ids, 2)
+            x, y = sorted((_tid(a), _tid(b)))
+            if f"{x}|{y}" not in pairs:  # 2 つの取り込み元が同じ組を持ちうる（乗った語を共有する）
+                pairs[f"{x}|{y}"] = _ledger(rels=[(a, b, rnd.choice(["part", "lowers", "affects", "has_property"]))])["pairs"][f"{x}|{y}"]
+        elif op in ("confirm", "unconfirm", "reject") and pairs:
+            key = rnd.choice(sorted(pairs))
+            fn = {"confirm": lambda L, k=key: pr.confirm(L, [k], at=AT),
+                  "unconfirm": lambda L, k=key: pr.unconfirm(L, [k]),
+                  "reject": lambda L, k=key: pr.reject(L, [k], at=AT2)}[op]  # fmt: skip
+            led, _ = fn(led)
+        elif op == "remove":
+            led, _ = pr.strip_unconfirmed(led)
+        elif op == "lost":  # 置いたが台帳の保存が落ちた回（結果は捨てる）→ 次の通常の回で直る
+            await cs.sync(c, root, led, copy, claim_graph=GRAPH, now=AT2)
+        led, _ = await _run(c, root, led, copy)
+        ledgers[src] = led
+        placed = {
+            e["store"]["line"]
+            for L in ledgers.values()
+            for e in L["pairs"].values()
+            if e.get("confirmed") and (e.get("store") or {}).get("ok")
+        }
+        in_store = {_k for _k, b in (await cs.read_lines(c)).items() if (b or "").startswith("knowledge:")}
+        assert {"|".join(k) for k in in_store} == placed, (seed, src, op)
+        assert await _orphan_kt(c) == set(), (seed, src, op)
+        now = {q for q in _snapshot(c, root)["quads"] if "theme-1" in q[3] or "th_" in q[1] or "th_" in q[3]}
+        assert now == theme_quads, (seed, src, op)  # 話の線と用語は 1 つも変わらない
+
+
+async def test_random_operations_across_two_sources_and_lost_saves(tmp_path: Path) -> None:
+    for seed in range(25):
+        await _trial_multi(seed, tmp_path / f"m{seed}")
