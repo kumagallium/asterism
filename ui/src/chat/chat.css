@@ -885,12 +885,6 @@
 }
 
 /* 点を押した 1 枚（PR 11d）。会話の先頭に固定 */
-.chat-pinned {
-  flex: none;
-  max-height: 45%;
-  overflow-y: auto;
-  padding: var(--space-3) var(--space-4) 0;
-}
 .chat-point-std,
 .chat-point-prov {
   margin: var(--space-1) 0 0;

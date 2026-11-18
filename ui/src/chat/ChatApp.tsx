@@ -83,6 +83,8 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 
 /** 知識グラフを入れ物いっぱいに出すときに引く高さ（見出し・凡例・上下の余白）。 */
 const MAP_CHROME_PX = 96
+/** 「チャット」の右で知識グラフが取る高さの割合。下に 1 枚と「関係」「データ」「問い」が続くので半分弱。 */
+const CHAT_MAP_RATIO = 0.45
 
 export function ChatApp() {
   const { t, i18n } = useTranslation('chat')
@@ -231,9 +233,7 @@ export function ChatApp() {
   useEffect(() => {
     setReader(null)
   }, [view, composerKey])
-  // 「チャット」の右の領域の一番上のタブ
-  const [rtab, setRtab] = useState<'graph' | 'questions'>('graph')
-  // 「知識グラフ」の右の領域で「問い」のタブを開いているか（関係／データは subTab が決める）
+  // 右の列（「知識グラフ」の右・「チャット」の右で共通）で「問い」のタブを開いているか（関係／データは subTab が決める）
   const [graphQuestions, setGraphQuestions] = useState(false)
 
   // ── 点を押した 1 枚（図の点・線 → GET /api/chat/point → チャットの先頭） ──
@@ -854,8 +854,8 @@ export function ChatApp() {
     const apply = () => {
       if (layout.tabs) return setMapH(Math.round(window.innerHeight * 0.55))
       const h = el?.clientHeight ?? 0
-      // 「チャット」の右は下に関係とデータが続くので 6 割。ほかの場所は入れ物いっぱい（凡例と余白の分を引く）
-      if (h > 0) setMapH(Math.max(260, place === 'chat' ? Math.round(h * 0.6) : h - MAP_CHROME_PX))
+      // 「チャット」の右は下に 1 枚と一覧が続くので半分弱。ほかの場所は入れ物いっぱい（凡例と余白の分を引く）
+      if (h > 0) setMapH(Math.max(260, place === 'chat' ? Math.round(h * CHAT_MAP_RATIO) : h - MAP_CHROME_PX))
     }
     apply()
     window.addEventListener('resize', apply)
@@ -869,7 +869,6 @@ export function ChatApp() {
   }, [layout.tabs, addOpen, place])
 
   // ── 問いのタブ（PR 11l） ──
-  const rightView: 'graph' | 'questions' = rtab
   const qAnswerable = okSky ? okSky.sky.questions.filter(isAnswerable).length : 0
   const qTotal = okSky?.sky.questions.length ?? 0
   const proposedQuestions = useMemo(
@@ -886,9 +885,8 @@ export function ChatApp() {
     (q: SkyQuestion) => {
       const members = (okSky?.sky.terms ?? []).filter((x) => q.needs.includes(x.iri)).flatMap((x) => x.members.map((m) => m.iri))
       setHighlight({ iris: [...new Set([...q.needs, ...members])] })
-      // 「チャット」の右のタブからは知識グラフのタブへ。「知識グラフ」の場所では図は既に出ている（375 は図まで戻す）
-      if (placeRef.current === 'chat') setRtab('graph')
-      else if (layout.tabs) scrollRef.current?.scrollTo?.({ top: 0 })
+      // 知識グラフが同じ列の上にあるとき（「チャット」の右・375 の「知識グラフ」）は、光った点が見えるよう上まで戻す
+      if (placeRef.current === 'chat' || layout.tabs) scrollRef.current?.scrollTo?.({ top: 0 })
     },
     [okSky, layout.tabs],
   )
@@ -1008,7 +1006,7 @@ export function ChatApp() {
   const questionsPanel = okSky && (
     <QuestionsPanel questions={okSky.sky.questions} sky={okSky.sky} proposed={proposedQuestions} onPick={onPickQuestion} onAsk={onAskQuestion} busy={busy !== null} />
   )
-  /** 「知識グラフ」の場所の右（375 では図の下）: 選んだ点の 1 枚＋「関係」「データ」「問い」。 */
+  /** 知識グラフに添える列（「知識グラフ」の右・「チャット」の右の知識グラフの下・375 では図の下）: 選んだ点の 1 枚＋「関係」「データ」「問い」。 */
   const graphSide = okSky && (
     <>
       {sel && point && (
@@ -1018,7 +1016,7 @@ export function ChatApp() {
             point={point}
             busy={busy !== null}
             titleOf={titleOf}
-            // ここでは右のタブを「データ」に切り替えるだけ（チャットに文を送らない）
+            // 右のタブを「データ」に切り替えるだけ（チャットに文を送らない。表で見たいときは「〜を見せて」と書く）
             onContents={() => {
               setTempTab({ pickedId })
               setGraphQuestions(false)
@@ -1173,15 +1171,6 @@ export function ChatApp() {
           onConfirm={(id, d) => void onConfirm(id, d)}
           onRevert={(id) => void onRevert(id)}
           onOpenSettings={() => openSettings()}
-          // 375 の「チャット」には知識グラフが無いので、点の 1 枚は「知識グラフ」の場所に出す
-          point={sel && !layout.tabs ? point : null}
-          titleOf={titleOf}
-          onContents={(name) => {
-            setTempTab({ pickedId })
-            void onSend(t('point.showText', { name }))
-          }}
-          onPointRevert={(p) => void onPointRevert(p)}
-          onPointRemove={() => void onPointRemove()}
           undone={undone}
           onHighlight={setHighlight}
           scopeBar={scope ? <ScopeBar name={scope.name} onClear={() => setScope(null)} /> : undefined}
@@ -1205,35 +1194,15 @@ export function ChatApp() {
           <div className="chat-right-scroll">{graphSide}</div>
         </section>
       )}
+      {/* 「チャット」の右は「知識グラフ」の場所と同じ部品・同じ順（知識グラフ → 1 枚 → 関係・データ・問い）。違いは大きさだけ */}
       {!layout.tabs && place === 'chat' && (
         <section className="chat-right">
-          <div className="chat-rtabs" role="tablist" aria-label={tq('tab.label')}>
-            <button type="button" role="tab" data-testid="tab-knowledge" aria-selected={rightView === 'graph'} className={`chat-tab${rightView === 'graph' ? ' active' : ''}`} onClick={() => setRtab('graph')}>
-              {tq('tab.graph')}
-            </button>
-            <button type="button" role="tab" data-testid="tab-questions" aria-selected={rightView === 'questions'} className={`chat-tab${rightView === 'questions' ? ' active' : ''}`} onClick={() => setRtab('questions')}>
-              {tq('tab.questions', { n: qAnswerable, m: qTotal })}
-            </button>
-          </div>
           {skyStatus}
-          {okSky && rightView === 'questions' && <div className="chat-right-scroll">{questionsPanel}</div>}
-          <div className="chat-right-scroll" ref={scrollRef} hidden={rightView !== 'graph'}>
-            {okSky && (
-              <>
-                {mapBlock(onMapSelect)}
-                <div className="chat-rtabs chat-subtabs" role="tablist" aria-label={t('sentences.tabs')}>
-                  <button type="button" role="tab" data-testid="tab-sentences" aria-selected={subTab === 'sentences'} className={`chat-tab${subTab === 'sentences' ? ' active' : ''}`} onClick={() => chooseSub('sentences')}>
-                    {t('sentences.tab')}
-                  </button>
-                  <button type="button" role="tab" data-testid="tab-data" aria-selected={subTab === 'data'} className={`chat-tab${subTab === 'data' ? ' active' : ''}`} onClick={() => chooseSub('data')}>
-                    {t('sentences.dataTab')}
-                  </button>
-                </div>
-                {subTab === 'sentences' ? sentencesPanel : contentsPanel}
-              </>
-            )}
+          <div className="chat-right-scroll" ref={scrollRef}>
+            {mapBlock(onMapSelect)}
+            {graphSide}
           </div>
-          {showHand && rightView === 'graph' && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
+          {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
         </section>
       )}
       {layout.tabs && <PlaceTabbar place={place} onPlace={goPlace} />}

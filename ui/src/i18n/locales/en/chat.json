@@ -160,7 +160,6 @@
     "termClass": "kind",
     "termProperty": "field",
     "contents": "View data",
-    "showText": "Show {{name}}",
     "revert": "Undo",
     "revertAsk": "This approval will be undone",
     "revertYes": "Undo",
@@ -242,7 +241,6 @@
     "retry": "Retry"
   },
   "sentences": {
-    "tabs": "Lower panel",
     "tab": "Relations",
     "dataTab": "Data",
     "remove": "Delete",
