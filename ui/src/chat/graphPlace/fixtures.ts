@@ -1,7 +1,7 @@
 // テスト用の作り物の台帳（実在の研究データは入れない）。
 import type { Ledger, LedgerRow, TermCard } from './knowledgeRelationsApi'
 
-export const term = (id: string, name: string, role: string | null = 'concept', kind: string | null = 'class'): TermCard => ({ id, name, kind, role })
+export const term = (id: string, name: string, role: string | null = 'concept', kind: string | null = 'class'): TermCard => ({ id, name, kind, role, termIri: null })
 
 export const row = (over: Partial<LedgerRow> & { from: TermCard; to: TermCard }): LedgerRow => ({
   source: 'src-a',
@@ -18,6 +18,7 @@ export const row = (over: Partial<LedgerRow> & { from: TermCard; to: TermCard })
   by: 'ai',
   confirmed: false,
   rejected: false,
+  store: null,
   ...over,
 })
 

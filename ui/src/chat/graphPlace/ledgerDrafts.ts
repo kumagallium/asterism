@@ -24,9 +24,10 @@ export function ledgerDrafts(ledgers: readonly Ledger[], filter: LedgerFilter): 
       const cur = concepts.get(c.id)
       if (cur) {
         if (confirmed) cur.confirmed = true
+        if (c.termIri && !cur.termIri) cur.termIri = c.termIri
         return
       }
-      concepts.set(c.id, { key: c.id, label: c.name, kind: c.kind === 'property' ? 'property' : 'class', use: 'new', state: 'solid', role: c.role, confirmed })
+      concepts.set(c.id, { key: c.id, label: c.name, kind: c.kind === 'property' ? 'property' : 'class', use: 'new', state: 'solid', role: c.role, confirmed, ...(c.termIri ? { termIri: c.termIri } : {}) })
     }
     const relations: LedgerRelation[] = []
     for (const r of rels) {

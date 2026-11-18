@@ -65,6 +65,8 @@ import { PointCard } from './PointCard'
 import { PaperReader } from './PaperReader'
 import { GraphFilters, GraphPlaceSide, MapLegend } from './graphPlace/GraphPlace'
 import { ledgerNodeId, parseLedgerNode, withoutCopyDatasets } from './graphPlace/ledgerDrafts'
+import { placedIndex, placedIriOf, withTermRoles } from './graphPlace/placedTerms'
+import { useStoreRoles } from './graphPlace/useStoreRoles'
 import { datasetsShown, hasWords, isDatasetNode, withoutDatasetSide } from './graphPlace/datasetVisibility'
 import { useLedgers } from './graphPlace/useLedgers'
 import { ReaderSlot } from './ReaderSlot'
@@ -220,7 +222,7 @@ export function ChatApp() {
   const [turnDraft, setDraft] = useState<SkyDraft | null>(null)
   const [chartTick, setChartTick] = useState(0)
   // 取り込んだ知識の台帳（取り込み元ごとの関係・絞り込み・確認）。図には合成の下書きとして足す（useSky の proposed には混ぜない）
-  const ledger = useLedgers(chartTick, lang)
+  const ledger = useLedgers(chartTick, lang, useCallback(() => setChartTick((n) => n + 1), []))
   /** 図で押した台帳の語（本物の点ではないので getPoint を呼ばない。「用語」のタブで開く）。 */
   const ledgerNonce = useRef(0)
   const [ledgerFocus, setLedgerFocus] = useState<{ source: string; termId: string; nonce: number } | null>(null)
@@ -991,18 +993,35 @@ export function ChatApp() {
     if (!on && isDatasetNode(pickedId)) onMapSelect(null, null)
     setDatasetsPref(on)
   }
+  // 役割はストアの札が正（/api/sky と同じ合図で 1 回読む）。台帳の行は、ストアにまだ無い語の補い
+  const storeRoles = useStoreRoles(chartTick)
   const mapSky = useMemo(() => {
     if (!okSky) return undefined
-    const sky = { ...okSky.sky, datasets: withoutCopyDatasets(okSky.sky.datasets, ledger.ledgers) }
+    // 用語の役割は /api/sky に載らない。台帳の行（term_iri つき）から引いて、ストアの用語の点を 4 色にする
+    const sky = withTermRoles({ ...okSky.sky, datasets: withoutCopyDatasets(okSky.sky.datasets, ledger.ledgers) }, ledger.ledgers, storeRoles)
     return showDatasets ? sky : withoutDatasetSide(sky)
-  }, [okSky, ledger.ledgers, showDatasets])
+  }, [okSky, ledger.ledgers, showDatasets, storeRoles])
   const mapProposed = useMemo(() => (okSky && showDatasets ? withoutCopyDatasets(okSky.proposedDatasets, ledger.ledgers) : []), [okSky, ledger.ledgers, showDatasets])
+  const placedByIri = useMemo(() => placedIndex(ledger.ledgers), [ledger.ledgers])
+  /** 図で選んでいる点の id。台帳の語の focus は、その語がストアの用語の点になっていればその点（無ければ台帳の点）。 */
+  const focusNodeId = (() => {
+    if (!ledgerFocus) return null
+    const iri = placedIriOf(ledger.ledgers, ledgerFocus.source, ledgerFocus.termId)
+    return iri && okSky?.sky.terms.some((t) => t.iri === iri) ? termId(iri) : ledgerNodeId(ledgerFocus.source, ledgerFocus.termId)
+  })()
   /** 台帳の語を押したら getPoint を呼ばず（裏に無く 404 になる）、「知識グラフ」に移ってその語を「用語」のタブで開く。 */
   const selectOnMap = (onSelectPoint: (next: PointSel | null, nodeId: string | null) => void) => (next: PointSel | null, nodeId: string | null) => {
     const l = parseLedgerNode(nodeId)
     if (!l) {
-      setLedgerFocus(null)
-      return onSelectPoint(next, nodeId)
+      // 置いた語（ストアの用語の点）: 今までの 1 枚を出し、下の一覧は「用語」のタブでその語を開く（両方が見える）
+      const placed = nodeId?.startsWith('t|') ? placedByIri.get(nodeId.slice(2)) : undefined
+      if (!placed || placeRef.current === 'chat') {
+        setLedgerFocus(null)
+        return onSelectPoint(next, nodeId)
+      }
+      onSelectPoint(next, nodeId)
+      setLedgerFocus({ source: placed.source, termId: placed.termId, nonce: ++ledgerNonce.current })
+      return
     }
     onMapSelect(null, null)
     setLedgerFocus({ ...l, nonce: ++ledgerNonce.current })
@@ -1018,7 +1037,7 @@ export function ChatApp() {
           lang={lang}
           height={mapH}
           focusIds={focusIds}
-          selectedId={ledgerFocus ? ledgerNodeId(ledgerFocus.source, ledgerFocus.termId) : pickedId}
+          selectedId={focusNodeId ?? pickedId}
           highlightIds={highlightIds}
           removeIds={removeIds}
           onSelect={selectOnMap(onSelectPoint)}

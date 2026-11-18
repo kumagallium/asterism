@@ -120,3 +120,9 @@ export function unconfirmedKeys(term: TermSummary): string[] {
 
 /** 先頭から n 行（「もっと見る」の分）。 */
 export const firstRows = <T,>(rows: readonly T[], n: number): T[] => rows.slice(0, n)
+
+/** `id` の語を先頭へ（無ければそのまま）。 */
+export function pinFirst(terms: TermSummary[], id: string | null): TermSummary[] {
+  const i = id ? terms.findIndex((x) => x.id === id) : -1
+  return i <= 0 ? terms : [terms[i], ...terms.slice(0, i), ...terms.slice(i + 1)]
+}

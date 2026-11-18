@@ -2,7 +2,7 @@
 // 絞り込みはここが持つ（図と右の一覧の両方に効くので、ChatApp の外の 1 か所にまとめる）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DraftSky } from '../../sky/skyApi'
-import { fetchImports, fetchLedger, KnowledgeApiError, postAssign, reviewInChunks, type ImportSource, type Ledger, type ReviewAction, type ReviewResult } from './knowledgeRelationsApi'
+import { fetchImports, fetchLedger, KnowledgeApiError, postAssign, reviewInChunks, type ImportSource, type Ledger, type ReviewAction, type ReviewResult, type StoreReport } from './knowledgeRelationsApi'
 import { ledgerDrafts } from './ledgerDrafts'
 import { DEFAULT_FILTER, effectiveFilter, type LedgerFilter } from './ledgerView'
 
@@ -49,10 +49,11 @@ export interface LedgersApi extends LedgersLoad {
   /** 確認・取り消し・違う・戻す。書いたあとは台帳を読み直す。 */
   review: (source: string, action: ReviewAction, keys: string[]) => Promise<ReviewResult | void>
   /** `pair` は組の鍵（`pair` を `|` で分けた先の語が a）。 */
-  assign: (source: string, pair: string, rel: string, subject: 'a' | 'b') => Promise<void>
+  assign: (source: string, pair: string, rel: string, subject: 'a' | 'b') => Promise<StoreReport | null | void>
 }
 
-export function useLedgers(tick: number, lang: 'ja' | 'en'): LedgersApi {
+/** `onWritten`: 確認・付けるの書き込みのあとに呼ぶ（ストアの用語・線が変わるので、図の元の読み直しを頼む）。 */
+export function useLedgers(tick: number, lang: 'ja' | 'en', onWritten?: () => void): LedgersApi {
   const [load, setLoad] = useState<LedgersLoad>({ status: 'loading', ledgers: [], failed: [] })
   const [rawFilter, setFilter] = useState<LedgerFilter>(DEFAULT_FILTER)
   const [own, setOwn] = useState(0)
@@ -70,16 +71,19 @@ export function useLedgers(tick: number, lang: 'ja' | 'en'): LedgersApi {
         return await reviewInChunks(source, action, keys)
       } finally {
         reload() // 途中で止まっても、済んだ分は台帳に残る。読み直して合わせる
+        onWritten?.()
       }
     },
-    [reload],
+    [reload, onWritten],
   )
   const assign = useCallback(
     async (source: string, pair: string, rel: string, subject: 'a' | 'b') => {
-      await postAssign(source, pair, rel, subject, lang)
+      const store = await postAssign(source, pair, rel, subject, lang)
       reload()
+      onWritten?.()
+      return store
     },
-    [reload, lang],
+    [reload, onWritten, lang],
   )
   // 選んでいる値が選択肢から消えたら「すべて」に戻す（取り込み元・関係の種類）
   const filter = useMemo(() => effectiveFilter(load.ledgers, rawFilter), [load.ledgers, rawFilter])
