@@ -154,3 +154,16 @@ def test_it_answers_from_a_copy_without_claims(tmp_path: Path) -> None:
         r = _post(client, sid, {"ask_ledger": {"source": "lab", "name": _name(root)}})
         led = r.json()["turn"]["reply"]["answer"]["ledger"]
         assert led["items"][0]["evidence"] == [] and led["unconfirmed_count"] == 1
+
+
+def test_the_pressed_question_becomes_the_title_unless_the_user_named_it(tmp_path: Path) -> None:
+    client, root, _ = _setup(tmp_path)
+    with client:
+        name = _name(root)
+        sid = _new(client)
+        assert _post(client, sid, {"ask_ledger": {"source": "lab", "name": name}}).status_code == 201
+        assert client.get(f"/api/chat/sessions/{sid}").json()["title"] == "乙 の一種"
+        named = _new(client)
+        client.patch(f"/api/chat/sessions/{named}", json={"title": "自分の題"})
+        _post(client, named, {"ask_ledger": {"source": "lab", "name": name}})
+        assert client.get(f"/api/chat/sessions/{named}").json()["title"] == "自分の題"

@@ -670,9 +670,15 @@ def register_chat(
             )
             async with lock:
                 session = _session_or_404(session_id)
+                asked = (
+                    found["text"] or (body.ask_ledger.text or "").strip() or body.ask_ledger.name
+                )
+                if not (session.get("title") or "").strip():
+                    # 一覧で見分けが付くよう、押した問いの文を題にする（利用者が付けた題は変えない）
+                    session["title"] = asked[:80]
                 turn = chat_turns.run_ask_ledger_turn(
                     session,
-                    found["text"] or (body.ask_ledger.text or "").strip() or body.ask_ledger.name,
+                    asked,
                     found["block"],
                     at=_now(),
                     lang=body.lang,

@@ -40,8 +40,8 @@ export interface ImportPlaceProps {
   getCreds?: () => LlmCredentials | null
   /** 取り込み・外すで知識が変わった（ChatApp が図を読み直す）。 */
   onChanged?: () => void
-  /** 結果の問いを押した: チャットに移ってその文を送る。 */
-  onAsk?: (text: string) => void
+  /** 結果の問いを押した: チャットに移って、AI を呼ばずに台帳で答える（入口 1）。 */
+  onAsk?: (q: { source: string; name: string; text: string }) => void
   /** 「知識グラフを見る」。 */
   onGraph?: () => void
   onOpenSettings?: () => void

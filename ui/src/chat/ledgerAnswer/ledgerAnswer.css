@@ -1,0 +1,95 @@
+/* 印つきの答え（14e-2）。色は既存のトークンだけ。 */
+.la {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.la-items {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.la-item {
+  overflow-wrap: anywhere;
+}
+.la-ev {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.la-st {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.6875rem;
+  padding: 0 7px;
+  border-radius: 99px;
+  border: 1px dashed var(--border-strong);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.la-st--tent {
+  border-style: solid;
+}
+.la-ctx {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.la-more {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.la-bar {
+  padding: 10px 12px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-fg);
+  border-radius: var(--radius);
+}
+.la-bar--ok {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success-fg);
+}
+.la-bar-t,
+.la-bar-s {
+  margin: 0;
+}
+.la-bar-s {
+  margin-top: 4px;
+  font-size: 0.8rem;
+}
+.la-acts {
+  margin-top: 8px;
+}
+.la-evwrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.la-evl {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.la-evl ul {
+  margin: 2px 0 0;
+  padding-left: 1.2em;
+  color: var(--muted);
+}
+.la-evl-h {
+  color: var(--fg);
+  font-weight: 600;
+}
+.la-bar-quiet {
+  font-size: 0.8rem;
+}

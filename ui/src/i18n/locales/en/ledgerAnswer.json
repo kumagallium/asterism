@@ -1,0 +1,26 @@
+{
+  "byNoAi": "Answered without AI",
+  "item": {
+    "evidence": "{{n}} evidence",
+    "unconfirmed": "Unconfirmed",
+    "tentative": "Tentative",
+    "about": "about {{names}}",
+    "sep": ", ",
+    "more": "and {{n}} more"
+  },
+  "bar": {
+    "unconfirmed": "This answer used {{n}} unconfirmed relation(s)",
+    "confirm": "Confirm the {{n}} used in this answer",
+    "confirming": "Confirming…",
+    "done": "{{n}} confirmed",
+    "notDone": "{{n}} could not be confirmed",
+    "rejected": "{{n}} of the relations used in this answer were later marked \"not so\"",
+    "allConfirmed": "The relations used in this answer are confirmed"
+  },
+  "evidence": {
+    "show": "Show evidence",
+    "hide": "Hide evidence",
+    "open": "Open in source",
+    "untitled": "(untitled)"
+  }
+}
