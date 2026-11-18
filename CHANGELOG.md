@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.71.0](https://github.com/kumagallium/asterism/compare/v0.70.0...v0.71.0) - 2026-11-18
+
+- feat: 確認済みの関係をストアの正本に置く（14e-1b） by @kumagallium in https://github.com/kumagallium/asterism/pull/822
+- docs(manual): v0.70.0 の節目とバッジ（答えに未確認の印と根拠） by @kumagallium in https://github.com/kumagallium/asterism/pull/823
+
 ## [v0.70.0](https://github.com/kumagallium/asterism/compare/v0.69.0...v0.70.0) - 2026-11-18
 
 - feat: 答えに未確認の印と根拠を出し、使った分だけ確認できるようにする（14e-2） by @kumagallium in https://github.com/kumagallium/asterism/pull/819
