@@ -1,11 +1,12 @@
-// 殻（PR 11a）: 左＝話の一覧／中央＝チャット／右＝図の 3 領域。上部バー・ナビ・ページは無い。
-// hash が唯一の真実源（`#/` 新しい話・`#/t/<id>` 保存した話・`#/settings` 設定）。`navigate()` が pushState/replaceState で
-// hash を書き、hashchange（戻る・進む・手入力）でも state に反映する。
+// 殻（PR 14d-1・design.md §23.11）: 左＝ナビ 3 つ（取り込み・知識グラフ・チャット）／中央／右の 3 領域。
+// 場所ごとに中央と右の中身を並べ替えるだけで、状態（今のチャット・選んだ点・図の読み取り）は場所をまたいで 1 つ。
+// hash が唯一の真実源（`#/import`・`#/graph`・`#/chat`・`#/chat/<id>`・`#/settings`。`#/` は最初に開く場所に置き換える）。
+// `navigate()` が pushState/replaceState で hash を書き、hashchange（戻る・進む・手入力）でも state に反映する。
 // 話の状態（手番・題・テーマ・未確認の下書き）はサーバが持つ。ここは取得・状態・DOM だけで、変換は chatState.ts の純関数。
 import { allDocumentNames } from './sourcePickerUtil'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GearIcon, MenuIcon } from '../icons'
+import { BrandMark, BrandWordmark, GearIcon, MenuIcon } from '../icons'
 import { subscribeJob, type JobHandle } from '../api'
 import { getServerSetting } from '../appSettings'
 import { useLlmSettings } from '../settings/context'
@@ -37,7 +38,8 @@ import {
   type ScopeBody,
   type TurnInput,
 } from './chatApi'
-import { chatHash, legacyHashRewrite, parseChatHash, type ChatRoute } from './chatRoute'
+import { chatHash, legacyHashRewrite, parseChatHash, placeOf, placeRouteOf, sameView, type ChatRoute, type ChatView, type Place } from './chatRoute'
+import { firstPlace, readLastPlace, writeLastPlace } from './firstPlace'
 import { pointQueryOf, removeOf, sameSel, thinPointOf, type Highlight, type PointSel } from './chatState'
 import { applyConfirm, applyRevert, applyTurnResponse, handFormShown, nameTable, nextHandKey, preferReloaded, runningJobs } from './chatState'
 import { AddPanel } from './AddPanel'
@@ -56,6 +58,10 @@ import { MapView as MapHost } from './map/MapView'
 import { useSky } from './useSky'
 import { draftNodeId, kindId, termId } from '../sky/skyLayout'
 import { SessionList } from './SessionList'
+import { NavRail } from './NavRail'
+import { PlaceTabbar } from './PlaceTabbar'
+import { ImportPlace } from './ImportPlace'
+import { PointCard } from './PointCard'
 import { PaperReader } from './PaperReader'
 import { ReaderSlot } from './ReaderSlot'
 import { PaperReaderContext, type PaperReaderApi } from './paperReaderContext'
@@ -64,32 +70,51 @@ import './chat.css'
 
 type Busy = 'send' | 'confirm' | 'revert' | null
 
-function applyLegacyHashRewrite(): void {
+/** いまの hash を読む。旧い hash は新しい場所へ、壊れた id・余計なパスは正しい形へ置き換える（`#/` は後で最初に開く場所に置き換わる）。 */
+function readHash(): ChatRoute {
   const next = legacyHashRewrite(window.location.hash)
   if (next) window.history.replaceState(null, '', next)
+  const r = parseChatHash(window.location.hash)
+  if (r.kind !== 'root' && chatHash(r) !== window.location.hash) window.history.replaceState(null, '', chatHash(r))
+  return r
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
+/** 知識グラフを入れ物いっぱいに出すときに引く高さ（見出し・凡例・上下の余白）。 */
+const MAP_CHROME_PX = 96
+/** 「チャット」の右で知識グラフが取る高さの割合。下に 1 枚と「関係」「データ」「問い」が続くので半分弱。 */
+const CHAT_MAP_RATIO = 0.45
 
 export function ChatApp() {
   const { t, i18n } = useTranslation('chat')
   const { t: ts } = useTranslation('settings')
   const { t: tsky } = useTranslation('sky')
   const { t: tq } = useTranslation('questions')
+  const { t: tb } = useTranslation()
   const lang: 'ja' | 'en' = i18n.language.startsWith('en') ? 'en' : 'ja'
   const { openSettings, settingsOpen, getActiveCredentials, isReady } = useLlmSettings()
   const layout = useChatLayout()
 
   // ── ルート ──
-  const [route, setRoute] = useState<ChatRoute>(() => {
-    applyLegacyHashRewrite()
-    return parseChatHash(window.location.hash)
+  const [route, setRoute] = useState<ChatRoute>(readHash)
+  // 今のチャット。ほかの場所に居るあいだも持つ（左の「チャット」で戻る先・手番の入り先）
+  const [view, setView] = useState<ChatView>(() => {
+    if (route.kind === 'new' || route.kind === 'session') return route
+    const chat = readLastPlace()?.chat
+    return chat ? { kind: 'session', id: chat } : { kind: 'new' }
   })
-  // 設定は上に重なるだけ。中身（話）は設定を開く前のまま
-  const [view, setView] = useState<ChatRoute>(() => (route.kind === 'settings' ? { kind: 'new' } : route))
+  // 今の場所。設定は上に重なるだけなので、開く前の場所のまま。`#/` が決まるまでは null
+  const [place, setPlace] = useState<Place | null>(() => placeOf(route))
+  // 取り込みの中央に、かんたん（AI 未設定のときの決定論のフォーム）を出しているか
+  const [importAdd, setImportAdd] = useState(() => route.kind === 'import' && !!route.add)
   const show = useCallback((r: ChatRoute) => {
     setRoute(r)
-    if (r.kind !== 'settings') setView(r)
+    // 同じチャットなら前の値のまま（戻る・進むのたびに作り直すと、開いている論文が閉じる）
+    if (r.kind === 'new' || r.kind === 'session') setView((cur) => (sameView(cur, r) ? cur : r))
+    if (r.kind === 'import') setImportAdd(!!r.add)
+    const p = placeOf(r)
+    if (p) setPlace(p)
   }, [])
   const navigate = useCallback(
     (r: ChatRoute, opts?: { replace?: boolean }) => {
@@ -103,15 +128,24 @@ export function ChatApp() {
     [show],
   )
   useEffect(() => {
-    const onHash = () => {
-      applyLegacyHashRewrite()
-      show(parseChatHash(window.location.hash))
-    }
+    const onHash = () => show(readHash())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [show])
+  /** 今の場所のルート（設定を閉じたときに戻る先）。 */
+  const placeRoute = useCallback((): ChatRoute => placeRouteOf(place, view, importAdd), [place, view, importAdd])
+  // 手番を生む操作は「チャット」に移って続ける（契約 §1 ⑤）。最新の場所と今のチャットを ref で読む
+  const placeRef = useRef(place)
+  const viewRef = useRef(view)
+  useEffect(() => {
+    placeRef.current = place
+    viewRef.current = view
+  }, [place, view])
+  const toChat = useCallback(() => {
+    if (placeRef.current !== 'chat') navigate(viewRef.current)
+  }, [navigate])
 
-  // #/settings: モーダルを開き、閉じたら元の話へ戻す
+  // #/settings: モーダルを開き、閉じたら元の場所へ戻す
   const armed = useRef(false)
   useEffect(() => {
     if (route.kind === 'settings') openSettings()
@@ -122,8 +156,14 @@ export function ChatApp() {
   useEffect(() => {
     if (route.kind !== 'settings') return
     if (settingsOpen) armed.current = true
-    else if (armed.current) navigate(view, { replace: true })
-  }, [route.kind, settingsOpen, view, navigate])
+    else if (armed.current) navigate(placeRoute(), { replace: true })
+  }, [route.kind, settingsOpen, placeRoute, navigate])
+
+  // 最後に居た場所を覚える（次に `#/` で開いたときの行き先）
+  useEffect(() => {
+    if (!place || route.kind === 'root' || route.kind === 'settings') return
+    writeLastPlace(view.kind === 'session' ? { place, chat: view.id } : { place })
+  }, [place, view, route.kind])
 
   // ── 話の一覧 ──
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null)
@@ -160,8 +200,10 @@ export function ChatApp() {
       .catch((e: unknown) => {
         if (off) return
         // 無い話（消した・別の PC）は新しい話に戻す
-        if (e instanceof ThemesApiError && e.status === 404) navigate({ kind: 'new' }, { replace: true })
-        else setFailed({ id: viewId, message: messageOf(e) })
+        if (e instanceof ThemesApiError && e.status === 404) {
+          if (placeRef.current === 'chat') navigate({ kind: 'new' }, { replace: true })
+          else setView({ kind: 'new' })
+        } else setFailed({ id: viewId, message: messageOf(e) })
       })
     return () => {
       off = true
@@ -191,9 +233,8 @@ export function ChatApp() {
   useEffect(() => {
     setReader(null)
   }, [view, composerKey])
-  const [tab, setTab] = useState<'chat' | 'chart' | 'questions'>('chat')
-  // 右の領域の一番上のタブ（1,440）。375 では上のタブの行（tab）が兼ねる
-  const [rtab, setRtab] = useState<'graph' | 'questions'>('graph')
+  // 右の列（「知識グラフ」の右・「チャット」の右で共通）で「問い」のタブを開いているか（関係／データは subTab が決める）
+  const [graphQuestions, setGraphQuestions] = useState(false)
 
   // ── 点を押した 1 枚（図の点・線 → GET /api/chat/point → チャットの先頭） ──
   const [sel, setSel] = useState<PointSel | null>(null)
@@ -216,8 +257,8 @@ export function ChatApp() {
     if (!next) {
       setPoint(null)
       setPickedId(null)
-    } else if (layout.tabs) setTab('chat')
-  }, [layout.tabs])
+    } else setGraphQuestions(false)
+  }, [])
   const onMapSelect = useCallback(
     (next: PointSel | null, nodeId: string | null) => {
       onSelect(next)
@@ -322,6 +363,8 @@ export function ChatApp() {
   const runTurn = useCallback(
     async (input: TurnInput): Promise<boolean> => {
       if (busy) return false
+      // 先に「チャット」へ移る（今のチャットが読み込み中・読み込めないときも、その 1 行はチャットの列に出る）
+      toChat()
       if (view.kind === 'session' && !session) return false // 話を読み込み中
       setBusy('send')
       setError(null)
@@ -360,7 +403,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [busy, view.kind, session, lang, getActiveCredentials, navigate, reread, afterChange, reloadSessions],
+    [busy, view.kind, session, lang, getActiveCredentials, navigate, toChat, reread, afterChange, reloadSessions],
   )
 
   const onSend = useCallback((text: string) => runTurn({ text }), [runTurn])
@@ -376,27 +419,37 @@ export function ChatApp() {
   const onSendOps = useCallback((ops: GraphOp[]) => runTurn({ ops }), [runTurn])
   const onSendAnswer = useCallback((set_answer: SetAnswerBody) => runTurn({ set_answer }), [runTurn])
 
-  // ── AI 未設定: 右の領域に「データを添える」（かんたん）を出す ──
-  const addOpen = view.kind !== 'settings' && !!view.add
-  const openAdd = useCallback(() => {
-    navigate(view.kind === 'session' ? { kind: 'session', id: view.id, add: true } : { kind: 'new', add: true })
-    setTab('chart')
-  }, [view, navigate])
-  const closeAdd = useCallback(() => {
-    navigate(view.kind === 'session' ? { kind: 'session', id: view.id } : { kind: 'new' }, { replace: true })
-  }, [view, navigate])
-  // 閉じたら図を取り直す（かんたんの完了で `#/home?new=` → `#/` に転送された場合も含む）
+  /** 新しいチャットを始める前の片づけ（選んだ点・対象・下書き・入力欄）。 */
+  const resetChat = useCallback(() => {
+    setSel(null)
+    setPoint(null)
+    setPickedId(null)
+    setScope(null)
+    setHighlight(null)
+    setComposerKey((n) => n + 1)
+    setError(null)
+    setDraft(null)
+  }, [])
+
+  // ── AI 未設定: 「取り込み」の中央に「データを添える」（かんたん）を出す ──
+  const addOpen = place === 'import' && importAdd
+  const openAdd = useCallback(() => navigate({ kind: 'import', add: true }), [navigate])
+  const closeAdd = useCallback(() => navigate({ kind: 'import' }, { replace: true }), [navigate])
+  // 閉じたら図を取り直す（かんたんの完了で `#/home?new=` → `#/graph` に転送された場合も含む）
   const prevAdd = useRef(addOpen)
   useEffect(() => {
     if (prevAdd.current && !addOpen) afterChange()
     prevAdd.current = addOpen
   }, [addOpen, afterChange])
 
-  /** 表を添える共通の流れ。話が無ければ作り、`send` で送り、読んでいる手番（ジョブ）を購読する。AI 未設定なら右にかんたんを出す。 */
+  /**
+   * 表を添える共通の流れ。話が無ければ作り、`send` で送り、読んでいる手番（ジョブ）を購読する。AI 未設定なら「取り込み」にかんたんを出す。
+   * `fresh`＝「取り込み」の入口から: 今のチャットには入れず、必ず新しいチャットを作って「チャット」に移る（契約 §1 ②）。
+   */
   const attachFlow = useCallback(
-    async (label: string, send: (id: string) => Promise<Awaited<ReturnType<typeof postAttach>>>, names: string[]): Promise<boolean> => {
+    async (label: string, send: (id: string) => Promise<Awaited<ReturnType<typeof postAttach>>>, names: string[], fresh = false): Promise<boolean> => {
       if (busy) return false
-      if (view.kind === 'session' && !session) return false // 話を読み込み中
+      if (!fresh && view.kind === 'session' && !session) return false // 話を読み込み中
       if (!isReady && !allDocumentNames(names)) { // 論文だけなら AI は要らない
         openAdd()
         return false
@@ -406,13 +459,16 @@ export function ChatApp() {
       setPendingUser(label)
       setPendingReading(true)
       try {
-        let s = session
+        let s = fresh ? null : session
         let created = false
         if (!s) {
           s = await createSession('')
           created = true
-          setLoaded({ id: s.id, session: s })
-          navigate({ kind: 'session', id: s.id }, { replace: true })
+          // チャットからは、すぐ `#/chat` を置き換える。取り込みからは、送れてから移る（失敗したら取り込みに居たまま）
+          if (!fresh) {
+            setLoaded({ id: s.id, session: s })
+            navigate({ kind: 'session', id: s.id }, { replace: true })
+          }
         }
         const id = s.id
         let res: Awaited<ReturnType<typeof postAttach>>
@@ -422,18 +478,23 @@ export function ChatApp() {
           // 例外のときだけ空の話を消す（201 で job_id が無いのは成功）
           if (created) {
             await deleteSession(id).catch(() => undefined)
-            setLoaded(null)
+            if (!fresh) setLoaded(null)
             reloadSessions()
           }
           if (isAiUnset(e)) {
-            // 作った話は消したので、新しい話のまま右に出す
-            if (created) navigate({ kind: 'new', add: true }, { replace: true })
+            // 作った話は消したので、「取り込み」にかんたんを出す（チャットからは `#/chat/<id>` を置き換える）
+            if (created && !fresh) navigate({ kind: 'import', add: true }, { replace: true })
             else openAdd()
-            setTab('chart')
             return false
           }
-          if (created) navigate({ kind: 'new' }, { replace: true })
+          if (created && !fresh) navigate({ kind: 'new' }, { replace: true })
           throw e
+        }
+        if (fresh) {
+          // 送れた: 新しいチャットを開いて「チャット」に移る（履歴に積むので、戻ると取り込みへ）
+          resetChat()
+          setLoaded({ id, session: s })
+          navigate({ kind: 'session', id })
         }
         await reread(id, (cur) => applyTurnResponse(cur, { turn: res.turn, session: res.session, draft: null }))
         if (res.job_id) watch(id, res.turn.id, res.job_id)
@@ -448,20 +509,20 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [busy, view.kind, session, isReady, navigate, openAdd, reread, watch, afterChange, reloadSessions],
+    [busy, view.kind, session, isReady, navigate, openAdd, resetChat, reread, watch, afterChange, reloadSessions],
   )
 
   /** 表を添える（この PC のファイル）。 */
   const onAttach = useCallback(
-    (files: File[]): Promise<boolean> =>
-      attachFlow(files.map((f) => f.name).join('\n'), (id) => postAttach(id, files, lang, getActiveCredentials()), files.map((f) => f.name)),
+    (files: File[], fresh = false): Promise<boolean> =>
+      attachFlow(files.map((f) => f.name).join('\n'), (id) => postAttach(id, files, lang, getActiveCredentials()), files.map((f) => f.name), fresh),
     [attachFlow, lang, getActiveCredentials],
   )
 
   /** 表を添える（取り込み元の MCP サーバのファイル）。 */
   const onAttachFromSource = useCallback(
-    (server: string, ids: string[], names: string[]): Promise<boolean> =>
-      attachFlow(names.join('\n'), (id) => postAttachFromSource(id, server, ids, lang, getActiveCredentials()), names),
+    (server: string, ids: string[], names: string[], fresh = false): Promise<boolean> =>
+      attachFlow(names.join('\n'), (id) => postAttachFromSource(id, server, ids, lang, getActiveCredentials()), names, fresh),
     [attachFlow, lang, getActiveCredentials],
   )
 
@@ -515,6 +576,7 @@ export function ChatApp() {
   const onConfirm = useCallback(
     async (turnId: string, decisions?: BindingDecision[], only?: ConfirmOnly) => {
       if (!session || busy) return
+      toChat()
       const id = session.id
       setBusy('confirm')
       setError(null)
@@ -529,7 +591,7 @@ export function ChatApp() {
         setBusy(null)
       }
     },
-    [session, busy, lang, getActiveCredentials, reread, afterChange],
+    [session, busy, lang, getActiveCredentials, toChat, reread, afterChange],
   )
 
   const onRevert = useCallback(
@@ -559,6 +621,7 @@ export function ChatApp() {
   const onPointRevert = useCallback(
     async (p: Point) => {
       if (!p.revert || busy) return
+      // 新しい手番は生まないので、その場で消す（「知識グラフ」の場所に居たまま、点が図から消える）
       const { session_id: sid, turn_id: tid } = p.revert
       setBusy('revert')
       setError(null)
@@ -566,7 +629,11 @@ export function ChatApp() {
         await revertTurn(sid, tid, lang)
         if (session && session.id === sid) await reread(sid, (cur) => cur)
         afterChange()
-        setPointTick((n) => n + 1)
+        // 取り消した点はもう無い。選んだままだと 1 枚が読めず「読み込み中…」が残るので、選択を外す
+        setSel(null)
+        setPoint(null)
+        setPickedId(null)
+        setScope(null)
       } catch (e) {
         setError(messageOf(e))
       } finally {
@@ -588,30 +655,42 @@ export function ChatApp() {
   const titleOf = useCallback((id: string) => sessions?.find((x) => x.id === id)?.title || undefined, [sessions])
 
   const newChat = () => {
-    setSel(null)
-    setPoint(null)
-    setPickedId(null)
-    setScope(null)
-    setHighlight(null)
-    setComposerKey((n) => n + 1)
-    setError(null)
-    setDraft(null)
+    resetChat()
     navigate({ kind: 'new' })
     layout.closeSheet()
-    setTab('chat')
   }
   const openSession = (id: string) => {
     setError(null)
     setScope(null)
     navigate({ kind: 'session', id })
     layout.closeSheet()
-    setTab('chat')
+  }
+  /** 左のナビ・下のタブで場所を移る。「チャット」は今のチャットへ戻る。 */
+  const goPlace = (p: Place) => {
+    navigate(p === 'chat' ? view : { kind: p })
+    layout.closeSheet()
   }
 
   // ── 図の読み取り（地図・局所の図・上の 1 行・手で足すフォームが同じものを見る） ──
   const { data: skyData, retry: retrySky, tick: skyTick } = useSky(chartTick, lang)
   const chartDrafts = useMemo<SkyDraft[]>(() => (skyData.status === 'ok' ? skyData.proposed : []), [skyData])
   const skyTerms = useMemo(() => (skyData.status === 'ok' ? skyData.sky.terms.map((x) => ({ slug: x.slug, label: x.label })) : []), [skyData])
+
+  // ── 最初に開く場所（`#/`）: チャットの一覧と図が読めてから決めて置き換える（契約 §1 ④） ──
+  const sessionsKnown = sessions !== null || listError !== null
+  useEffect(() => {
+    if (route.kind !== 'root' || !sessionsKnown || skyData.status === 'loading') return
+    const last = readLastPlace()
+    navigate(
+      firstPlace({
+        last,
+        sessions: sessions ? sessions.length : null,
+        datasets: skyData.status === 'ok' ? skyData.sky.datasets.length + skyData.proposedDatasets.length : null,
+        chatExists: last?.chat && sessions ? sessions.some((x) => x.id === last.chat) : null,
+      }),
+      { replace: true },
+    )
+  }, [route.kind, sessionsKnown, sessions, skyData, navigate])
 
   // この話の未確認の図（手で足すフォームの材料）
   const ofSession = (d: SkyDraft | null | undefined): d is SkyDraft =>
@@ -707,9 +786,6 @@ export function ChatApp() {
   }, [okSky])
   /** 他の話の提案の行は読むだけ。 */
   const rowEditable = useCallback((r: SentenceRow) => !r.draft || r.draft.draftId === session?.draft_id, [session?.draft_id])
-  const backToChat = useCallback(() => {
-    if (layout.tabs) setTab('chat')
-  }, [layout.tabs])
   /** 下書きの概念の key → 地図の点の id（既にある語ならその用語の点）。 */
   const nodeOfKey = useCallback(
     (draftId: string, key: string): string => {
@@ -735,25 +811,25 @@ export function ChatApp() {
       let run: Promise<boolean> | null = null
       if (row.draft && !row.approved) run = runTurn({ ops: [{ op: 'remove', target: 'relation', from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] })
       else if (row.source && row.relation && row.target) run = runTurn({ remove: { from: row.source, relation: row.relation, to: row.target } })
-      if (run) void run.finally(backToChat)
+      if (run) void run
     },
-    [runTurn, backToChat],
+    [runTurn],
   )
   const onSentenceFix = useCallback(
     (row: SentenceRow) => {
       if (row.draft) setScope({ node: nodeOfKey(row.draft.draftId, row.draft.from), line: { from: row.draft.from, rel: row.draft.rel, to: row.draft.to }, name: row.text })
       else if (row.source && row.relation && row.target) setScope({ node: termId(row.source), line: { from: row.source, rel: row.relation, to: row.target }, name: row.text })
       else return
+      toChat()
       setFixKey((n) => n + 1)
-      if (layout.tabs) setTab('chat')
     },
-    [nodeOfKey, layout.tabs],
+    [nodeOfKey, toChat],
   )
   const onSentenceApprove = useCallback(
     (row: SentenceRow) => {
-      if (row.draft?.turnId) void onConfirm(row.draft.turnId, undefined, { relations: [{ from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] }).finally(backToChat)
+      if (row.draft?.turnId) void onConfirm(row.draft.turnId, undefined, { relations: [{ from: row.draft.from, rel: row.draft.rel, to: row.draft.to }] })
     },
-    [onConfirm, backToChat],
+    [onConfirm],
   )
   const removeIds = useMemo(() => new Set((okSky?.proposed ?? []).flatMap((d) => d.removals?.terms ?? []).map(termId)), [okSky])
   const highlightIds = useMemo<ReadonlySet<string> | null>(() => {
@@ -775,25 +851,24 @@ export function ChatApp() {
   const [mapH, setMapH] = useState(420)
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (!el) return
     const apply = () => {
       if (layout.tabs) return setMapH(Math.round(window.innerHeight * 0.55))
-      const h = el.clientHeight
-      if (h > 0) setMapH(Math.max(260, Math.round(h * 0.6)))
+      const h = el?.clientHeight ?? 0
+      // 「チャット」の右は下に 1 枚と一覧が続くので半分弱。ほかの場所は入れ物いっぱい（凡例と余白の分を引く）
+      if (h > 0) setMapH(Math.max(260, place === 'chat' ? Math.round(h * CHAT_MAP_RATIO) : h - MAP_CHROME_PX))
     }
     apply()
     window.addEventListener('resize', apply)
-    if (typeof ResizeObserver === 'undefined') return () => window.removeEventListener('resize', apply)
+    if (typeof ResizeObserver === 'undefined' || !el) return () => window.removeEventListener('resize', apply)
     const ro = new ResizeObserver(apply)
     ro.observe(el)
     return () => {
       window.removeEventListener('resize', apply)
       ro.disconnect()
     }
-  }, [layout.tabs, addOpen, tab])
+  }, [layout.tabs, addOpen, place])
 
   // ── 問いのタブ（PR 11l） ──
-  const rightView: 'graph' | 'questions' = layout.tabs ? (tab === 'questions' ? 'questions' : 'graph') : rtab
   const qAnswerable = okSky ? okSky.sky.questions.filter(isAnswerable).length : 0
   const qTotal = okSky?.sky.questions.length ?? 0
   const proposedQuestions = useMemo(
@@ -810,36 +885,30 @@ export function ChatApp() {
     (q: SkyQuestion) => {
       const members = (okSky?.sky.terms ?? []).filter((x) => q.needs.includes(x.iri)).flatMap((x) => x.members.map((m) => m.iri))
       setHighlight({ iris: [...new Set([...q.needs, ...members])] })
-      if (layout.tabs) setTab('chart')
-      else setRtab('graph')
+      // 知識グラフが同じ列の上にあるとき（「チャット」の右・375 の「知識グラフ」）は、光った点が見えるよう上まで戻す
+      if (placeRef.current === 'chat' || layout.tabs) scrollRef.current?.scrollTo?.({ top: 0 })
     },
     [okSky, layout.tabs],
   )
   /** 「答えて」: チャットへ送り、必ず Ask。 */
   const onAskQuestion = useCallback(
-    async (text: string) => {
-      const ok = await runTurn({ text, intent: 'ask' })
-      // 375 は答えも失敗もチャットに出るので、送れたらチャットへ
-      if (ok && layout.tabs) setTab('chat')
-      return ok
-    },
-    [runTurn, layout.tabs],
+    (text: string) => runTurn({ text, intent: 'ask' }), // runTurn が「チャット」に移る
+    [runTurn],
   )
 
   const list = (
     <SessionList
       sessions={sessions}
       error={listError}
-      activeId={viewId}
-      folded={layout.folded}
-      showToggle={!layout.tabs}
-      onToggle={layout.toggleList}
+      activeId={place === 'chat' ? viewId : null}
       onNew={newChat}
       onOpen={openSession}
-      onOpenSettings={() => openSettings()}
       onChanged={reloadSessions}
       onDeleted={(id) => {
-        if (id === viewId) navigate({ kind: 'new' }, { replace: true })
+        if (id !== viewId) return
+        // 開いていたチャットを消した: チャットの場所なら新しいチャットへ。ほかの場所では今のチャットを空にするだけ
+        if (place === 'chat') navigate({ kind: 'new' }, { replace: true })
+        else setView({ kind: 'new' })
       }}
     />
   )
@@ -855,39 +924,210 @@ export function ChatApp() {
         setError(null)
         turnsAtOpen.current = turnCount
         setReader({ datasetId, focus })
-        if (layout.tabs) setTab('chat')
+        toChat() // 論文の本文は「チャット」の中央に出る
       },
     }),
-    [layout.tabs, turnCount],
+    [toChat, turnCount],
+  )
+
+  // ── 場所ごとの部品（知識グラフ・選んだ点の 1 枚・関係／データ／問い） ──
+  const sourceHome = getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? null
+  /** 「取り込み」の知識グラフで点を押したら、「知識グラフ」に移ってその点を選ぶ。 */
+  const onImportMapSelect = (next: PointSel | null, nodeId: string | null) => {
+    onMapSelect(next, nodeId)
+    if (next || nodeId) navigate({ kind: 'graph' })
+  }
+  /** 「取り込み」の一覧の行: 「知識グラフ」に移り、そのデータセットを選ぶ（データのタブに行が出る）。 */
+  const openDataset = (id: string) => {
+    onMapSelect(null, `d|${id}`)
+    setGraphQuestions(false)
+    navigate({ kind: 'graph' })
+  }
+  const skyStatus = (
+    <>
+      {skyData.status === 'error' && (
+        <div className="sky-placeholder chart-placeholder" role="alert">
+          <span>{t('chart.failed')}</span>
+          <button type="button" className="btn btn--sm" onClick={retrySky}>
+            {t('chart.retry')}
+          </button>
+        </div>
+      )}
+      {skyData.status === 'loading' && (
+        <div className="sky-placeholder chart-placeholder" role="status">
+          {tsky('state.loading')}
+        </div>
+      )}
+    </>
+  )
+  /** 知識グラフと凡例。3 つの場所すべてに出る（大きさと、点を押したときの行き先だけが場所で変わる）。 */
+  const mapBlock = (onSelectPoint: (next: PointSel | null, nodeId: string | null) => void) =>
+    okSky && (
+      <>
+        <MapHost
+          sky={okSky.sky}
+          drafts={okSky.proposed}
+          proposedDatasets={okSky.proposedDatasets}
+          lang={lang}
+          height={mapH}
+          focusIds={focusIds}
+          selectedId={pickedId}
+          highlightIds={highlightIds}
+          removeIds={removeIds}
+          onSelect={onSelectPoint}
+          emptyLabel={t('map.empty')}
+          ariaLabel={t('map.aria')}
+          fitLabel={t('map.fit')}
+        />
+        <div className="chat-map-legend">
+          <span><span className="chat-legend-symbol chat-legend-symbol--term" aria-hidden="true">○</span>{t('map.legend.term')}</span>
+          <span><span className="chat-legend-symbol chat-legend-symbol--kind" aria-hidden="true">●</span>{t('map.legend.kind')}</span>
+          <span><span className="chat-legend-symbol chat-legend-symbol--dataset" aria-hidden="true">⊙</span>{t('map.legend.dataset')}</span>
+          <span className="chat-legend-proposal">{t('map.legend.proposal')}</span>
+        </div>
+      </>
+    )
+  const sentencesPanel = (
+    <SentencesPanel
+      key={pickedId ?? ''}
+      rows={sentenceRows}
+      loading={!!sel && !point}
+      editable={rowEditable}
+      noSelection={!pickedId && !sel}
+      hasTheme={!!session?.theme_id}
+      busy={busy !== null}
+      onPress={onSentencePress}
+      onRemove={onSentenceRemove}
+      onFix={onSentenceFix}
+      onApprove={onSentenceApprove}
+    />
+  )
+  const contentsPanel = <ContentsPanel target={contentsTarget} state={contents.state} onRetry={contents.retry} name={pickedName} onHighlight={setHighlight} />
+  const questionsPanel = okSky && (
+    <QuestionsPanel questions={okSky.sky.questions} sky={okSky.sky} proposed={proposedQuestions} onPick={onPickQuestion} onAsk={onAskQuestion} busy={busy !== null} />
+  )
+  /** 知識グラフに添える列（「知識グラフ」の右・「チャット」の右の知識グラフの下・375 では図の下）: 選んだ点の 1 枚＋「関係」「データ」「問い」。 */
+  const graphSide = okSky && (
+    <>
+      {sel && point && (
+        <div className="place-point">
+          <PointCard
+            key={`${point.kind}|${point.iri}|${point.label}`}
+            point={point}
+            busy={busy !== null}
+            titleOf={titleOf}
+            // 右のタブを「データ」に切り替えるだけ（チャットに文を送らない。表で見たいときは「〜を見せて」と書く）
+            onContents={() => {
+              setTempTab({ pickedId })
+              setGraphQuestions(false)
+            }}
+            onRevert={(p) => void onPointRevert(p)}
+            onRemove={() => void onPointRemove()}
+            onHighlight={setHighlight}
+          />
+        </div>
+      )}
+      <div className="chat-rtabs chat-subtabs" role="tablist" aria-label={tq('tab.label')}>
+        <button type="button" role="tab" data-testid="tab-sentences" aria-selected={!graphQuestions && subTab === 'sentences'} className={`chat-tab${!graphQuestions && subTab === 'sentences' ? ' active' : ''}`} onClick={() => { setGraphQuestions(false); chooseSub('sentences') }}>
+          {t('sentences.tab')}
+        </button>
+        <button type="button" role="tab" data-testid="tab-data" aria-selected={!graphQuestions && subTab === 'data'} className={`chat-tab${!graphQuestions && subTab === 'data' ? ' active' : ''}`} onClick={() => { setGraphQuestions(false); chooseSub('data') }}>
+          {t('sentences.dataTab')}
+        </button>
+        <button type="button" role="tab" data-testid="tab-questions" aria-selected={graphQuestions} className={`chat-tab${graphQuestions ? ' active' : ''}`} onClick={() => setGraphQuestions(true)}>
+          {tq('tab.questions', { n: qAnswerable, m: qTotal })}
+        </button>
+      </div>
+      {graphQuestions ? questionsPanel : subTab === 'sentences' ? sentencesPanel : contentsPanel}
+    </>
   )
 
   return (
     <PaperReaderContext.Provider value={paperReaderApi}>
-    <div className={`chat-app${layout.tabs ? ' is-tabs' : ''}${layout.folded ? ' is-folded' : ''}`}>
+    <div className={`chat-app is-${place ?? 'opening'}${layout.tabs ? ' is-tabs' : ''}${layout.folded ? ' is-folded' : ''}`}>
       {layout.tabs && (
         <div className="chat-tabbar">
-          <button type="button" className="chat-icon-btn" data-testid="list-toggle" onClick={layout.toggleList} aria-label={t('list.toggle')} title={t('list.toggle')} aria-expanded={layout.sheetOpen}>
-            <MenuIcon size={20} />
-          </button>
-          <div className="chat-tabs" role="tablist" aria-label={t('tabs.label')}>
-            <button type="button" role="tab" data-testid="tab-chat" aria-selected={tab === 'chat'} className={`chat-tab${tab === 'chat' ? ' active' : ''}`} onClick={() => setTab('chat')}>
-              {t('tabs.chat')}
+          {place === 'chat' ? (
+            <button type="button" className="chat-icon-btn" data-testid="list-toggle" onClick={layout.toggleList} aria-label={t('list.toggle')} title={t('list.toggle')} aria-expanded={layout.sheetOpen}>
+              <MenuIcon size={20} />
             </button>
-            <button type="button" role="tab" data-testid="tab-chart" aria-selected={tab === 'chart'} className={`chat-tab${tab === 'chart' ? ' active' : ''}`} onClick={() => setTab('chart')}>
-              {tq('tab.graph')}
-            </button>
-            <button type="button" role="tab" data-testid="tab-questions" aria-selected={tab === 'questions'} className={`chat-tab${tab === 'questions' ? ' active' : ''}`} onClick={() => setTab('questions')}>
-              {tq('tab.questions', { n: qAnswerable, m: qTotal })}
-            </button>
-          </div>
+          ) : (
+            <span className="chat-icon-btn" aria-hidden="true" />
+          )}
+          <span className="chat-brand chat-tabbar-brand">
+            <BrandMark size={22} />
+            <BrandWordmark className="chat-brand-name" size={13.5} label={tb('brand.name')} />
+          </span>
           <button type="button" className="chat-icon-btn" onClick={() => openSettings()} aria-label={ts('open')} title={ts('open')}>
             <GearIcon size={18} />
           </button>
         </div>
       )}
       {layout.sheetOpen && <button type="button" className="chat-scrim" aria-label={t('list.close')} onClick={layout.closeSheet} />}
-      <aside className={`chat-list${layout.sheetOpen ? ' is-open' : ''}`} inert={layout.tabs && !layout.sheetOpen}>{list}</aside>
-      <section className="chat-center" hidden={layout.tabs && tab !== 'chat'}>
+      <aside className={`chat-list${layout.sheetOpen ? ' is-open' : ''}`} inert={layout.tabs && !layout.sheetOpen}>
+        <NavRail place={place} onPlace={goPlace} folded={layout.folded} showToggle={!layout.tabs} sheet={layout.tabs} onToggle={layout.toggleList} onOpenSettings={() => openSettings()}>
+          {list}
+        </NavRail>
+      </aside>
+
+      {place === null && (
+        <section className="chat-center place-opening">
+          <p className="chat-note-line" role="status">{t('first.loading')}</p>
+        </section>
+      )}
+
+      {place === 'import' && (
+        <section className="chat-center place-center" data-testid="place-import">
+          {addOpen ? (
+            <AddPanel onClose={closeAdd} />
+          ) : (
+            <div className="place-scroll">
+              {error && (
+                <p className="promote-err place-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <ImportPlace
+                datasets={okSky?.sky.datasets ?? []}
+                proposed={okSky?.proposedDatasets ?? []}
+                status={skyData.status}
+                onRetry={retrySky}
+                busy={busy !== null}
+                noKey={noKey}
+                sourceHome={sourceHome}
+                onAttach={(files) => void onAttach(files, true)}
+                onAttachFromSource={(ids, names) => onAttachFromSource(sourceHome ?? '', ids, names, true)}
+                onOpenDataset={openDataset}
+                lang={lang}
+              />
+              {layout.tabs && <div className="place-stack">{mapBlock(onImportMapSelect)}</div>}
+            </div>
+          )}
+        </section>
+      )}
+
+      {place === 'graph' && (
+        <section className="chat-center place-center" data-testid="place-graph">
+          <div className="place-scroll" ref={layout.tabs ? scrollRef : undefined}>
+            <h1 className="place-title">{t('graph.title')}</h1>
+            {error && (
+              <p className="promote-err place-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="place-map" ref={layout.tabs ? undefined : scrollRef}>
+              {skyStatus}
+              {mapBlock(onMapSelect)}
+            </div>
+            {layout.tabs && <div className="place-stack">{graphSide}</div>}
+          </div>
+          {/* 375 の「チャット」には右の領域が無いので、AI 無しで手で追加するフォームはここに出す（送ると「チャット」に移る） */}
+          {layout.tabs && showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
+        </section>
+      )}
+
+      {/* チャットの列は、ほかの場所に居るあいだも閉じずに隠す（入力欄の下書きとスクロールを残す） */}
+      <section className="chat-center" data-testid="place-chat" hidden={place !== 'chat'}>
         <ReaderSlot
           reader={
             reader && (
@@ -917,9 +1157,9 @@ export function ChatApp() {
           pendingReading={pendingReading}
           progress={progress}
           interrupted={interrupted}
-          onAttach={onAttach}
-          sourceHome={getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? null}
-          onAttachFromSource={(ids, names) => onAttachFromSource(getServerSetting<{ server?: string } | null>('sourceHome')?.server ?? '', ids, names)}
+          onAttach={(files) => onAttach(files)}
+          sourceHome={sourceHome}
+          onAttachFromSource={(ids, names) => onAttachFromSource(sourceHome ?? '', ids, names)}
           onChoose={(turnId, i, v) => void onChoose(turnId, i, v)}
           onImportTable={(turnId, tableId) => void onImportTable(turnId, tableId)}
           error={error}
@@ -931,14 +1171,6 @@ export function ChatApp() {
           onConfirm={(id, d) => void onConfirm(id, d)}
           onRevert={(id) => void onRevert(id)}
           onOpenSettings={() => openSettings()}
-          point={sel ? point : null}
-          titleOf={titleOf}
-          onContents={(name) => {
-            setTempTab({ pickedId })
-            void onSend(t('point.showText', { name }))
-          }}
-          onPointRevert={(p) => void onPointRevert(p)}
-          onPointRemove={() => void onPointRemove()}
           undone={undone}
           onHighlight={setHighlight}
           scopeBar={scope ? <ScopeBar name={scope.name} onClear={() => setScope(null)} /> : undefined}
@@ -949,90 +1181,31 @@ export function ChatApp() {
           }
         />
       </section>
-      <section className="chat-right" hidden={layout.tabs && tab === 'chat'}>
-        {!layout.tabs && !addOpen && (
-          <div className="chat-rtabs" role="tablist" aria-label={tq('tab.label')}>
-            <button type="button" role="tab" data-testid="tab-knowledge" aria-selected={rightView === 'graph'} className={`chat-tab${rightView === 'graph' ? ' active' : ''}`} onClick={() => setRtab('graph')}>
-              {tq('tab.graph')}
-            </button>
-            <button type="button" role="tab" data-testid="tab-questions" aria-selected={rightView === 'questions'} className={`chat-tab${rightView === 'questions' ? ' active' : ''}`} onClick={() => setRtab('questions')}>
-              {tq('tab.questions', { n: qAnswerable, m: qTotal })}
-            </button>
+
+      {/* 右の領域（981px 以上）。375 では場所ごとに 1 列なので出さない */}
+      {!layout.tabs && place === 'import' && (
+        <section className="chat-right">
+          {skyStatus}
+          <div className="chat-right-scroll" ref={scrollRef}>{mapBlock(onImportMapSelect)}</div>
+        </section>
+      )}
+      {!layout.tabs && place === 'graph' && (
+        <section className="chat-right">
+          <div className="chat-right-scroll">{graphSide}</div>
+        </section>
+      )}
+      {/* 「チャット」の右は「知識グラフ」の場所と同じ部品・同じ順（知識グラフ → 1 枚 → 関係・データ・問い）。違いは大きさだけ */}
+      {!layout.tabs && place === 'chat' && (
+        <section className="chat-right">
+          {skyStatus}
+          <div className="chat-right-scroll" ref={scrollRef}>
+            {mapBlock(onMapSelect)}
+            {graphSide}
           </div>
-        )}
-        {addOpen && <AddPanel onClose={closeAdd} />}
-        {skyData.status === 'error' && (
-          <div className="sky-placeholder chart-placeholder" role="alert">
-            <span>{t('chart.failed')}</span>
-            <button type="button" className="btn btn--sm" onClick={retrySky}>
-              {t('chart.retry')}
-            </button>
-          </div>
-        )}
-        {skyData.status === 'loading' && (
-          <div className="sky-placeholder chart-placeholder" role="status">
-            {tsky('state.loading')}
-          </div>
-        )}
-        {okSky && !addOpen && rightView === 'questions' && (
-          <div className="chat-right-scroll">
-            <QuestionsPanel questions={okSky.sky.questions} sky={okSky.sky} proposed={proposedQuestions} onPick={onPickQuestion} onAsk={onAskQuestion} busy={busy !== null} />
-          </div>
-        )}
-        <div className="chat-right-scroll" ref={scrollRef} hidden={addOpen || rightView !== 'graph'}>
-          {okSky && (
-            <>
-              <MapHost
-                sky={okSky.sky}
-                drafts={okSky.proposed}
-                proposedDatasets={okSky.proposedDatasets}
-                lang={lang}
-                height={mapH}
-                focusIds={focusIds}
-                selectedId={pickedId}
-                highlightIds={highlightIds}
-                removeIds={removeIds}
-                onSelect={onMapSelect}
-                emptyLabel={t('map.empty')}
-                ariaLabel={t('map.aria')}
-                fitLabel={t('map.fit')}
-              />
-              <div className="chat-map-legend">
-                <span><span className="chat-legend-symbol chat-legend-symbol--term" aria-hidden="true">○</span>{t('map.legend.term')}</span>
-                <span><span className="chat-legend-symbol chat-legend-symbol--kind" aria-hidden="true">●</span>{t('map.legend.kind')}</span>
-                <span><span className="chat-legend-symbol chat-legend-symbol--dataset" aria-hidden="true">⊙</span>{t('map.legend.dataset')}</span>
-                <span className="chat-legend-proposal">{t('map.legend.proposal')}</span>
-              </div>
-              <div className="chat-rtabs chat-subtabs" role="tablist" aria-label={t('sentences.tabs')}>
-                <button type="button" role="tab" data-testid="tab-sentences" aria-selected={subTab === 'sentences'} className={`chat-tab${subTab === 'sentences' ? ' active' : ''}`} onClick={() => chooseSub('sentences')}>
-                  {t('sentences.tab')}
-                </button>
-                <button type="button" role="tab" data-testid="tab-data" aria-selected={subTab === 'data'} className={`chat-tab${subTab === 'data' ? ' active' : ''}`} onClick={() => chooseSub('data')}>
-                  {t('sentences.dataTab')}
-                </button>
-              </div>
-              {subTab === 'sentences' ? (
-                <SentencesPanel
-                  key={pickedId ?? ''}
-                  rows={sentenceRows}
-                  loading={!!sel && !point}
-                  editable={rowEditable}
-                  noSelection={!pickedId && !sel}
-                  hasTheme={!!session?.theme_id}
-                  busy={busy !== null}
-                  onPress={onSentencePress}
-                  onRemove={onSentenceRemove}
-                  onFix={onSentenceFix}
-                  onApprove={onSentenceApprove}
-                />
-              ) : (
-                <ContentsPanel target={contentsTarget} state={contents.state} onRetry={contents.retry} name={pickedName} onHighlight={setHighlight} />
-              )}
-            </>
-          )}
-        </div>
-        {showHand && rightView === 'graph' && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
-      </section>
+          {showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
+        </section>
+      )}
+      {layout.tabs && <PlaceTabbar place={place} onPlace={goPlace} />}
     </div>
     </PaperReaderContext.Provider>
   )

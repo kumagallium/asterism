@@ -1,6 +1,5 @@
 {
   "tab": {
-    "graph": "Knowledge graph",
     "questions": "Questions {{n}} / {{m}}",
     "label": "Right pane"
   },

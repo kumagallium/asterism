@@ -1,49 +1,73 @@
 import { describe, expect, it } from 'vitest'
-import { chatHash, legacyHashRewrite, parseChatHash } from './chatRoute'
+import { chatHash, legacyHashRewrite, parseChatHash, placeOf } from './chatRoute'
 
 describe('chatRoute', () => {
-  it('hash は 3 つ: 新しいチャット・話・設定', () => {
-    expect(parseChatHash('')).toEqual({ kind: 'new' })
-    expect(parseChatHash('#/')).toEqual({ kind: 'new' })
-    expect(parseChatHash('#/t/cabc12345x')).toEqual({ kind: 'session', id: 'cabc12345x' })
+  it('hash は 場所 3 つ＋設定＋root', () => {
+    expect(parseChatHash('')).toEqual({ kind: 'root' })
+    expect(parseChatHash('#/')).toEqual({ kind: 'root' })
+    expect(parseChatHash('#/import')).toEqual({ kind: 'import' })
+    expect(parseChatHash('#/graph')).toEqual({ kind: 'graph' })
+    expect(parseChatHash('#/chat')).toEqual({ kind: 'new' })
+    expect(parseChatHash('#/chat/cabc12345x')).toEqual({ kind: 'session', id: 'cabc12345x' })
     expect(parseChatHash('#/settings')).toEqual({ kind: 'settings' })
   })
-  it('?add=1 は右の領域にかんたんを出す印（新しいチャット・話）', () => {
-    expect(parseChatHash('#/?add=1')).toEqual({ kind: 'new', add: true })
-    expect(parseChatHash('#/t/cabc12345x?add=1')).toEqual({ kind: 'session', id: 'cabc12345x', add: true })
-    for (const h of ['#/?add=1', '#/t/cabc12345x?add=1']) expect(chatHash(parseChatHash(h))).toBe(h)
-    expect(parseChatHash('#/t/cabc12345x?add=0')).toEqual({ kind: 'session', id: 'cabc12345x' })
+  it('?add=1 は取り込みだけが持つ', () => {
+    expect(parseChatHash('#/import?add=1')).toEqual({ kind: 'import', add: true })
+    expect(parseChatHash('#/import?add=0')).toEqual({ kind: 'import' })
+    expect(parseChatHash('#/graph?add=1')).toEqual({ kind: 'graph' })
   })
-  it('壊れた id・知らない hash は新しいチャット', () => {
-    expect(parseChatHash('#/t/')).toEqual({ kind: 'new' })
-    expect(parseChatHash('#/t/XYZ')).toEqual({ kind: 'new' })
-    expect(parseChatHash('#/t/%E0%A4%A')).toEqual({ kind: 'new' })
-    expect(parseChatHash('#/unknown')).toEqual({ kind: 'new' })
+  it('壊れた id は新しいチャット', () => {
+    expect(parseChatHash('#/chat/')).toEqual({ kind: 'new' })
+    expect(parseChatHash('#/chat/XYZ')).toEqual({ kind: 'new' })
+    expect(parseChatHash('#/chat/%E0%A4%A')).toEqual({ kind: 'new' })
+  })
+  it('知らない hash・奥のある hash は root', () => {
+    expect(parseChatHash('#/unknown')).toEqual({ kind: 'root' })
+    expect(parseChatHash('#/import/x')).toEqual({ kind: 'root' })
+    expect(parseChatHash('#/homepage')).toEqual({ kind: 'root' })
   })
   it('chatHash は parse と往復できる', () => {
-    for (const h of ['#/', '#/t/cabc12345x', '#/settings']) expect(chatHash(parseChatHash(h))).toBe(h)
+    for (const h of ['#/', '#/import', '#/import?add=1', '#/graph', '#/chat', '#/chat/cabc12345x', '#/settings']) {
+      expect(chatHash(parseChatHash(h)), h).toBe(h)
+    }
   })
-  it('旧 hash は全部 #/ に読み替える', () => {
+  it('旧 hash の転送: #/t/<id> → #/chat/<id>・壊れた id → #/chat', () => {
+    expect(legacyHashRewrite('#/t/cabc12345x')).toBe('#/chat/cabc12345x')
+    expect(legacyHashRewrite('#/t/XYZ')).toBe('#/chat')
+    expect(legacyHashRewrite('#/t')).toBe('#/chat')
+  })
+  it('旧 hash の転送: ?add=1 は取り込みへ', () => {
+    expect(legacyHashRewrite('#/?add=1')).toBe('#/import?add=1')
+    expect(legacyHashRewrite('#/t/cabc12345x?add=1')).toBe('#/import?add=1')
+  })
+  it('旧 hash の転送: #/home 系は知識グラフへ', () => {
+    expect(legacyHashRewrite('#/home')).toBe('#/graph')
+    expect(legacyHashRewrite('#/home?new=x')).toBe('#/graph')
+  })
+  it('旧名の一覧は #/ へ・#/homepage は読み替えない', () => {
     const olds = [
-      '#/home', '#/home?deep=1', '#/questions', '#/questions/term/x', '#/vocab?q=1', '#/data', '#/data?tab=activity',
-      '#/datasets', '#/datasets/abc/tools', '#/browse', '#/cards', '#/cards/i/x', '#/ask', '#/ask/th1', '#/decisions',
-      '#/decisions?filter=perspective', '#/crosswalk', '#/crosswalk/new', '#/map', '#/network', '#/sparql',
-      '#/workbench', '#/workbench?returnTo=x', '#/jobs', '#/cardsdemo',
+      '#/questions', '#/questions/term/x', '#/vocab?q=1', '#/data', '#/data?tab=activity', '#/datasets', '#/datasets/abc/tools',
+      '#/browse', '#/cards', '#/cards/i/x', '#/ask', '#/ask/th1', '#/decisions', '#/decisions?filter=perspective',
+      '#/crosswalk', '#/crosswalk/new', '#/map', '#/network', '#/sparql', '#/workbench', '#/workbench?returnTo=x', '#/jobs', '#/cardsdemo',
     ]
     for (const h of olds) {
       expect(legacyHashRewrite(h), h).toBe('#/')
-      expect(parseChatHash(h), h).toEqual({ kind: 'new' })
+      expect(parseChatHash(h), h).toEqual({ kind: 'root' })
     }
-  })
-  it('新しい hash は読み替えない', () => {
-    expect(legacyHashRewrite('#/')).toBeNull()
-    expect(legacyHashRewrite('#/t/cabc12345x')).toBeNull()
-    expect(legacyHashRewrite('#/settings')).toBeNull()
-  })
-  it('#/home（スラッシュ無し）は #/ に読み替え、#/homepage のような非該当は読み替えず新しいチャットとして読む', () => {
-    expect(legacyHashRewrite('#/home')).toBe('#/')
     expect(legacyHashRewrite('#/homepage')).toBeNull()
     expect(legacyHashRewrite('#/home2')).toBeNull()
-    expect(parseChatHash('#/homepage')).toEqual({ kind: 'new' })
+  })
+  it('新しい hash は読み替えない', () => {
+    for (const h of ['#/', '#/import', '#/import?add=1', '#/graph', '#/chat', '#/chat/cabc12345x', '#/settings']) {
+      expect(legacyHashRewrite(h), h).toBeNull()
+    }
+  })
+  it('placeOf: 場所を持つのは 3 つだけ', () => {
+    expect(placeOf({ kind: 'import' })).toBe('import')
+    expect(placeOf({ kind: 'graph' })).toBe('graph')
+    expect(placeOf({ kind: 'new' })).toBe('chat')
+    expect(placeOf({ kind: 'session', id: 'cabc12345x' })).toBe('chat')
+    expect(placeOf({ kind: 'root' })).toBeNull()
+    expect(placeOf({ kind: 'settings' })).toBeNull()
   })
 })

@@ -346,3 +346,13 @@ export function MenuIcon(p: IconProps) {
     </Icon>
   )
 }
+
+/** トレイに下向きの矢印 — 取り込み。 */
+export function ImportIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12 4v10M8 10.5l4 4 4-4" />
+      <path d="M4.5 15v3.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V15" />
+    </Icon>
+  )
+}

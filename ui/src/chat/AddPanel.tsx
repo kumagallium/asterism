@@ -1,4 +1,4 @@
-// AI が設定されていないとき、📎 で右の領域（図の代わり）に出す「データを添える」（PR 11c）。
+// AI が設定されていないときに表を添えると、「取り込み」の中央に出す「データを添える」（PR 11c・14d-1 で置き場を移した）。
 // 見た目は SkyView の AddArea（`sky-add-area`）と同じ。中身はかんたん（WorkbenchTier）をそのまま置く。
 import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -15,7 +15,7 @@ export interface AddPanelProps {
 export function AddPanel({ onClose }: AddPanelProps) {
   const { t } = useTranslation('chat')
   const { done } = useHostedState()
-  // ⑦完了のときの「閉じる」は、⑦の「星図で見る」と同じ道（`#/home?new=` → `#/` に転送される）
+  // ⑦完了のときの「閉じる」は、⑦の「星図で見る」と同じ道（`#/home?new=` → `#/graph` に転送される）
   const close = () => {
     if (done && openHostedSky()) return
     onClose()

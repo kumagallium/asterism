@@ -1,9 +1,9 @@
-// 左の領域＝話の一覧（PR 11a）。上に brand mark と名前、「新しい話」、各話の 1 行（題＋提案の印＋「…」）、下に ⚙。
-// たたむと ≡ と ⚙ だけ。鍵が無い（401/503）ときは一覧の代わりに 1 行。
+// チャットの一覧（PR 14d-1 で縮めた）。「新しいチャット」と各チャットの 1 行（題＋提案の印＋「…」）だけ。
+// ブランド・≡・⚙・たたんだ形は NavRail が持つ。鍵が無い（401/503）ときは一覧の代わりに 1 行。
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useImeEnterGuard } from './useImeEnterGuard'
-import { AddIcon, BrandMark, BrandWordmark, GearIcon, MenuIcon } from '../icons'
+import { AddIcon } from '../icons'
 import { MoreMenu } from '../MoreMenu'
 import type { ThemesApiError } from '../themes/themesApi'
 import { deleteSession, isKeyMissing, renameSession, type SessionSummary } from './chatApi'
@@ -15,13 +15,8 @@ export interface SessionListProps {
   /** 一覧の読み込みの失敗（401/503＝鍵が無い）。 */
   error: ThemesApiError | Error | null
   activeId: string | null
-  folded: boolean
-  /** ≡ を出すか（375px 級では上の行にあるので、ここでは出さない）。 */
-  showToggle: boolean
-  onToggle: () => void
   onNew: () => void
   onOpen: (id: string) => void
-  onOpenSettings: () => void
   /** 名前を直した・消したあと（一覧を取り直す）。 */
   onChanged: () => void
   onDeleted: (id: string) => void
@@ -30,34 +25,11 @@ export interface SessionListProps {
 export function SessionList(p: SessionListProps) {
   const { t } = useTranslation('chat')
   const { compositionHandlers, isImeKey } = useImeEnterGuard()
-  const { t: ts } = useTranslation('settings')
-  const { t: tb } = useTranslation()
   const [renaming, setRenaming] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-
-  const toggle = p.showToggle && (
-    <button type="button" className="chat-icon-btn" data-testid="list-toggle" onClick={p.onToggle} aria-label={t('list.toggle')} title={t('list.toggle')} aria-expanded={!p.folded}>
-      <MenuIcon size={20} />
-    </button>
-  )
-  const gear = (
-    <button type="button" className="chat-icon-btn" onClick={p.onOpenSettings} aria-label={ts('open')} title={ts('open')}>
-      <GearIcon />
-    </button>
-  )
-
-  if (p.folded) {
-    return (
-      <div className="chat-list-inner chat-list-inner--folded">
-        {toggle}
-        <span className="chat-list-spacer" />
-        {gear}
-      </div>
-    )
-  }
 
   async function commitRename(id: string) {
     const title = draftName.trim().replace(/\s+/g, ' ').slice(0, 80)
@@ -90,14 +62,7 @@ export function SessionList(p: SessionListProps) {
   }
 
   return (
-    <div className="chat-list-inner">
-      <div className="chat-list-head">
-        {toggle}
-        <span className="chat-brand">
-          <BrandMark size={26} />
-          <BrandWordmark className="chat-brand-name" size={14.5} label={tb('brand.name')} />
-        </span>
-      </div>
+    <div className="chat-list-rows-wrap">
       <button type="button" className="btn btn--soft btn--sm chat-new" data-testid="session-new" onClick={p.onNew}>
         <AddIcon size={16} />
         {t('list.new')}
@@ -154,7 +119,7 @@ export function SessionList(p: SessionListProps) {
             }
             return (
               <div key={s.id} className={`chat-row${active ? ' is-active' : ''}`} data-testid="session-row">
-                <button type="button" className="chat-row-main" aria-current={active ? 'page' : undefined} onClick={() => p.onOpen(s.id)}>
+                <button type="button" className="chat-row-main" aria-current={active ? 'true' : undefined} onClick={() => p.onOpen(s.id)}>
                   <span className="chat-row-title">{title}</span>
                   {s.proposed > 0 && <span className="chat-row-badge">{t('list.proposed', { n: s.proposed })}</span>}
                 </button>
@@ -183,7 +148,6 @@ export function SessionList(p: SessionListProps) {
           </p>
         )}
       </div>
-      <div className="chat-list-foot">{gear}</div>
     </div>
   )
 }
