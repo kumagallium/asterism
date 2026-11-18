@@ -322,7 +322,7 @@ def test_list_reports_settings_without_connecting(tmp_path: Path, healthy_client
     assert [s["name"] for s in body["servers"]] == ["fake", "off"]
     assert body["invalid"][0]["name"] == "broken"
     assert "headers" in body["invalid"][0]["error"]
-    assert body["source_provider"] == _PROVIDER
+    assert body["source_provider"] == {**_PROVIDER, "knowledge": ""}
     assert body["source_home"] is None
     assert body["send_originals_to_home"] is True
     assert body["recent"] == []

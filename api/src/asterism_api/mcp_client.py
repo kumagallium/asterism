@@ -130,11 +130,15 @@ class McpServerConfig:
 
 @dataclass(frozen=True)
 class SourceProvider:
-    """取り込み元プロトコルの道具名（§5）。既定は空＝取り込み元は使えない。"""
+    """取り込み元プロトコルの道具名（§5）。既定は空＝取り込み元は使えない。
+
+    ``knowledge`` は知識の束（知見・トピック・資料・語の候補の全量）を出す道具
+    （ADR ``knowledge-copy.md``）。``/call`` からは呼べず、写す口からだけ呼ぶ。"""
 
     list: str = ""
     get: str = ""
     add: str = ""
+    knowledge: str = ""
 
 
 def _looks_secret(key: str) -> bool:
@@ -257,7 +261,9 @@ def parse_source_provider(settings: dict[str, Any]) -> SourceProvider:
         v = raw.get(key)
         return v.strip() if isinstance(v, str) else ""
 
-    return SourceProvider(list=_s("list"), get=_s("get"), add=_s("add"))
+    return SourceProvider(
+        list=_s("list"), get=_s("get"), add=_s("add"), knowledge=_s("knowledge")
+    )
 
 
 def parse_source_home(settings: dict[str, Any]) -> str | None:
