@@ -2351,6 +2351,11 @@ _ASK_TEXT = {
         "no_table": "表にできるものが見つかりませんでした",
         "table": "「{name}」の表（{shown} 件・全 {total} 件）",
         "via": "用語「{term}」に入っている種類「{kind}」の表",
+        "ledger": "「{q}」として、次の {n} 件が記録されています。",
+        "ledger_none": "「{q}」に当てはまる関係は、今は見つかりません。取り込み直したときに"
+        "無くなった可能性があります",
+        "ledger_gone": "この問いに答える関係を読めませんでした。取り込みが終わっているか"
+        "確かめてください",
     },
     "en": {
         "unavailable": "Answers to questions are not available in this environment",
@@ -2358,6 +2363,11 @@ _ASK_TEXT = {
         "no_table": "Nothing to show as a table was found",
         "table": "Table of \"{name}\" ({shown} of {total})",
         "via": "Table of the kind \"{kind}\" inside the term \"{term}\"",
+        "ledger": "For \"{q}\", these {n} are on record.",
+        "ledger_none": "No relation fits \"{q}\" right now. It may have gone when the source "
+        "was imported again",
+        "ledger_gone": "Could not read the relations for this question. Check that the import "
+        "has finished",
     },
 }
 
@@ -2492,7 +2502,18 @@ def _answer_of(data: dict, cited: dict[str, dict[str, str]]) -> dict:
         "verified_tools": tools,
         "unverified_sparql": bool(data.get("unverified_sparql")),
         "answered": bool(data.get("answered", True)),
+        "ledger": _ledger_of(data.get("ledger")),
     }
+
+
+def _ledger_of(raw: Any) -> dict | None:
+    """demo-agent の ``ledger``（機械が集めた使った関係）→ ``reply.answer.ledger``。形が違えば
+    ``None``（印は付けない）。"""
+    if not isinstance(raw, dict) or not isinstance(raw.get("items"), list):
+        return None
+    if not isinstance(raw.get("questions"), list):
+        return None
+    return raw
 
 
 def run_ask_turn(
@@ -2525,6 +2546,39 @@ def run_ask_turn(
     reply["answer"] = answer
     return _append_turn(
         session, at=at, user=user, reply=reply, state="none", before=None, by="ai", route="ask"
+    )
+
+
+def run_ask_ledger_turn(
+    session: dict, text: str, block: dict | None, *, at: str, lang: str, gone: bool = False
+) -> dict:
+    """入口 1（14e-2）— 機械が作った問いを押した手番。AI も demo-agent も呼ばず、台帳の走者の
+    答え（``ledger_answer.reply_block``）をそのまま ``reply.answer.ledger`` に置く。
+    ``block`` が ``None`` なら断り文（``gone`` = 台帳か写しが読めない・そうでなければ問いが
+    今の台帳に無い）。エラーにしない・何も保存しない（``state: none``・``by: machine``）。"""
+    t = _ASK_TEXT[_lg(lang)]
+    q = text.strip()
+    if block is None:
+        said = t["ledger_gone"] if gone else t["ledger_none"].format(q=q)
+        # answer は付けない（Ask の失敗と同じ）
+        reply = _reply(said, notes=[note("ask_ledger_declined", said)])
+    else:
+        n = sum(int(x.get("count") or 0) for x in block["questions"])
+        said = t["ledger"].format(q=q, n=n)
+        reply = _reply(said)
+        reply["answer"] = {
+            "text": said, "citations": [], "notes": [], "warnings": [], "verified_tools": [],
+            "unverified_sparql": False, "answered": True, "ledger": block,
+        }  # fmt: skip
+    return _append_turn(
+        session,
+        at=at,
+        user={"text": q, "attachments": []},
+        reply=reply,
+        state="none",
+        before=None,
+        by="machine",
+        route="ask",
     )
 
 

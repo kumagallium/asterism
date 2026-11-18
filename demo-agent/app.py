@@ -458,6 +458,92 @@ def _knowledge_tool_def(reg_root: str | None) -> dict | None:
     }
 
 
+#: 道具の説明に並べる台帳の問いの最大件数（利用者の文に語が出る問いを先に・残りは件数の多い順）。
+_LEDGER_QUESTIONS_MAX = 40
+_CJK = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
+
+
+def _ledger_lang(question: str) -> str:
+    """問いの文に日本語の文字があれば ``ja``・無ければ ``en``（答えの文の言い方だけ）。"""
+    return "ja" if _CJK.search(question or "") else "en"
+
+
+def _ledger_entries(reg_root: str | None, question: str) -> list[dict]:
+    """registry の台帳と写しを読んで、答えられる問いを機械で並べる（AI は使わない）。
+    返りは ``[{source, ledger, copy, questions}]``（問いが 1 つも無い取り込み元は入れない）。"""
+    if not reg_root:
+        return []
+    from asterism import ledger_answer
+
+    lang = _ledger_lang(question)
+    out: list[dict] = []
+    with contextlib.suppress(Exception):
+        for source, ledger, copy in ledger_answer.find_ledgers(reg_root):
+            qs = ledger_answer.ledger_questions(ledger, copy, lang=lang)
+            if qs:
+                out.append({"source": source, "ledger": ledger, "copy": copy, "questions": qs})
+    return out
+
+
+def _ledger_choices(
+    entries: list[dict], question: str, limit: int = _LEDGER_QUESTIONS_MAX
+) -> list[tuple[str, dict, dict]]:
+    """道具の説明に並べる問い ``[(AI に見せる名前, 取り込み元の entry, 問い)]``。
+
+    利用者の文に語の名前（別名を含む）が出る問いを先に、残りは件数の多い順で、合わせて最大
+    ``limit`` 件。取り込み元が複数なら名前に取り込み元の印（``s1``・``s2``…）を機械が付けて
+    一意にする（``lq_s2_<op>_…``）。"""
+    said = (question or "").casefold()
+    multi = len(entries) > 1
+    rows: list[tuple[bool, int, int, str, dict, dict]] = []
+    for idx, e in enumerate(entries, 1):
+        names: dict[str, list[str]] = {}
+        for t in e["copy"].terms:
+            if "id" in t:
+                names[str(t["id"])] = [
+                    str(n).casefold()
+                    for n in [t.get("name"), *(t.get("aliases") or [])]
+                    if isinstance(n, str) and len(n.strip()) >= 2
+                ]
+        for q in e["questions"]:
+            hit = any(n in said for n in names.get(str(q["term"]["id"]), ()))
+            shown = f"lq_s{idx}_" + q["name"][3:] if multi else q["name"]
+            rows.append((not hit, -int(q["count"]), idx, shown, e, q))
+    rows.sort(key=lambda r: r[:4])
+    return [(r[3], r[4], r[5]) for r in rows[: max(0, limit)]]
+
+
+def _ledger_tool_def(choices: list[tuple[str, dict, dict]]) -> dict | None:
+    """台帳の問いの名前を並べた道具の定義。問いが 1 つも無ければ ``None``。"""
+    if not choices:
+        return None
+    multi = len({id(e) for _, e, _ in choices}) > 1
+    lines = []
+    for shown, e, q in choices:
+        where = f" [{e['source']}]" if multi else ""
+        lines.append(f"{shown} ({q['text']}, {q['count']}){where}")
+    return {
+        "name": "answer_ledger_question",
+        "description": (
+            "[not all confirmed] Answer a KNOWLEDGE question from the relations recorded in the "
+            "knowledge ledger, INCLUDING relations no person has confirmed yet (each item says "
+            "`confirmed` true or false). Same kinds of questions as answer_knowledge_question "
+            "(what lowers / raises / affects a term, its parts and kinds, which methods make / "
+            "measure it, its properties, which properties are not yet recorded for it). Prefer "
+            "answer_knowledge_question when it lists the question; use this one when it does not. "
+            "Takes only the question's name from the list: never write a value, IRI, type or "
+            "term yourself. Rows carry `sentence`, the relation in words: use it as is. If an "
+            "item is not confirmed, say so in the answer. "
+            "Available: " + "; ".join(lines)
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+    }
+
+
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*(.+?)\s*```$", re.DOTALL)
 
 
@@ -877,6 +963,14 @@ async def _llm_answer_via(
     knowledge_def = _knowledge_tool_def(reg_root)
     if knowledge_def is not None:
         tools.append(knowledge_def)
+    # 台帳の問い（未確認の関係も使う・印は機械が付ける）。問いの名前だけを AI に選ばせる
+    ledger_entries = await asyncio.to_thread(_ledger_entries, reg_root, question)
+    ledger_choices = _ledger_choices(ledger_entries, question)
+    ledger_def = _ledger_tool_def(ledger_choices)
+    if ledger_def is not None:
+        tools.append(ledger_def)
+    ledger_pick = {shown: (e, q) for shown, e, q in ledger_choices}
+    ledger_used: dict[str, dict] = {}  # 使った台帳の答え（finalize が機械で集める）
     if _EXPOSE_RAW_SPARQL:
         tools.append(_RUN_SPARQL_TOOL)
     else:
@@ -944,6 +1038,37 @@ async def _llm_answer_via(
                     items = out.get("items") or []
                     out = {**out, "items": items[:50], "truncated": len(items) > 50}
                 return out
+            if name == "answer_ledger_question" and ledger_pick:
+                from asterism import ledger_answer
+
+                shown = str(inp.get("name") or "")
+                if shown not in ledger_pick:
+                    return {"error": f"unknown question name {shown!r}"}
+                entry, q = ledger_pick[shown]
+                if shown not in ledger_used:
+                    ledger_used[shown] = ledger_answer.answer(
+                        entry["ledger"], entry["copy"], q, lang=_ledger_lang(question)
+                    )
+                got = ledger_used[shown]
+                items = got["items"]
+                return {
+                    "found": got["found"],
+                    "question": got["question"],
+                    "count": got["count"],
+                    "unconfirmed_count": sum(1 for i in items if not i["confirmed"]),
+                    # LLM に返す項目は 50 件まで・文と印だけ（鍵・根拠は機械が答えに付ける）
+                    "items": [
+                        {
+                            "label": i["label"],
+                            "sentence": i["sentence"],
+                            "confirmed": i["confirmed"],
+                            "tentative": i["tentative"],
+                            "context": i["context"],
+                        }
+                        for i in items[:50]
+                    ],
+                    "truncated": len(items) > 50,
+                }
             if name in content_registry:
                 # A declared (verified) query tool from another dataset, e.g.
                 # Materials Project's thermoelectric_structure — run the fixed
@@ -981,7 +1106,7 @@ async def _llm_answer_via(
             if extra["iri"] not in seen:
                 seen.add(extra["iri"])
                 cited.append(extra)
-        return {
+        out = {
             "answer": data.get("answer", ""),
             "citations": cited,
             "notes": list(data.get("notes") or []),
@@ -991,6 +1116,15 @@ async def _llm_answer_via(
             "warnings": data_warnings,
             "answered": answered,
         }
+        # 使った台帳の答えを機械が集める（AI の文には頼らない・``verified_used`` と同じ作法）。
+        # 道具を呼ばなかったときは欄ごと付けない（印も付かない）。
+        if ledger_used:
+            from asterism import ledger_answer
+
+            block = ledger_answer.reply_block(list(ledger_used.values()))
+            if block is not None:
+                out["ledger"] = block
+        return out
 
     # What the reader sees when the turn produced nothing. Says what happened
     # from THEIR side and what to try — never "試行回数の上限" (our bookkeeping).
