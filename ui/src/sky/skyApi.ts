@@ -40,6 +40,8 @@ export interface SkyTerm {
   label: string
   label_en: string
   kind: 'class' | 'property'
+  /** 役割（material・method・concept など）。`/api/sky` は載せない。台帳の行から引いて UI が足す（14e-1b）。 */
+  role?: string | null
   members: SkyTermMember[]
   standard: { iri: string; relation: string } | null
   /** この用語を要る問いに答えられるデータセットの数。 */

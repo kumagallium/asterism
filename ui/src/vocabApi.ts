@@ -54,6 +54,8 @@ export interface SharedTerm {
   /** `ai`＝AI の下書きを人が採用した。`confirmed_at`＝その確定の日時。 */
   drafted_by?: 'ai' | null
   confirmed_at?: string | null
+  /** 役割の札（material・method・concept など）。無ければ null。 */
+  role?: string | null
 }
 
 /** 問いのテンプレ。`op` は閉じた選択（種類＝count・項目＝values）。 */

@@ -37,6 +37,8 @@ export interface MapNodeAttrs {
   ledger?: boolean
   /** 台帳の語のうち、確認済みの関係が 1 本も無いもの（薄く描く）。 */
   unconfirmed?: boolean
+  /** 台帳の語をまとめたストアの用語の点（14e-1b）。配置は台帳の語と同じ群に入れる（取り込んだ関係の網が離れて散らばらない）。 */
+  placed?: boolean
 }
 
 /** 役割の 4 色の札: 材料・物性・手法・概念。 */
@@ -57,6 +59,8 @@ export function toneOf(role: string | null | undefined, kind?: string | null): T
 export interface LedgerConceptExtra {
   role?: string | null
   confirmed?: boolean
+  /** ストアに置いた語の IRI。図にその用語の点があれば、台帳の点は作らず線の端をその点に張り替える（14e-1b）。 */
+  termIri?: string
 }
 export interface LedgerRelationExtra {
   confirmed?: boolean
@@ -200,7 +204,7 @@ export function buildMapGraph(
       label: termLabel(t, lang),
       iri: t.iri,
       ...(removedTerms.has(t.iri) ? { remove: true } : {}),
-      tone: toneOf(null, t.kind),
+      tone: toneOf(t.role, t.kind),
       size: 0,
       role: 'activity',
     })
@@ -248,8 +252,18 @@ export function buildMapGraph(
   for (const d of drafts) {
     if (!d.draft_id.startsWith(LEDGER_PREFIX)) continue
     const ends = new Map<string, string>()
+    /** 端の語がストアの用語の点に張り替わったもの（その点との線は、同じ関係の確かな線があれば張らない）。 */
+    const placed = new Set<string>()
     for (const c of d.concepts) {
       const x = c as DraftSky['concepts'][number] & LedgerConceptExtra
+      // 置いた語: 図にストアの用語の点があるときは、台帳の点を作らず 1 つにまとめる（無いとき＝sky の読み込み前・手で消した後は台帳の点）
+      const tid = x.termIri ? termId(x.termIri) : null
+      if (tid && g.hasNode(tid) && g.getNodeAttribute(tid, 'type') === 'term') {
+        g.setNodeAttribute(tid, 'placed', true)
+        ends.set(c.key, tid)
+        placed.add(c.key)
+        continue
+      }
       const id = draftNodeId(d.draft_id, c.key)
       addNode(id, {
         type: 'draft',
@@ -272,6 +286,11 @@ export function buildMapGraph(
       if (x.candidate) {
         addEdge(a, b, { kind: 'draft', relation: 'candidate', thin: true, unconfirmed: true, candidate: true, ledger: true }, false)
         continue
+      }
+      // 両端がストアの用語の点で、`sky.edges` に同じ関係の線があれば、それが 1 本（確認済みの濃い線・名前・矢じり）
+      if (placed.has(r.from) && placed.has(r.to)) {
+        const real = realRelationOf(r.rel, d.concepts.find((c) => c.key === r.to)?.kind)
+        if (real && (conceptSeen.has(`${a}>${b}>${real}`) || (real === 'competesWith' && conceptSeen.has(`${b}>${a}>${real}`)))) continue
       }
       const label = draftRelationLabel(r.rel, lang)
       addEdge(
@@ -439,8 +458,9 @@ function stretchToAspect(g: Graph, aspect: number): void {
  *  `aspect`（枠の幅÷高さ）を渡すと、台帳の語を持つ図は枠いっぱいに伸ばす（既定 1.4）。 */
 export function layoutMap(g: Graph, aspect = 1.4): void {
   g.forEachNode((id) => g.mergeNodeAttributes(id, hashPosition(id)))
-  const ledger = g.filterNodes((_id, a) => (a as unknown as MapNodeAttrs).ledger === true)
-  const rest = g.filterNodes((_id, a) => (a as unknown as MapNodeAttrs).ledger !== true)
+  const inLedgerGroup = (a: unknown) => (a as MapNodeAttrs).ledger === true || (a as MapNodeAttrs).placed === true
+  const ledger = g.filterNodes((_id, a) => inLedgerGroup(a))
+  const rest = g.filterNodes((_id, a) => !inLedgerGroup(a))
   if (ledger.length === 0) {
     layoutNetwork(g)
     // データセット側の点が無い図（語と関係だけ）は枠いっぱいに伸ばす。あるときは従来のまま

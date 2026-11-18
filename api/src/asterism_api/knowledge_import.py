@@ -51,6 +51,7 @@ from asterism_api.knowledge_relations import (
     CONCURRENCY,
     run_relations,
 )
+from asterism_api.knowledge_store import catch_up
 from asterism_api.mcp_client_routes import _call_or_http_error, _reject_if_content_length_exceeds
 
 logger = logging.getLogger(__name__)
@@ -238,6 +239,7 @@ async def run_import(
         rel_card["error"] = error
 
     emit(stage="done", message="まとめています")
+    await catch_up(app, root, source, dataset_id)  # 14e-1b: 先に付けた確認を正本に追い付かせる
     questions, total = await _questions(root, source, dataset_id, lang)
     meta = registry.load_meta(root, dataset_id) or {}
     ks = meta.get("knowledge_source") or {}

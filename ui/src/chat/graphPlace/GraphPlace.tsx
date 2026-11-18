@@ -4,14 +4,16 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { draftRelationLabel } from '../map/mapModel'
-import { KnowledgeApiError, type ReviewAction, type ReviewResult } from './knowledgeRelationsApi'
-import { ALL, filterCandidates, filterRelations, firstRows, PAGE_SIZE, relKinds, summarizeTerms, unconfirmedKeys, type LedgerFilter, type StatusFilter, type TermSummary } from './ledgerView'
+import { KnowledgeApiError, type ReviewAction, type ReviewResult, type StoreReport } from './knowledgeRelationsApi'
+import { useStoreText } from './storeText'
+import { ALL, filterCandidates, filterRelations, firstRows, PAGE_SIZE, relKinds, pinFirst, summarizeTerms, unconfirmedKeys, type LedgerFilter, type StatusFilter, type TermSummary } from './ledgerView'
 import { CandidateRow, RelationRow, TermRow } from './LedgerRows'
 import { rowId, type AssignForm } from './rowFns'
 import { writeFailureOf, type LedgersApi } from './useLedgers'
 import './graphPlace.css'
 
 type Lang = 'ja' | 'en'
+
 const STATUSES: StatusFilter[] = ['all', 'unconfirmed', 'confirmed', 'rejected']
 
 /** 図の凡例（1 つ・3 つの場所すべてで同じ）: 用語の 4 色／データの種類／データセット／確認済み（濃い線）／未確認（薄い点・線）。 */
@@ -107,11 +109,14 @@ export interface GraphPlaceSideProps {
 /** 右の一覧（知識グラフの場所だけ）。「関係」「用語」「候補」の 3 タブ。 */
 export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onClosePoint }: GraphPlaceSideProps) {
   const { t } = useTranslation('graphPlace')
+  const storeText = useStoreText()
   const [tab, setTab] = useState<Tab>('relations')
   const [open, setOpen] = useState<string | null>(null)
   const [shown, setShown] = useState<Record<Tab, number>>({ relations: PAGE_SIZE, terms: PAGE_SIZE, candidates: PAGE_SIZE })
   const [pending, setPending] = useState(false)
   const [msg, setMsg] = useState<{ id: string; text: string } | null>(null)
+  /** 確認の返りの `store` が「置けなかった」「置く段が落ちた」を言うとき、その場の 1 行（次の操作で消える）。 */
+  const [notice, setNotice] = useState<string | null>(null)
   const [form, setForm] = useState<AssignForm>({ rel: '', subject: 'a' })
   // 図で台帳の語を押した: 「用語」のタブでその語を開く（描画中に前の値と比べて合わせる）。別の場所から移ってきて作られた直後も、残っている focus で開く
   const [seenFocus, setSeenFocus] = useState(0)
@@ -123,7 +128,8 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
 
   const f = api.filter
   const relations = filterRelations(api.ledgers, f)
-  const terms = summarizeTerms(relations)
+  // 図で押した語は先頭に（上の 1 枚のすぐ下で開いて見える。並びはそのほかは変えない）
+  const terms = pinFirst(summarizeTerms(relations), focus ? `${focus.source}|${focus.termId}` : null)
   const candidates = filterCandidates(api.ledgers, f)
 
   const toggle = (id: string) => {
@@ -140,6 +146,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   const run = async (id: string, job: () => Promise<void>) => {
     setPending(true)
     setMsg(null)
+    setNotice(null)
     try {
       await job()
     } catch (e) {
@@ -156,16 +163,19 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
     if (/^(already_|not_)/.test(r)) return t('skipped.stale')
     return t('skipped.other', { n: res.skipped.length })
   }
+  const noteStore = (store: StoreReport | null | undefined) => setNotice(storeText.noteText(store))
   const review = (id: string, source: string, action: ReviewAction, keys: string[]) =>
     run(id, async () => {
-      const note = skippedNote(await api.review(source, action, keys))
+      const res = await api.review(source, action, keys)
+      const note = skippedNote(res)
       if (note) setMsg({ id, text: note })
+      noteStore(res ? res.store : null)
     })
   const act = (id: string, source: string, key: string, action: ReviewAction) => review(id, source, action, [key])
   const confirmTerm = (term: TermSummary) => review(term.id, term.source, 'confirm', unconfirmedKeys(term))
   const submitAssign = (id: string, source: string, pair: string) =>
     run(id, async () => {
-      await api.assign(source, pair, form.rel, form.subject)
+      noteStore((await api.assign(source, pair, form.rel, form.subject)) ?? null)
       setOpen(null)
     })
 
@@ -288,6 +298,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
           {point}
         </div>
       )}
+      {notice && <p className="gp-note gp-store-note" role="status" data-testid="gp-store-note">{notice}</p>}
       <div className="gp-tabs" role="tablist" aria-label={t('tab.aria')}>
         {tabBtn('relations', relations.length)}
         {tabBtn('terms', terms.length)}

@@ -1612,3 +1612,38 @@ async def test_answer_knowledge_question_refuses_what_is_not_a_knowledge_questio
     none = await answer_knowledge_question("kq_x", _kq_client(seen))  # no registry root
     assert none["found"] is False
     assert seen == []  # the store was never asked
+
+
+async def test_answer_knowledge_question_answers_a_question_kept_for_an_import_source(
+    tmp_path,
+) -> None:
+    """取り込み元の問い（``knowledge_sources.json``・14e-1b）。話（``themes.json``）に無い名前を
+    そこから引き、返りの形は話の問いと同じ。話に同じ名前が在れば話が先。"""
+    from asterism import shared_vocab as sv
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS
+    from asterism.knowledge_sources import save_sources
+
+    sel = {"mode": "knowledge", "op": "makers", "target_slug": "kt_aaaaaaaaaaaa",
+           "target": "合金A", "title": "合金A を作る手法"}  # fmt: skip
+    save_sources(tmp_path, {"version": 1, "sources": {"lab": {
+        "title": "作り物の束", "updated_at": "2026-11-18T00:00:00+00:00", "minted": [],
+        "uses": [], "relations": [], "selections": {"kq_kt_aaaaaaaaaaaa_makers": sel},
+    }}})  # fmt: skip
+    row = {
+        "from": {"type": "uri", "value": sv.term_iri("kt_bbbbbbbbbbbb")},
+        "rel": {"type": "uri", "value": ALIGN_RELATIONS["makes"]},
+        "via": {"type": "uri", "value": sv.term_iri("kt_aaaaaaaaaaaa")},
+        "lbl": _lit("焼成"), "vlbl": _lit("合金A"),
+        "who": {"type": "literal", "value": "ai"},
+        "at": {"type": "literal", "value": "2026-11-18T00:00:00+00:00"},
+    }  # fmt: skip
+    out = await answer_knowledge_question(
+        "kq_kt_aaaaaaaaaaaa_makers", _canned_client([row]), registry_root=tmp_path
+    )
+    assert out["found"] is True and out["op"] == "makers" and out["count"] == 1
+    assert out["question"] == "合金A を作る手法" and out["target"] == "合金A"
+    assert out["items"][0]["label"] == "焼成" and out["items"][0]["drafted_by"] == "ai"
+    miss = await answer_knowledge_question(
+        "kq_nothing_makers", _canned_client([row]), registry_root=tmp_path
+    )
+    assert miss["found"] is False

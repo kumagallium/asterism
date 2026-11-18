@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { draftRelationLabel } from '../map/mapModel'
 import { relSentence } from '../sentenceRows'
 import type { LedgerRow, ReviewAction } from './knowledgeRelationsApi'
+import { useStoreText } from './storeText'
 import type { TermSummary } from './ledgerView'
 import { isSymmetricRel, rowId, rowText, ASSIGN_RELS, type AssignForm } from './rowFns'
 
@@ -18,6 +19,7 @@ interface RowBase {
 
 export function RelationRow({ row, lang, open, onToggle, onAct, pending, error }: RowBase & { row: LedgerRow; lang: Lang; onAct: (action: ReviewAction) => void }) {
   const { t } = useTranslation('graphPlace')
+  const storeText = useStoreText()
   const status = row.rejected ? 'rejected' : row.confirmed ? 'confirmed' : 'unconfirmed'
   const canAct = !!row.key
   return (
@@ -32,6 +34,9 @@ export function RelationRow({ row, lang, open, onToggle, onAct, pending, error }
         </span>
         <span className="gp-chev" aria-hidden="true">›</span>
       </button>
+      {row.store?.ok === false && (
+        <p className="gp-err gp-store-err" role="status" data-testid="gp-store-failed">{storeText.lineText(row.store.reason)}</p>
+      )}
       {open && (
         <div className="gp-item-b">
           {row.evidence.length > 0 && (

@@ -34,7 +34,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asterism import crosswalk_runtime, evidence, knowledge, substrate, themes
+from asterism import crosswalk_runtime, evidence, knowledge, knowledge_sources, substrate, themes
 from asterism.class_schema import class_labels
 from asterism.crosswalk import XW as _XW_NS
 from asterism.grounding import term_display_name, vocabularies
@@ -292,6 +292,16 @@ def _knowledge_question_selections(
             except ValueError:
                 continue
             out.append((theme, str(name), sel, target))
+    # 14e-1b: 取り込み元の問い（確認済みでストアに置けた関係）。話に同じ名前が在れば話を正とする
+    have = {n for _t, n, _s, _g in out}
+    for src, name, sel in knowledge_sources.selections(root):
+        if name in have:
+            continue
+        try:
+            target = term_iri(str(sel.get("target_slug") or ""))
+        except ValueError:
+            continue
+        out.append((src, name, sel, target))
     return out
 
 
