@@ -146,6 +146,43 @@ review どうしのぶつかりは「別の確認の操作が終わってから�
 台帳は読む → 書き換える → `finalize` → 保存（既存の保存の関数）。書いたあとの `finalize` は、取り込み元の行の印を
 最新にするためで、AI は呼ばない。MCP には出さない。
 
+### 7. 確認済みを正本に置く（PR 14e-1b）
+
+台帳の確認は、書くだけでは MCP・チャットの答えにならない。**台帳の `confirmed` の全件を「あるべき状態」**として、
+ストアを合わせる（`asterism.confirmed_store`。AI は呼ばない・決定論）。何度流しても同じ。
+
+| 決め | 内容 |
+|---|---|
+| 語 | slug は写しの語の id から機械的に（`t-<12 桁>` → `kt_<12 桁>`）。同じ名前（別名も）・同じ種別の用語が既にあれば**乗り**（`themes._match_existing` と同じ判定）、既存の用語は書き換えない。対応は台帳の `stored_terms: {語 id: {slug, minted}}` に固定する。新しく作る語の役割は写しの語のまま（`role_by="machine"`・種類の語だけ） |
+| 線 | 述語は `themes.relation_predicate`（`measures` は相手の種別で 2 つに割れる）。来歴は `drafted_by`＝AI の関係を人が確認→`ai`／人が付けた→`human`／取り込み元の行→`machine`・`at`＝確認の時刻（写し直しても変わらない）・`batch`＝`knowledge:<取り込み元>`（100 字を超えたら切り詰め＋ハッシュ）・`reason`＝台帳の AI の理由（200 字以内）か決まった文 |
+| 根拠 | `confirmed.evidence` の知見の IRI。置く前に公開中の写しの graph に `kn:Claim` が在るかを 1 回の問い合わせで確かめ、無い物は外して置く（根拠が 0 件でも置く＝人が確認した事実を優先）。引く道は `evidence.resolve_evidence` が知見（題＝`rdfs:label`・`kn:sourceUrl`・`dataset_id` は `null`）も引くよう広げた。**取り下げ済みの写しからも引く**（データは残る）・削除済みは引かない |
+| 置けなかった件 | 台帳の確認は消さない。件に `store: {ok, reason?, at, of, line?}`。理由の記号は `role_mismatch`・`kind_mismatch`・`cycle`・`self`・`error`。`error` 以外は、確認が変わる（`of` が変わる）まで置き直さない |
+| 外す | 取り消し・「違う」・取り込み元の行を外す（未確認を消す）のあと、**`knowledge:` の線のうち、どの台帳も確認していない線**を外す。話・人が置いた線・ほかの取り込み元が確認している線は外さない。この段で作った語（`minted`）は、線が触れていなければ外す（`TermHasLines` なら残す）。取り込み元を外したとき（取り下げ）は何も外さない（裁定④） |
+| いつ流すか | review・assign の口が台帳を保存した直後、同じ握り（`busy_kind` の `review`）と話の確定と同じ排他（`themes_lock`）の中で。変わった件を先に、`store` の無い件（14e-1 で先に付けた確認）の「追い付き」を 1 回 50 件まで。取り込みジョブの最後にも、置き終わるまで追い付かせる |
+| 失敗 | 置く段が落ちても review・取り込みは失敗にしない（返りの `store.error`）。線を置いたあと台帳の保存が落ちても、次の回は「ストアに線が在る」件として拾うので壊れない（収束する作り・巻き戻しは持たない） |
+
+口の返り（足すだけ）: review・assign の `store: {placed, removed, failed: [{key, reason}], remaining}`。`GET …/relations` の
+行の `from`／`to` に `term_iri`（置いた語だけ）・行に `store: {ok, reason?}`（確認済みで置いた結果がある件だけ）。
+`/api/sky` に用語の役割は**まだ足していない**（`terms[]` も最上位も欄の集合を完全一致で固定する既存テストがあるため。別の口を決める）。
+
+**知識の問い（MCP・星図から引く）**: 確認済みで**ストアに置けた**関係だけに、`pair_relations.questions` と同じ数え方
+を当てた問いを、取り込み元ごとに `<registry>/vocab-shared/knowledge_sources.json` に置く
+（`asterism.knowledge_sources`）。形は `{version: 1, sources: {<取り込み元>: {title, updated_at, minted, uses, relations,
+selections: {<kq_ の名前>: {mode: "knowledge", op, target_slug, target, title, direction?}}}}}`（選び方は話の
+`selections` と同じ形）。名前は `themes.knowledge_tool_name`。確認・取り消し・「違う」・追い付きのたびに、その取り込み元
+の分を作り直す（消えた問いは消す・変わらなければ書かない）。話に同じ名前の問いが在れば話を正とし、ここには作らない。
+取り込み元を外しても残す（確認済みは残るため）。読む所は 2 つだけ足した: MCP `answer_knowledge_question`
+（`themes.json` に無い名前をここから引く・返りの形は不変）と `sky_view._knowledge_question_selections`（用語の点の
+「問い」）。チャットは台帳の走者で答えるので、ここは読まない。
+
+**`themes.json` に入れなかった理由**: 話として画面に出る・利用者が消せる・上限（概念 120 など）に当たる。読む所が
+30 か所を超える（`chat_turns` 8・`themes_routes` 11・`chat_seed`・`chat_point`・`consult_graph_routes`・`chat_routes`・
+`sky_view`・demo-agent・MCP ほか）。別のキーを足す案は `load_themes_file`／`ensure_migrated` が `themes` 以外を落とすので不可。
+**話の後始末**（`remove_theme_cascade`）はこのファイルを見ない（話と取り込み元は別の持ち主）。取り込み元の語に線が
+触れていれば `remove_term` が `TermHasLines` で断るので、話を消しても取り込み元の用語は外れない。話の確定が置いた線と
+同じ線を、取り込み元が「既にある」として置き直さなかった場合に、話を消すと線が消えるが、次の同期が「ストアに無い件」として
+置き直す。
+
 ## 本物のデータで確かめたこと（2026-11-18）
 
 手元の実データ（知見 1,515・語 390）で、製品のプロンプトと検査をそのまま通した。AI の役は 2 通り
@@ -187,8 +224,9 @@ review どうしのぶつかりは「別の確認の操作が終わってから�
 
 - 台帳を地図と「関係」のタブに出す・候補の切り替え・チャットの入口と返事・未確認の関係を答えに使う・
   確認と「違う」・確定（知見の IRI を根拠にする）は 14d・14e。それまで、台帳は api の読む口からしか見えない。
-- 知見（`kn:Claim`）を根拠として確定するには、`themes._require_live_evidence`・`evidence.resolve_evidence`・
-  `crosswalk_runtime.drop_evidence_in_graphs` に、論文の文（`doco:Sentence`）以外の分岐が要る（14e）。
+- 知見（`kn:Claim`）を根拠として確定するには、`themes._require_live_evidence`・
+  `crosswalk_runtime.drop_evidence_in_graphs` に、論文の文（`doco:Sentence`）以外の分岐が要る（話の確定の道。
+  確認済みを置く道は 14e-1b で `evidence.resolve_evidence` を広げて引ける）。
 - 写しを外したときの台帳の後始末（14d）。
 - ジョブは台帳を読んでから保存するまで数分かかる。そのあいだに、ほかの口が台帳に書いたものは消える。
   確認と「違う」の口（14e）は、同じ取り込み元のジョブと排他にする。
@@ -210,3 +248,4 @@ review どうしのぶつかりは「別の確認の操作が終わってから�
 
 - 2026-11-18: 起案・決定（PR 14c）。
 - 2026-11-18: 確認・「違う」・人が付ける口を追記（PR 14e-1・§6）。
+- 2026-11-18: 確認済みを正本に置く（PR 14e-1b・§7）。

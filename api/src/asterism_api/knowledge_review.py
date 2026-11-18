@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from asterism_api import registry
 from asterism_api.knowledge_copy import busy_kind, copy_is_current, find_copy_dataset
 from asterism_api.knowledge_import import _hold, _release
+from asterism_api.knowledge_store import pair_keys, sync_ledger
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,12 @@ def register_knowledge_review_routes(
                     logger.warning("knowledge review: could not save the ledger", exc_info=True)
                     raise HTTPException(500, "台帳を更新できませんでした") from exc
                 new = final
+            # 14e-1b: 確認済みをストアの正本に合わせる（変わった件を先に・未処理は最大 50 件）。
+            # 失敗しても review は通す（台帳の確認は残っている）
+            new, store = await sync_ledger(
+                app, root, new, copy, dataset_id, focus=pair_keys(result["changed"])
+            )
+            result = {**result, "store": store}
             return result, new
         finally:
             _release(app, source, _KIND)

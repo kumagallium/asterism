@@ -8,6 +8,10 @@
 * SPARQL は 1 回。IRI は :data:`asterism.themes._EVIDENCE_IRI` の形を通ったものだけを
   ``VALUES`` に入れる（外からの文字列を SPARQL に入れない）。
 * 引けない IRI は返さない（呼び手は黙って省く）。
+* 14e-1b: 論文の文のほかに、**知識の束の写し**（``meta.knowledge_source`` を持つ
+  ``source_kind == "json"``）の知見 ``kn:Claim`` も引く（題＝``rdfs:label``・
+  ``kn:sourceUrl``）。取り下げ（retract）済みの写しからも引く（データは残る）・削除済みは引かない。
+  知見は本文を開く先が無いので ``dataset_id`` は ``None``。
 """
 
 from __future__ import annotations
@@ -60,6 +64,36 @@ def _paper_graphs(registry_root: Path) -> dict[str, tuple[str, str]]:
     return out
 
 
+def _knowledge_graphs(registry_root: Path) -> dict[str, str]:
+    """知識の束の写しの ``{graph IRI: 写しの題}``。公開したことがある写し（``promoted``）で、
+    **取り下げ済みも含める**・削除済みと共有語彙は含めない。"""
+    out: dict[str, str] = {}
+    if not registry_root.is_dir():
+        return out
+    for child in sorted(registry_root.iterdir()):
+        did = valid_dataset_id(child.name) if child.is_dir() else None
+        if did is None:
+            continue
+        try:
+            meta = json.loads((child / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(meta, dict) or not meta.get("promoted"):
+            continue
+        ks = meta.get("knowledge_source")
+        if not isinstance(ks, dict) or str(meta.get("source_kind") or "") != "json":
+            continue
+        if meta.get("status") == "deleted" or meta.get("is_shared_vocab"):
+            continue
+        graph = (
+            meta.get("live_graph") or meta.get("graph_iri") or substrate.canonical_graph_iri(did)
+        )
+        if not _EVIDENCE_IRI.fullmatch(str(graph)):
+            continue
+        out[str(graph)] = str(ks.get("title") or "") or resolve_dataset_label(registry_root, did)
+    return out
+
+
 def cut(text: str) -> str:
     """150 字で切る（超えたら末尾に「…」）。"""
     return text if len(text) <= TEXT_MAX else text[:TEXT_MAX].rstrip() + "…"
@@ -103,8 +137,57 @@ async def resolve_evidence(
     if not wanted or registry_root is None:
         return {}
     graphs = _paper_graphs(Path(registry_root))
-    if not graphs:
-        return {}
+    out: dict[str, dict] = {}
+    if graphs:
+        out = await _resolve_paper_sentences(client, wanted, graphs)
+    rest = [i for i in wanted if i not in out]
+    kgraphs = _knowledge_graphs(Path(registry_root)) if rest else {}
+    if kgraphs:
+        out.update(await _resolve_claims(client, rest, kgraphs))
+    return out
+
+
+async def _resolve_claims(
+    client: Any, wanted: list[str], graphs: dict[str, str]
+) -> dict[str, dict]:
+    """知見（``kn:Claim``）の IRI → 札の形。題が空の知見は返さない。"""
+    from asterism.knowledge_bundle import KN_NS
+
+    gv = " ".join(f"<{g}>" for g in graphs)
+    ev = " ".join(f"<{i}>" for i in wanted)
+    res = await client.sparql_select(
+        "SELECT ?e ?g ?t ?url WHERE { "
+        f"VALUES ?e {{ {ev} }} VALUES ?g {{ {gv} }} "
+        f"GRAPH ?g {{ ?e a <{KN_NS}Claim> ; <http://www.w3.org/2000/01/rdf-schema#label> ?t . "
+        f"OPTIONAL {{ ?e <{KN_NS}sourceUrl> ?url }} }} }}"
+    )
+    rows = (res.get("results") or {}).get("bindings", []) if isinstance(res, dict) else []
+
+    def v(b: dict, k: str) -> str | None:
+        return (b.get(k) or {}).get("value")
+
+    out: dict[str, dict] = {}
+    for b in sorted(rows, key=lambda b: (v(b, "e") or "", v(b, "t") or "")):
+        iri, g, body = v(b, "e"), v(b, "g"), v(b, "t")
+        if not iri or iri in out or g not in graphs or not body or not body.strip():
+            continue
+        full = " ".join(body.split())
+        out[iri] = {
+            "iri": iri,
+            "text": cut(full),
+            "full": full,
+            "section": None,
+            "path": None,
+            "dataset_id": None,
+            "dataset_label": graphs[g],
+            "source_url": v(b, "url"),
+        }
+    return out
+
+
+async def _resolve_paper_sentences(
+    client: Any, wanted: list[str], graphs: dict[str, tuple[str, str]]
+) -> dict[str, dict]:
     gv = " ".join(f"<{g}>" for g in graphs)
     ev = " ".join(f"<{i}>" for i in wanted)
     po, nif, lit = doc.PO, doc.NIF, doc.LIT
