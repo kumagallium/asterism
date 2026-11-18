@@ -477,8 +477,12 @@ def _ledger_entries(reg_root: str | None, question: str) -> list[dict]:
 
     lang = _ledger_lang(question)
     out: list[dict] = []
+    found: list = []
     with contextlib.suppress(Exception):
-        for source, ledger, copy in ledger_answer.find_ledgers(reg_root):
+        found = ledger_answer.find_ledgers(reg_root)
+    for source, ledger, copy in found:
+        # 1 つの取り込み元が壊れていても、ほかの取り込み元の問いは出す
+        with contextlib.suppress(Exception):
             qs = ledger_answer.ledger_questions(ledger, copy, lang=lang)
             if qs:
                 out.append({"source": source, "ledger": ledger, "copy": copy, "questions": qs})

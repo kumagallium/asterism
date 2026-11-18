@@ -71,8 +71,9 @@ def _random_trial(seed: int) -> tuple[dict, KnowledgeCopy]:
         rel = rnd.choice(_RELS)
         if rel in pr.SYMMETRIC_PAIR_RELATIONS:
             a, b = sorted((a, b))
-        origin.append({"from": a, "rel": rel, "to": b, "by": "origin",
-                       **({"ai": rnd.choice(["agrees", "disputes", "rejected"])} if rnd.random() < 0.3 else {})})
+        origin.append({"from": a, "rel": rel, "to": b, "by": "origin"})
+    for o in origin:  # 取り込みの仕上げ（finalize）と同じく、AI の読みとの印を付ける
+        o["ai"] = "rejected" if rnd.random() < 0.1 else pr.origin_check(o, pairs)
     return _ledger(list(pairs.values()), origin), KnowledgeCopy(terms=terms)
 
 
@@ -92,6 +93,9 @@ def test_counts_equal_questions_and_answer_items_for_every_op_and_term() -> None
             assert a["found"] and len(a["items"]) == q["count"], (seed, q)
             assert all(it["sentence"] and it["uses"] for it in a["items"]), (seed, q)
             n_checked += 1
+            keys = [u["key"] for u in la.summarize_use([a])["unconfirmed"]]
+            _, res = pr.confirm(ld, keys, at=_AT)  # 確認ボタンが送る鍵は全部通る
+            assert res["skipped"] == [], (seed, q, res["skipped"])
     assert n_checked > 200
 
 
@@ -203,7 +207,10 @@ def test_uses_keys_are_the_keys_the_confirm_gate_accepts() -> None:
     assert sorted(out["changed"]) == sorted(keys) and out["skipped"] == []
     after = la.answer(new, copy, _find(new, copy, "kinds", "b"))
     assert all(it["confirmed"] for it in after["items"])
-    assert la.summarize_use([after]) == {"unconfirmed": [], "unconfirmed_count": 0, "confirmed_count": 2}
+    assert la.summarize_use([after]) == {
+        "unconfirmed": [], "unconfirmed_count": 0, "confirmed_count": 2,
+        "conflicts": [], "conflict_count": 0,
+    }
 
 
 def test_summarize_use_and_reply_block() -> None:
@@ -211,14 +218,16 @@ def test_summarize_use_and_reply_block() -> None:
     ld = _ledger([_pair("a", "sub", "b"), _pair("c", "sub", "b", confirmed={"at": _AT})])
     ans = la.answer(ld, copy, _find(ld, copy, "kinds", "b"))
     s = la.summarize_use([ans, ans])  # 同じ鍵は 1 度だけ
-    assert s == {"unconfirmed": [{"source": "lab", "key": "a|b"}], "unconfirmed_count": 1, "confirmed_count": 1}
+    assert s == {"unconfirmed": [{"source": "lab", "key": "a|b"}], "unconfirmed_count": 1,
+                 "confirmed_count": 1, "conflicts": [], "conflict_count": 0}
     blk = la.reply_block([ans, la.answer(ld, copy, {"op": "kinds", "term": {"id": "zz"}, "text": "t", "name": "lq_x"})])
     assert blk is not None and len(blk["questions"]) == 1 and blk["unconfirmed_count"] == 1
-    assert set(blk["items"][0]) == {"label", "sentence", "confirmed", "tentative", "context", "evidence_total", "evidence", "uses"}
+    assert set(blk["items"][0]) == {"question", "label", "sentence", "confirmed", "tentative", "context", "evidence_total", "evidence", "uses"}
     assert la.reply_block([]) is None
     assert la.reply_block(list([la.answer(ld, copy, {"op": "kinds", "term": {"id": "zz"}, "text": "t", "name": "n"})])) is None
     cut = la.reply_block([ans], limit=1)
     assert cut is not None and len(cut["items"]) == 1 and cut["items_total"] == 2
+    assert cut["questions"][0]["shown"] == 1 and cut["questions"][0]["count"] == 2
 
 
 def test_names_are_unique_and_safe_for_odd_term_ids() -> None:
@@ -262,3 +271,56 @@ def test_find_ledgers_skips_retracted_missing_and_broken(tmp_path: Path) -> None
     one = la.load_source(tmp_path, "good")
     assert one is not None and one[0]["source"] == "good"
     assert la.load_source(tmp_path, "gone") is None and la.load_source(tmp_path, "broken") is None
+
+
+# ---- 反証の再現（14e-2 の止める欠陥） ---------------------------------------------------------
+
+
+def test_the_cut_is_per_question_so_unconfirmed_never_drops_out_of_the_mark() -> None:
+    terms = _terms(("X", "物質甲", "class"), ("Y", "物質乙", "class"))
+    pairs = []
+    for i in range(60):
+        terms += _terms((f"m{i}", f"手法{i:02d}", "class"))
+        pairs.append(_pair(f"m{i}", "makes", "X", confirmed={"at": _AT}))
+    for i in range(3):
+        pairs.append(_pair(f"m{i}", "makes", "Y"))
+    ld, copy = _ledger(pairs), KnowledgeCopy(terms=terms)
+    qx, qy = _find(ld, copy, "makers", "X"), _find(ld, copy, "makers", "Y")
+    blk = la.reply_block([la.answer(ld, copy, qx), la.answer(ld, copy, qy)])
+    assert blk is not None
+    assert blk["items_total"] == 63 and len(blk["items"]) == 53
+    assert [q["shown"] for q in blk["questions"]] == [50, 3]
+    assert blk["unconfirmed_count"] == 3 and blk["confirmed_count"] == 50
+    assert {i["question"] for i in blk["items"]} == {qx["name"], qy["name"]}
+
+
+def test_two_unconfirmed_relations_on_one_pair_are_conflicts_not_confirmable() -> None:
+    copy = KnowledgeCopy(terms=_terms(("a", "甲", "class"), ("b", "乙", "class")))
+    ld = _ledger([], origin=[{"from": "a", "rel": "sub", "to": "b", "by": "origin"},
+                             {"from": "a", "rel": "part", "to": "b", "by": "origin"}])
+    ans = [la.answer(ld, copy, _find(ld, copy, "kinds", "b")),
+           la.answer(ld, copy, _find(ld, copy, "parts", "b"))]
+    assert all(u.get("conflict") for a in ans for it in a["items"] for u in it["uses"])
+    s = la.summarize_use(ans)
+    assert s["unconfirmed"] == [] and s["unconfirmed_count"] == 0
+    assert s["conflict_count"] == 2 and len(s["conflicts"]) == 2
+    blk = la.reply_block(ans)
+    assert blk is not None and blk["conflict_count"] == 2 and blk["unconfirmed_count"] == 0
+
+
+def test_a_broken_ledger_body_is_skipped_or_dropped_never_raises(tmp_path: Path) -> None:
+    d = tmp_path / "d1"
+    (d / "source").mkdir(parents=True)
+    (d / "meta.json").write_text(json.dumps({"id": "d1"}), encoding="utf-8")
+    (d / "source" / "terms.json").write_text(json.dumps(_terms(("a", "甲", "class"), ("b", "乙", "class"))), encoding="utf-8")
+    ld = pr.empty_ledger("lab")
+    ld["dataset_id"] = "d1"
+    ld["pairs"] = {"a|b": {"key": "a|b", "state": "relation", "rel": "sub"},  # from/to が無い
+                   "b|c": {"key": "b|c", "state": "relation", "rel": "sub", "from": "c", "to": "b", "evidence": "x"}}
+    ld["origin"] = [{"from": "a"}, "junk", {"from": "a", "rel": "sub", "to": "b"}]
+    pr.save_ledger(tmp_path, ld, at=_AT)
+    got = la.load_source(tmp_path, "lab")
+    assert got is not None
+    ledger, copy = got
+    assert list(ledger["pairs"]) == ["b|c"] and len(ledger["origin"]) == 1
+    assert la.ledger_questions(ledger, copy) is not None  # 落ちない

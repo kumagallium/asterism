@@ -1435,3 +1435,20 @@ def test_no_tool_when_there_is_no_registry_or_no_question(monkeypatch, tmp_path)
     assert demo._ledger_entries(None, "q") == []
     monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(tmp_path))
     assert demo._ledger_entries(str(tmp_path), "q") == []
+
+
+def test_one_broken_source_does_not_hide_the_questions_of_the_others(monkeypatch, tmp_path) -> None:
+    from asterism import ledger_answer
+
+    _ledger_registry(tmp_path, "good", "ds-good")
+    _ledger_registry(tmp_path, "bad", "ds-bad")
+    real = ledger_answer.ledger_questions
+
+    def flaky(ledger, copy, **kw):
+        if ledger["source"] == "bad":
+            raise RuntimeError("broken")
+        return real(ledger, copy, **kw)
+
+    monkeypatch.setattr(ledger_answer, "ledger_questions", flaky)
+    entries = demo._ledger_entries(str(tmp_path), "q")
+    assert [e["source"] for e in entries] == ["good"]

@@ -91,6 +91,7 @@ def _collect(ledger: Mapping[str, Any], copy: KnowledgeCopy) -> dict[tuple, list
         hits.setdefault((op, tid, direction), []).append(hit)
 
     seen: set[tuple[str, str, str]] = set()
+    every: list[dict] = []
     factor_rows: list[tuple[dict, str, str]] = []  # （記録, 下げる等の関係, その to）
     parents: dict[str, dict[str, dict]] = {}  # 語 → {それが一部になっている語: part の記録}
     ends: set[str] = set()
@@ -101,6 +102,7 @@ def _collect(ledger: Mapping[str, Any], copy: KnowledgeCopy) -> dict[tuple, list
             continue
         seen.add((frm, rel, to))
         rec = _record(ledger, r)
+        every.append(rec)
         ends.update((frm, to))
         if rel == "has_property":
             owners.setdefault(to, {})[frm] = rec
@@ -118,6 +120,16 @@ def _collect(ledger: Mapping[str, Any], copy: KnowledgeCopy) -> dict[tuple, list
             for tid in {"to": [to], "from": [frm], "either": [frm, to]}[side]:
                 other = frm if tid == to else to  # 向きなしで両端が同じ語のときも 1 件ずつ数える
                 add(op, tid, None, {"other": other, "via": tid, "recs": [rec], "primary": rec})
+
+    # 同じ 2 語に未確認の見せる関係が 2 本以上 → 確認の口は 1 組に 1 本しか確認できない
+    # （2 本目は ``pair_has_relation``）ので、確認ボタンの対象から外す印を付ける
+    per_pair: dict[str, int] = {}
+    for rec in every:
+        rec["pair"] = "|".join(sorted((str(rec["from"]), str(rec["to"]))))
+        if not rec["confirmed"]:
+            per_pair[rec["pair"]] = per_pair.get(rec["pair"], 0) + 1
+    for rec in every:
+        rec["conflict"] = not rec["confirmed"] and per_pair.get(rec["pair"], 0) >= 2
 
     for rec, rel, to in factor_rows:
         for d in _FACTOR_DIRECTIONS[rel]:
@@ -271,7 +283,12 @@ def answer(
         evidence, total = _evidence(rec, claims)
         entry = (rec or {}).get("entry") or {}
         ctx = [names[str(t)] for t in entry.get("context") or [] if str(t) in names]
-        uses = [{"source": source, "key": r["key"], "confirmed": r["confirmed"]} for r in h["recs"]]
+        uses = []
+        for r in h["recs"]:
+            u = {"source": source, "key": r["key"], "confirmed": r["confirmed"]}
+            if r["conflict"]:
+                u["conflict"] = True
+            uses.append(u)
         items.append(
             {
                 "label": names.get(h["other"], h["other"]),
@@ -304,9 +321,12 @@ def answer(
 
 
 def summarize_use(answers: Sequence[Mapping[str, Any]]) -> dict:
-    """答えに使った関係のうち、未確認の鍵（重複なし）。``{unconfirmed: [{source, key}],
-    unconfirmed_count, confirmed_count}``。「N 件」＝確認できる鍵の数。"""
+    """答えに使った関係のうち、確認ボタンで確認できる未確認の鍵（重複なし）。
+    ``{unconfirmed: [{source, key}], unconfirmed_count, confirmed_count, conflicts: [{source, key}],
+    conflict_count}``。「N 件」＝確認できる鍵の数。同じ 2 語に未確認の関係が複数ある（``uses`` の
+    ``conflict``）関係は ``unconfirmed`` に入れず ``conflicts`` に分ける。"""
     unconfirmed: dict[tuple[str, str], None] = {}
+    conflicts: dict[tuple[str, str], None] = {}
     confirmed: set[tuple[str, str]] = set()
     for a in answers:
         for item in a.get("items") or []:
@@ -314,33 +334,45 @@ def summarize_use(answers: Sequence[Mapping[str, Any]]) -> dict:
                 k = (str(u["source"]), str(u["key"]))
                 if u.get("confirmed"):
                     confirmed.add(k)
+                elif u.get("conflict"):
+                    conflicts[k] = None
                 else:
                     unconfirmed[k] = None
-    confirmed -= set(unconfirmed)
+    confirmed -= set(unconfirmed) | set(conflicts)
     return {
         "unconfirmed": [{"source": s, "key": k} for s, k in unconfirmed],
         "unconfirmed_count": len(unconfirmed),
         "confirmed_count": len(confirmed),
+        "conflicts": [{"source": s, "key": k} for s, k in conflicts],
+        "conflict_count": len(conflicts),
     }
 
 
 def reply_block(
     answers: Sequence[Mapping[str, Any]], *, limit: int = REPLY_ITEMS_MAX
 ) -> dict | None:
-    """答えを ``reply.answer.ledger`` の形にする。使った答えが無い（見つかった答えが 0）なら
-    ``None``。項目は先頭から ``limit`` 件まで（確認の対象も載せた分だけ）。"""
+    """答えを ``reply.answer.ledger`` の形にする。使った答え（見つかったもの）が無ければ ``None``。
+
+    項目は**問いごとに**先頭 ``limit`` 件（AI に見せた物と同じ）をつなぎ、各項目に ``question``
+    （問いの名前）を足す。``unconfirmed``・``conflicts`` と数は、載せた項目（＝AI に見せた全部）から
+    数える。``items_total`` は全数・``questions[].shown`` は問いごとに載せた数。"""
     used = [a for a in answers if a.get("found")]
     if not used:
         return None
     items: list[dict] = []
     total = 0
+    qs: list[dict] = []
     for a in used:
         total += len(a["items"])
-        for it in a["items"]:
-            if len(items) >= limit:
-                break
+        cut = a["items"][: max(0, limit)]
+        qs.append(
+            {"source": a["source"], "name": a["name"], "text": a["question"],
+             "count": a["count"], "shown": len(cut)}
+        )
+        for it in cut:
             items.append(
                 {
+                    "question": a["name"],
                     "label": it["label"],
                     "sentence": it["sentence"],
                     "confirmed": it["confirmed"],
@@ -354,15 +386,11 @@ def reply_block(
                     "uses": it["uses"],
                 }
             )
-    shown = summarize_use([{"items": items}])
     return {
-        "questions": [
-            {"source": a["source"], "name": a["name"], "text": a["question"], "count": a["count"]}
-            for a in used
-        ],
+        "questions": qs,
         "items": items,
         "items_total": total,
-        **shown,
+        **summarize_use([{"items": items}]),
     }
 
 
@@ -379,14 +407,40 @@ def _read_ledger(path: Path) -> dict | None:
         not isinstance(data, dict)
         or data.get("version") != pr.LEDGER_VERSION
         or not isinstance(data.get("pairs"), dict)
-        or not isinstance(data.get("origin", []), list)
+        or not isinstance(data.get("origin") or [], list)
         or not isinstance(data.get("source"), str)
     ):
         return None
-    data["pairs"] = {k: v for k, v in data["pairs"].items() if isinstance(v, dict) and "key" in v}
-    data.setdefault("origin", [])
+    data["pairs"] = {
+        k: _clean_pair(v)
+        for k, v in data["pairs"].items()
+        if isinstance(v, dict) and "key" in v and _pair_ok(v)
+    }
+    data["origin"] = [o for o in data.get("origin") or [] if _origin_ok(o)]
     data.setdefault("dataset_id", None)
     return data
+
+
+def _strs(*vals: Any) -> bool:
+    return all(isinstance(v, str) and v for v in vals)
+
+
+def _pair_ok(e: Mapping[str, Any]) -> bool:
+    """走者が読める組の件か。関係を持つ件は ``rel``・``from``・``to`` が文字列であること。"""
+    if e.get("state") == "relation" and not e.get("orphan"):
+        return _strs(e.get("rel"), e.get("from"), e.get("to"))
+    return True
+
+
+def _clean_pair(e: dict) -> dict:
+    for k in ("evidence", "context", "claims"):
+        if not isinstance(e.get(k, []), list):
+            e[k] = []
+    return e
+
+
+def _origin_ok(o: Any) -> bool:
+    return isinstance(o, dict) and _strs(o.get("rel"), o.get("from"), o.get("to"))
 
 
 def _copy_of(root: Path, ledger: Mapping[str, Any]) -> KnowledgeCopy | None:

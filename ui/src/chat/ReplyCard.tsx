@@ -10,6 +10,7 @@ import { clipEvidence, evidenceSource } from './evidenceText'
 import { EvidenceLine } from './EvidenceLine'
 import { useOpenPaper } from './paperReaderContext'
 import { LedgerAnswerView } from './ledgerAnswer/LedgerAnswerView'
+import { hasUnconfirmed } from './ledgerAnswer/types'
 import { tableName } from './tableName'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -221,7 +222,7 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
           {n}
         </p>
       ))}
-      {answer.verified_tools.length > 0 && !answer.unverified_sparql && !(answer.ledger && answer.ledger.unconfirmed_count > 0) && (
+      {answer.verified_tools.length > 0 && !answer.unverified_sparql && !(answer.ledger && hasUnconfirmed(answer.ledger)) && (
         <span className="chat-mark chat-mark--confirmed" data-testid="reply-verified" title={answer.verified_tools.join(' · ')}>
           {t('ask.verified')}
         </span>

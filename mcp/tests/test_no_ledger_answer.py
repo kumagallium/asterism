@@ -1,4 +1,4 @@
-"""MCP は確認済みの関係だけで答える（design §23.7）。台帳の走者（未確認も使う）は MCP に入れない。"""
+"""MCP は確認済みの関係だけで答える（design §23.7）。台帳の走者は MCP に入れない。"""
 
 from __future__ import annotations
 

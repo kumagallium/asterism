@@ -924,6 +924,11 @@ export function ChatApp() {
     return () => window.removeEventListener(LEDGER_REVIEWED_EVENT, on)
   }, [afterChange])
 
+  // 知識グラフの場所などで台帳が変わったら、チャットの答えも今の台帳で数え直す（答えの部品が合図を聞く。チャットは隠れるだけで消えない）
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(LEDGER_REVIEWED_EVENT))
+  }, [ledger.ledgers])
+
   const list = (
     <SessionList
       sessions={sessions}

@@ -2354,6 +2354,8 @@ _ASK_TEXT = {
         "ledger": "「{q}」として、次の {n} 件が記録されています。",
         "ledger_none": "「{q}」に当てはまる関係は、今は見つかりません。取り込み直したときに"
         "無くなった可能性があります",
+        "ledger_none_noq": "この問いに当てはまる関係は、今は見つかりません。取り込み直したときに"
+        "無くなった可能性があります",
         "ledger_gone": "この問いに答える関係を読めませんでした。取り込みが終わっているか"
         "確かめてください",
     },
@@ -2366,6 +2368,8 @@ _ASK_TEXT = {
         "ledger": "For \"{q}\", these {n} are on record.",
         "ledger_none": "No relation fits \"{q}\" right now. It may have gone when the source "
         "was imported again",
+        "ledger_none_noq": "No relation fits this question right now. It may have gone when the "
+        "source was imported again",
         "ledger_gone": "Could not read the relations for this question. Check that the import "
         "has finished",
     },
@@ -2419,7 +2423,12 @@ def ask_history(session: dict) -> list[dict]:
     out: list[dict] = []
     for t in kept[-_ASK_HISTORY:]:
         said = (t.get("user") or {}).get("text")
-        answer = str(((t.get("reply") or {}).get("answer") or {}).get("text") or "").strip()
+        ans = (t.get("reply") or {}).get("answer") or {}
+        answer = str(ans.get("text") or "").strip()
+        if answer and _uses_unconfirmed(ans):
+            # 未確認の関係を使った答えの文は、印なしで次の問いに持ち越さない（中身を出さない）
+            ja = re.search(r"[\u3040-\u30ff\u4e00-\u9fff]", answer)
+            answer = _ASK_UNCONFIRMED_SAID["ja" if ja else "en"]
         if said and answer:
             out.append({"role": "user", "content": str(said)[:_MAX_CONTENT]})
             out.append({"role": "assistant", "content": answer[:_MAX_CONTENT]})
@@ -2508,12 +2517,34 @@ def _answer_of(data: dict, cited: dict[str, dict[str, str]]) -> dict:
 
 def _ledger_of(raw: Any) -> dict | None:
     """demo-agent の ``ledger``（機械が集めた使った関係）→ ``reply.answer.ledger``。形が違えば
-    ``None``（印は付けない）。"""
-    if not isinstance(raw, dict) or not isinstance(raw.get("items"), list):
+    ``None``（印は付けない）。知らない欄はそのまま通し、古い形（``conflicts``・``items_total`` が
+    無い）は足りない欄を補って読む。"""
+    if not isinstance(raw, dict):
         return None
-    if not isinstance(raw.get("questions"), list):
+    if not isinstance(raw.get("items"), list) or not isinstance(raw.get("questions"), list):
         return None
-    return raw
+    out = dict(raw)
+    out.setdefault("unconfirmed", [])
+    out.setdefault("unconfirmed_count", len(out["unconfirmed"]))
+    out.setdefault("confirmed_count", 0)
+    out.setdefault("conflicts", [])
+    out.setdefault("conflict_count", len(out["conflicts"]))
+    out.setdefault("items_total", len(out["items"]))
+    return out
+
+
+_ASK_UNCONFIRMED_SAID = {
+    "ja": "（この答えは未確認の関係を使っていました。必要なら道具で引き直してください）",
+    "en": "(This answer used relations that are not confirmed yet. Look them up again with the "
+    "tools if you need them.)",
+}
+
+
+def _uses_unconfirmed(answer: dict) -> bool:
+    led = answer.get("ledger")
+    if not isinstance(led, dict):
+        return False
+    return int(led.get("unconfirmed_count") or 0) > 0 or int(led.get("conflict_count") or 0) > 0
 
 
 def run_ask_turn(
@@ -2559,7 +2590,10 @@ def run_ask_ledger_turn(
     t = _ASK_TEXT[_lg(lang)]
     q = text.strip()
     if block is None:
-        said = t["ledger_gone"] if gone else t["ledger_none"].format(q=q)
+        if gone:
+            said = t["ledger_gone"]
+        else:
+            said = t["ledger_none"].format(q=q) if q else t["ledger_none_noq"]
         # answer は付けない（Ask の失敗と同じ）
         reply = _reply(said, notes=[note("ask_ledger_declined", said)])
     else:
@@ -2573,7 +2607,9 @@ def run_ask_ledger_turn(
     return _append_turn(
         session,
         at=at,
-        user={"text": q, "attachments": []},
+        # 問いの文が無いとき（消えた問いの名前しか無い）は人の側の文を置かない
+        # （チャットの題が ``lq_…`` の名前にならないように）
+        user={"text": q, "attachments": []} if q else None,
         reply=reply,
         state="none",
         before=None,

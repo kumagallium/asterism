@@ -84,7 +84,8 @@ def test_pressing_a_question_answers_without_the_ai_or_demo_agent(tmp_path: Path
         assert ans["text"] == "「乙 の一種」として、次の 2 件が記録されています。"
         assert ans["answered"] is True and ans["verified_tools"] == [] and ans["citations"] == []
         led = ans["ledger"]
-        assert led["questions"] == [{"source": "lab", "name": name, "text": "乙 の一種", "count": 2}]
+        assert led["questions"] == [{"source": "lab", "name": name, "text": "乙 の一種", "count": 2,
+                                  "shown": 2}]
         assert [i["label"] for i in led["items"]] == ["丙", "甲"]
         by = {i["label"]: i for i in led["items"]}
         assert by["甲"]["confirmed"] is True and by["丙"]["confirmed"] is False
@@ -167,3 +168,63 @@ def test_the_pressed_question_becomes_the_title_unless_the_user_named_it(tmp_pat
         client.patch(f"/api/chat/sessions/{named}", json={"title": "自分の題"})
         _post(client, named, {"ask_ledger": {"source": "lab", "name": name}})
         assert client.get(f"/api/chat/sessions/{named}").json()["title"] == "自分の題"
+
+
+def test_a_broken_ledger_body_is_a_refusal_not_a_500(tmp_path: Path) -> None:
+    client, root, _ = _setup(tmp_path)
+    ld = pr.load_ledger(root, "lab")
+    ld["pairs"]["x|y"] = {"key": "x|y", "state": "relation", "rel": "sub"}  # from/to が無い
+    ld["origin"] = ["junk", {"from": "a"}]
+    pr.save_ledger(root, ld, at=_AT)
+    with client:
+        sid = _new(client)
+        r = _post(client, sid, {"ask_ledger": {"source": "lab", "name": "lq_kinds_b", "text": "乙 の一種"}})
+        assert r.status_code == 201, r.text
+        assert r.json()["turn"]["reply"]["answer"]["ledger"]["items_total"] == 2  # 壊れた件だけ落として答える
+        import unittest.mock as um
+
+        with um.patch.object(la, "find_question", side_effect=RuntimeError("boom")):
+            bad = _post(client, sid, {"ask_ledger": {"source": "lab", "name": "lq_kinds_b"}})
+        assert bad.status_code == 201 and bad.json()["turn"]["reply"]["answer"] is None
+
+
+def test_a_refusal_without_any_question_text_has_no_user_side(tmp_path: Path) -> None:
+    client, _, _ = _setup(tmp_path)
+    with client:
+        sid = _new(client)
+        t = _post(client, sid, {"ask_ledger": {"source": "lab", "name": "lq_kinds_zzz"}}).json()["turn"]
+        assert t["user"] is None and "lq_" not in json.dumps(t, ensure_ascii=False)
+        assert client.get(f"/api/chat/sessions/{sid}").json()["title"] == ""  # 題は付けない
+        assert "見つかりません" in t["reply"]["text"]
+
+
+def test_history_never_carries_the_text_of_an_answer_that_used_unconfirmed_relations(tmp_path: Path) -> None:
+    from asterism_api import chat_turns
+
+    def turn(text: str, ledger: dict | None) -> dict:
+        return {"user": {"text": "問い"}, "state": "none",
+                "reply": {"answer": {"text": text, "ledger": ledger}}}
+
+    session = {"turns": [
+        turn("丙は乙の一種です。", {"unconfirmed_count": 1, "conflict_count": 0, "items": [], "questions": []}),
+        turn("競合する関係があります。", {"unconfirmed_count": 0, "conflict_count": 2}),
+        turn("甲は乙の一種です。", {"unconfirmed_count": 0, "conflict_count": 0}),
+        turn("台帳を使わない答え。", None),
+        turn("Gamma is a kind of B.", {"unconfirmed_count": 2}),
+    ]}
+    said = [m["content"] for m in chat_turns.ask_history(session) if m["role"] == "assistant"]
+    assert said[0] == said[1] == chat_turns._ASK_UNCONFIRMED_SAID["ja"]
+    assert said[2:4] == ["甲は乙の一種です。", "台帳を使わない答え。"]
+    assert said[4] == chat_turns._ASK_UNCONFIRMED_SAID["en"]
+    assert "丙" not in json.dumps(said, ensure_ascii=False)
+
+
+def test_ledger_of_reads_an_old_shape_and_ignores_unknown_fields() -> None:
+    from asterism_api import chat_turns
+
+    old = {"questions": [], "items": [{"label": "x"}], "unconfirmed": [{"source": "s", "key": "k"}],
+           "unconfirmed_count": 1, "confirmed_count": 0, "future_field": 1}
+    got = chat_turns._ledger_of(old)
+    assert got is not None and got["conflicts"] == [] and got["conflict_count"] == 0
+    assert got["items_total"] == 1 and got["future_field"] == 1
+    assert chat_turns._ledger_of({"items": 1, "questions": []}) is None

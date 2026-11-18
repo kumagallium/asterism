@@ -93,3 +93,22 @@
 .la-bar-quiet {
   font-size: 0.8rem;
 }
+.la-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.la-h {
+  margin: 4px 0 0;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.la-st--rej {
+  border-style: solid;
+  border-color: var(--warn-border);
+  color: var(--warn-fg);
+}
+.la-bar a {
+  color: inherit;
+  text-decoration: underline;
+}

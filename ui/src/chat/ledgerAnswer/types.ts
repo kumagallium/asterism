@@ -5,6 +5,8 @@ export interface LedgerUse {
   source: string
   key: string
   confirmed: boolean
+  /** 同じ 2 語に見せている関係が複数あり、確認ボタンでは確認できない（知識グラフで 1 つ選ぶ）。古い形には無い。 */
+  conflict?: boolean
 }
 
 export interface LedgerEvidence {
@@ -21,6 +23,8 @@ export interface LedgerItem {
   evidence_total: number
   evidence: LedgerEvidence[]
   uses: LedgerUse[]
+  /** どの問いの項目か（問いの名前）。古い形には無い。 */
+  question?: string
 }
 
 export interface LedgerQuestionRef {
@@ -28,6 +32,8 @@ export interface LedgerQuestionRef {
   name: string
   text: string
   count: number
+  /** 見せた数（`count` より少なければ「ほか N 件」）。古い形には無い。 */
+  shown?: number
 }
 
 export interface LedgerAnswer {
@@ -38,6 +44,9 @@ export interface LedgerAnswer {
   unconfirmed: { source: string; key: string }[]
   unconfirmed_count: number
   confirmed_count: number
+  /** 確認ボタンでは確認できない関係（同じ 2 語に関係が複数）。古い形には無い（空・0）。 */
+  conflicts: { source: string; key: string }[]
+  conflict_count: number
 }
 
 type Obj = Record<string, unknown>
@@ -66,13 +75,14 @@ export function ledgerOf(v: unknown): LedgerAnswer | null {
         uses: arr(i.uses)
           .filter(isObj)
           .filter((u) => typeof u.key === 'string' && typeof u.source === 'string')
-          .map((u) => ({ source: str(u.source), key: str(u.key), confirmed: u.confirmed === true })),
+          .map((u) => ({ source: str(u.source), key: str(u.key), confirmed: u.confirmed === true, ...(u.conflict === true ? { conflict: true } : {}) })),
+        ...(typeof i.question === 'string' && i.question !== '' ? { question: i.question } : {}),
       }),
     )
   return {
     questions: arr(v.questions)
       .filter(isObj)
-      .map((q) => ({ source: str(q.source), name: str(q.name), text: str(q.text), count: num(q.count) })),
+      .map((q) => ({ source: str(q.source), name: str(q.name), text: str(q.text), count: num(q.count), ...(typeof q.shown === 'number' ? { shown: num(q.shown) } : {}) })),
     items,
     items_total: Math.max(num(v.items_total), items.length),
     unconfirmed: arr(v.unconfirmed)
@@ -81,6 +91,11 @@ export function ledgerOf(v: unknown): LedgerAnswer | null {
       .map((u) => ({ source: str(u.source), key: str(u.key) })),
     unconfirmed_count: num(v.unconfirmed_count),
     confirmed_count: num(v.confirmed_count),
+    conflicts: arr(v.conflicts)
+      .filter(isObj)
+      .filter((u) => typeof u.key === 'string' && typeof u.source === 'string')
+      .map((u) => ({ source: str(u.source), key: str(u.key) })),
+    conflict_count: num(v.conflict_count),
   }
 }
 
@@ -91,4 +106,32 @@ export const relKey = (source: string, key: string): string => `${source}\u0000$
 export function itemPending(item: LedgerItem, done: ReadonlySet<string>): boolean {
   if (item.uses.length === 0) return !item.confirmed
   return item.uses.some((u) => !u.confirmed && !done.has(relKey(u.source, u.key)))
+}
+
+/** 答えに未確認の印が付くか（緑の「決定論の道具で答えました」を出さない条件）。 */
+export function hasUnconfirmed(l: LedgerAnswer): boolean {
+  return l.unconfirmed_count > 0 || l.conflict_count > 0 || l.items.some((i) => !i.confirmed)
+}
+
+export interface ItemGroup {
+  /** 問いの文（1 問だけの答えでは null＝小見出しなし）。 */
+  heading: string | null
+  items: LedgerItem[]
+  /** 見せきれなかった数（「ほか N 件」）。 */
+  more: number
+}
+
+/** 項目を問いごとにまとめる（問いが 2 つ以上で、項目が問いの名前を持つときだけ）。「ほか N 件」は問いごと。 */
+export function groupItems(l: LedgerAnswer): ItemGroup[] {
+  const grouped = l.questions.length > 1 && l.items.length > 0 && l.items.every((i) => i.question)
+  if (!grouped) {
+    const q = l.questions.length === 1 ? l.questions[0] : null
+    const more = q && q.shown !== undefined ? q.count - q.shown : l.items_total - l.items.length
+    return [{ heading: null, items: l.items, more: Math.max(0, more) }]
+  }
+  return l.questions.map((q) => ({
+    heading: q.text || q.name,
+    items: l.items.filter((i) => i.question === q.name),
+    more: Math.max(0, q.shown !== undefined ? q.count - q.shown : 0),
+  }))
 }

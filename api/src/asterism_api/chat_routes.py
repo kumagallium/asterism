@@ -606,15 +606,19 @@ def register_chat(
 
     def _ledger_answer_for(source: str, name: str, lang: str) -> dict:
         """台帳と写しを読んで問いに答える（ブロッキング）。``{text, block, gone}``。"""
-        loaded = ledger_answer.load_source(root, source)
-        if loaded is None:
+        try:
+            loaded = ledger_answer.load_source(root, source)
+            if loaded is None:
+                return {"text": "", "block": None, "gone": True}
+            ledger, copy = loaded
+            q = ledger_answer.find_question(ledger, copy, name, lang=lang)
+            if q is None:
+                return {"text": "", "block": None, "gone": False}
+            block = ledger_answer.reply_block([ledger_answer.answer(ledger, copy, q, lang=lang)])
+            return {"text": q["text"], "block": block, "gone": False}
+        except Exception:  # 台帳の中身が壊れていても、断り文で返す（エラーにしない）
+            logger.warning("chat ask_ledger: ledger unreadable", exc_info=True)
             return {"text": "", "block": None, "gone": True}
-        ledger, copy = loaded
-        q = ledger_answer.find_question(ledger, copy, name, lang=lang)
-        if q is None:
-            return {"text": "", "block": None, "gone": False}
-        block = ledger_answer.reply_block([ledger_answer.answer(ledger, copy, q, lang=lang)])
-        return {"text": q["text"], "block": block, "gone": False}
 
     def _n_datasets() -> int:
         """公開済みのデータセットの数（sky は読まない軽い読み）。"""
@@ -670,10 +674,8 @@ def register_chat(
             )
             async with lock:
                 session = _session_or_404(session_id)
-                asked = (
-                    found["text"] or (body.ask_ledger.text or "").strip() or body.ask_ledger.name
-                )
-                if not (session.get("title") or "").strip():
+                asked = found["text"] or (body.ask_ledger.text or "").strip()
+                if asked and not (session.get("title") or "").strip():
                     # 一覧で見分けが付くよう、押した問いの文を題にする（利用者が付けた題は変えない）
                     session["title"] = asked[:80]
                 turn = chat_turns.run_ask_ledger_turn(
