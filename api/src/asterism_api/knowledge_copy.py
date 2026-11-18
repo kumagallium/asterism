@@ -47,6 +47,7 @@ __all__ = [
     "KNOWLEDGE_TIMEOUT_S",
     "MAX_BUNDLE_BYTES",
     "CopyError",
+    "busy_kind",
     "copy_is_current",
     "copy_knowledge",
     "find_copy_dataset",
@@ -60,6 +61,22 @@ KNOWLEDGE_TIMEOUT_S = 300.0
 #: 取り込み元の名前（MCP のサーバ名と同じ形。meta に入り、同じ名前の写しを探す鍵になる）。
 _SOURCE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _GONE = ("retracted", "deleted")
+
+
+def busy_kind(app: FastAPI, source: str) -> str | None:
+    """この取り込み元で今走っている作業の種類（無ければ None）。「同時に 1 つだけ」の印を 1 つの
+    見方にまとめる関数で、写す・関係を選ぶ・取り込み・外すの口はどれもこれを見る。
+
+    種類は ``import``・``remove``（``app.state.knowledge_busy``＝取り込みの口が付ける）→ ``copy``
+    （``knowledge_copy_running``）→ ``relations``（``knowledge_relations_running``）の順に見る。"""
+    held: dict[str, str] = getattr(app.state, "knowledge_busy", None) or {}
+    if source in held:
+        return held[source]
+    if source in (getattr(app.state, "knowledge_copy_running", None) or set()):
+        return "copy"
+    if source in (getattr(app.state, "knowledge_relations_running", None) or set()):
+        return "relations"
+    return None
 
 
 class CopyError(Exception):
@@ -119,11 +136,14 @@ async def copy_knowledge(
     raw_bundle: Any,
     token: str | None,
     lang: str = "ja",
+    held_by: str | None = None,
 ) -> dict[str, Any]:
     """束を検査して、取り込み元 ``source`` の写しのデータセットを作る／作り直す。
 
     返り ``{dataset_id, created, version, triples, counts, dropped}``。失敗は :class:`CopyError`。
     同じ取り込み元で同時に 2 つは走らせない（2 つ目は 409）。待ち手が消えても公開まで走る。
+    ``held_by`` は、呼び手が自分で付けた ``busy_kind`` の印の種類（取り込みのジョブが
+    ``"import"`` を付けて呼ぶ）。その印だけは通す。
     """
     # Imported here: chat_attach pulls in most of the app.
     from asterism_api.chat_attach import make_http
@@ -138,6 +158,9 @@ async def copy_knowledge(
         app.state.knowledge_copy_running = running
     if source in running:
         raise CopyError(409, f"{source} の写しは作っている途中です")
+    other = busy_kind(app, source)
+    if other is not None and other != held_by:
+        raise CopyError(409, f"{source} は別の作業 ({other}) が走っている途中です")
     running.add(source)
 
     async def run() -> dict[str, Any]:

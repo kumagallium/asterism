@@ -29,8 +29,15 @@ from pathlib import Path
 from typing import Any
 
 from asterism import knowledge_bundle
+from asterism.graph_diff import PRED_TO_REL
+from asterism.knowledge import LINE_OPS, MISSING_MIN_OTHERS
 from asterism.knowledge_bundle import KnowledgeCopy
-from asterism.themes import RELATION_KINDS, experiment_relation_problem
+from asterism.shared_vocab import describe_selection
+from asterism.themes import (
+    RELATION_KINDS,
+    experiment_relation_problem,
+    knowledge_target_kind_ok,
+)
 
 __all__ = [
     "CONTEXT_MAX",
@@ -43,6 +50,7 @@ __all__ = [
     "annotate",
     "build_tasks",
     "check_answer",
+    "counts_by_state",
     "drop_cycles",
     "empty_ledger",
     "failed_entry",
@@ -53,8 +61,12 @@ __all__ = [
     "origin_check",
     "origin_relations",
     "plan_run",
+    "questions",
     "relation_problem",
+    "remove_ledger",
     "save_ledger",
+    "shown_relations",
+    "strip_unconfirmed",
     "summarize",
 ]
 
@@ -433,8 +445,8 @@ def origin_check(row: Mapping[str, Any], pairs: Mapping[str, Any]) -> str:
     ``pairs`` は台帳の ``pairs``（``key`` は 2 語の id を文字列順に ``|`` でつないだもの）。"""
     frm, to = str(row.get("from")), str(row.get("to"))
     entry = pairs.get("|".join(sorted((frm, to))))
-    if not entry or entry.get("orphan") or entry.get("state") == "failed":
-        return "unseen"
+    if not entry or entry.get("orphan") or entry.get("state") in (None, "failed"):
+        return "unseen"  # state の無い件（外したあとに縮めた「違う」の記録）も、まだ答えの無い組
     if entry.get("state") != "relation" or entry.get("rel") != row.get("rel"):
         return "disputes"
     if row.get("rel") in SYMMETRIC_PAIR_RELATIONS:
@@ -652,7 +664,9 @@ def finalize(ledger: Mapping[str, Any], copy: KnowledgeCopy, *, dataset_id: str 
 def summarize(ledger: Mapping[str, Any]) -> dict:
     """台帳の件数。
 
-    - ``orphans``: 写しから消えた組（記録として残すだけ）。``pairs`` も含め、ほかの数に入れない
+    - ``orphans``: 写しから消えた組（記録として残すだけ）。``pairs`` も含め、ほかの数に入れない。
+      ``state`` の無い件（外したあとに縮めた ``rejected`` だけの件。次に聞く回まで答えが無い）も
+      どの数にも入れない
     - ``origin``: 取り込み元の関係の件数。``origin_check``: その ``ai`` の印ごとの数
       （``ai`` が無い行は ``unseen``）
     - ``shown``: 既定で見せる関係の数 ＝ AI の関係（``relation``）＋ ``origin`` の ``unseen``
@@ -660,7 +674,8 @@ def summarize(ledger: Mapping[str, Any]) -> dict:
     - ``terms``: ``shown`` の関係に出る語の数
     - ``candidates``: 候補の数 ＝ ``none`` の組 ＋ ``origin`` の ``disputes``"""
     every = list((ledger.get("pairs") or {}).values())
-    pairs = [p for p in every if not p.get("orphan")]  # orphan は記録として残すだけ（数えない）
+    # orphan と state の無い件（外したあとに縮めた「違う」の記録）は、記録として残すだけ（数えない）
+    pairs = [p for p in every if not p.get("orphan") and p.get("state")]
     rel_entries = [p for p in pairs if p.get("state") == "relation"]
     dropped: dict[str, int] = {}
     for p in pairs:
@@ -668,30 +683,243 @@ def summarize(ledger: Mapping[str, Any]) -> dict:
             why = str(p.get("reason") or "")
             dropped[why] = dropped.get(why, 0) + 1
     by_rel: dict[str, int] = {}
-    ends: set[str] = set()
     for p in rel_entries:
         by_rel[str(p.get("rel"))] = by_rel.get(str(p.get("rel")), 0) + 1
-        ends.update((str(p["from"]), str(p["to"])))
     origin = list(ledger.get("origin") or [])
     check = {"agrees": 0, "disputes": 0, "unseen": 0}
     for o in origin:
         mark = o.get("ai") if o.get("ai") in check else "unseen"
         check[mark] += 1
-        if mark == "unseen":
-            ends.update((str(o["from"]), str(o["to"])))
+    shown = shown_relations(ledger)
+    ends: set[str] = set()
+    for r in shown:
+        ends.update((str(r["from"]), str(r["to"])))
     n_none = sum(1 for p in pairs if p.get("state") == "none")
     return {
         "pairs": len(pairs),
-        "orphans": len(every) - len(pairs),
+        "orphans": sum(1 for p in every if p.get("orphan")),
         "relations": len(rel_entries),
         "none": n_none,
         "dropped": dict(sorted(dropped.items())),
         "failed": sum(1 for p in pairs if p.get("state") == "failed"),
         "origin": len(origin),
         "origin_check": check,
-        "shown": len(rel_entries) + check["unseen"],
+        "shown": len(shown),
         "terms": len(ends),
         "candidates": n_none + check["disputes"],
         "by_rel": dict(sorted(by_rel.items())),
         "tentative": sum(1 for p in rel_entries if p.get("tentative")),
     }
+
+
+# ---- 見せる関係・答えられる問い・外す（14d-2a） -----------------------------------------------
+
+
+def shown_relations(ledger: Mapping[str, Any]) -> list[dict]:
+    """既定で見せる関係 ＝ AI の関係（``relation``・``orphan`` でない）＋ ``origin`` の ``unseen``
+    （``ai`` の印が無い行も ``unseen`` として数える）。
+
+    行は ``{from, rel, to, by, key?}``。AI の関係は ``key``（組の鍵）と ``by: "ai"``、取り込み元の
+    行は ``by: "origin"``。並びは AI の関係（``key`` の順）→ 取り込み元（台帳の並び）。
+    :func:`summarize` の ``shown``・``terms`` はこの一覧から数える。"""
+    out: list[dict] = []
+    pairs = ledger.get("pairs") or {}
+    for key in sorted(pairs):
+        p = pairs[key]
+        if p.get("orphan") or p.get("state") != "relation":
+            continue
+        out.append(
+            {
+                "from": str(p["from"]),
+                "rel": p.get("rel"),
+                "to": str(p["to"]),
+                "by": "ai",
+                "key": key,
+            }
+        )
+    for o in ledger.get("origin") or []:
+        if o.get("ai") in ("agrees", "disputes"):
+            continue
+        row = {"from": str(o["from"]), "rel": o.get("rel"), "to": str(o["to"]), "by": "origin"}
+        out.append(row)
+    return out
+
+
+def _confirmed_names() -> dict[str, frozenset[str]]:
+    """下書きの関係の名前 → 確定側の述語の名前（``graph_diff.PRED_TO_REL`` の逆引き）。
+    ``measures`` は相手の種別で割れるので、``measuresMaterial``・``measuresProperty`` の
+    両方に当たるものとして持つ。"""
+    acc: dict[str, set[str]] = {}
+    for pred, rel in PRED_TO_REL.items():
+        acc.setdefault(rel, set()).add(pred)
+    return {rel: frozenset(v) for rel, v in acc.items()}
+
+
+_CONFIRMED_NAMES = _confirmed_names()
+#: 下書きの関係 → 数える ``factors`` の向き（``knowledge.factors`` と同じく ``affects`` の問いは
+#: 3 つの関係全部を数える）。
+_FACTOR_DIRECTIONS = {
+    "lowers": ("lowers", "affects"),
+    "raises": ("raises", "affects"),
+    "affects": ("affects",),
+}
+
+
+def questions(
+    ledger: Mapping[str, Any], copy: KnowledgeCopy, *, lang: str = "ja", limit: int = 20
+) -> tuple[list[dict], int]:
+    """台帳の「既定で見せる関係」から、答えられる問いを機械で数える（AI・ストアは使わない）。
+
+    返りは ``(多い順に最大 limit 件, 全数)``。1 件は ``{op, term: {id, name}, text, count}``
+    （``factors`` だけ ``direction`` を足す）。型は ``knowledge.LINE_OPS``（確定側の名前で引く表）と
+    既存の ``kinds``・``parts``・``factors``・``missing``。台帳の関係は下書きの名前なので
+    :data:`PRED_TO_REL` の逆引きで確定側の名前に写して当てる（``measures`` は両方に当たる）。
+    向きの無い関係（``competitors``）はどちらの端にも数える。語の種別が型に合わなければ
+    （``themes.knowledge_target_kind_ok``）その型の問いは作らない。同じ（from, rel, to）は
+    1 回だけ数える。
+    ``factors`` は ``knowledge.factors`` と同じく、X への直接の線に加えて X の一部
+    （見せる ``part`` で X に付く語）への線も 1 段だけ数える。
+    ``missing`` は 14a-2 と同じ定義（語 X が持たず、X 以外の ``MISSING_MIN_OTHERS`` 語以上が
+    ``hasProperty`` で持つ項目の数）を台帳の上で数え、X は見せる関係に出る種類の語に限る
+    （関係が 1 本も無い語には問いを作らない）。
+    並びは 件数の多い順 → 文。"""
+    terms = {str(t["id"]): t for t in copy.terms if "id" in t}
+    counts: dict[tuple[str, str, str | None], int] = {}
+
+    def add(op: str, tid: str, direction: str | None = None) -> None:
+        t = terms.get(tid)
+        if t is None or not knowledge_target_kind_ok(op, t.get("kind")):
+            return
+        k = (op, tid, direction)
+        counts[k] = counts.get(k, 0) + 1
+
+    seen: set[tuple[str, str, str]] = set()
+    factor_rows: list[tuple[str, str]] = []  # （下げる等の関係, その to）
+    parents: dict[str, set[str]] = {}  # 語 → それが一部になっている語（part の to）
+    ends: set[str] = set()
+    owners: dict[str, set[str]] = {}
+    for r in shown_relations(ledger):
+        frm, rel, to = r["from"], str(r["rel"]), r["to"]
+        if (frm, rel, to) in seen or frm not in terms or to not in terms:
+            continue
+        seen.add((frm, rel, to))
+        ends.update((frm, to))
+        if rel == "has_property":
+            owners.setdefault(to, set()).add(frm)
+        if rel == "sub":
+            add("kinds", to)
+        elif rel == "part":
+            add("parts", to)
+            parents.setdefault(frm, set()).add(to)
+        elif rel in _FACTOR_DIRECTIONS:
+            factor_rows.append((rel, to))
+        names = _CONFIRMED_NAMES.get(rel, frozenset())
+        for op, (op_names, side) in LINE_OPS.items():
+            if not names & set(op_names):
+                continue
+            for tid in {"to": [to], "from": [frm], "either": [frm, to]}[side]:
+                add(op, tid)
+
+    # factors は X への直接の線に加えて、X の一部（part で X に付く語）への線も 1 段だけ数える
+    # （``knowledge.factors`` の閉包と同じ）
+    for rel, to in factor_rows:
+        for d in _FACTOR_DIRECTIONS[rel]:
+            add("factors", to, d)
+            for parent in parents.get(to, ()):
+                add("factors", parent, d)
+
+    for tid in ends:
+        if terms[tid].get("kind") != "class":
+            continue
+        n = sum(
+            1
+            for froms in owners.values()
+            if tid not in froms and len(froms - {tid}) >= MISSING_MIN_OTHERS
+        )
+        if n:
+            counts[("missing", tid, None)] = n
+
+    items: list[dict] = []
+    for (op, tid, direction), n in counts.items():
+        name = str(terms[tid].get("name") or "")
+        sel: dict[str, Any] = {"op": op, "target": name}
+        if direction:
+            sel["direction"] = direction
+        text = describe_selection(sel, lang)
+        if not text:
+            continue
+        item: dict[str, Any] = {
+            "op": op,
+            "term": {"id": tid, "name": terms[tid].get("name")},
+            "text": text,
+            "count": n,
+        }
+        if direction:
+            item["direction"] = direction
+        items.append(item)
+    items.sort(key=lambda i: (-i["count"], i["text"], i["term"]["id"]))
+    return items[: max(0, limit)], len(items)
+
+
+def counts_by_state(ledger: Mapping[str, Any]) -> dict[str, int]:
+    """一覧用の数。``confirmed`` ＝ 人が確認した件（``confirmed`` のある組）・``unconfirmed`` ＝
+    見せる関係のうち、確認されていないもの（取り込み元の ``unseen`` の行は確認されない）。"""
+    pairs = ledger.get("pairs") or {}
+    confirmed = sum(1 for p in pairs.values() if p.get("confirmed"))
+    shown_confirmed = sum(
+        1
+        for r in shown_relations(ledger)
+        if r["by"] == "ai" and (pairs.get(r["key"]) or {}).get("confirmed")
+    )
+    return {
+        "unconfirmed": len(shown_relations(ledger)) - shown_confirmed,
+        "confirmed": confirmed,
+    }
+
+
+def strip_unconfirmed(ledger: Mapping[str, Any]) -> tuple[dict, dict]:
+    """外すときの台帳: ``confirmed`` のある組と ``rejected``（「違う」の記録）が空でない組だけを
+    残し、ほか（未確認・候補・落ちた件・失敗・``origin``）を消す。``rejected`` だけの組は、関係の
+    中身を消して ``orphan: True`` と ``rejected`` だけにする（入れ直したとき同じ 3 つ組を出さない・
+    14c の「``confirmed`` か ``rejected`` があれば残す」）。何度かけても同じ結果。
+
+    返りは ``(残す台帳, {relations, kept_confirmed, kept_rejected})``。
+    ``relations`` は消した未確認の関係の数（見せていた関係のうち、確認済みでないもの）・
+    ``kept_confirmed`` は残した確認済みの組の数・``kept_rejected`` は ``rejected`` だけで残した
+    組の数。入力は変えない。"""
+    out = _copy.deepcopy(dict(ledger))
+    kept: dict[str, dict] = {}
+    n_rejected = 0
+    for k, v in (out.get("pairs") or {}).items():
+        if v.get("confirmed"):
+            kept[k] = v
+        elif v.get("rejected"):
+            kept[k] = {
+                "key": v["key"],
+                "a": v.get("a"),
+                "b": v.get("b"),
+                "orphan": True,
+                "rejected": v["rejected"],
+            }
+            n_rejected += 1
+    state = counts_by_state(ledger)
+    out["pairs"] = kept
+    out["origin"] = []
+    return out, {
+        "relations": state["unconfirmed"],
+        "kept_confirmed": len(kept) - n_rejected,
+        "kept_rejected": n_rejected,
+    }
+
+
+def remove_ledger(root: str | Path, source: str, *, at: str) -> dict:
+    """取り込み元の台帳から未確認を消す（:func:`strip_unconfirmed`）。残る組が無ければファイルごと
+    消す。返りは ``{relations, kept_confirmed, kept_rejected}``。台帳が無ければ 0。読めなければ
+    :class:`LedgerError`。"""
+    ledger = load_ledger(root, source)
+    kept, removed = strip_unconfirmed(ledger)
+    if kept["pairs"]:
+        save_ledger(root, kept, at=at)
+    else:
+        ledger_path(root, source).unlink(missing_ok=True)
+    return removed
