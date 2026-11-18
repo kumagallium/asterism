@@ -23,6 +23,7 @@ from typing import Any, Literal
 from asterism import knowledge_bundle as kb
 from asterism import pair_relations as pr
 from asterism.graph_diff import REL_SENTENCE
+from asterism.shared_vocab import term_iri
 from asterism_step0.pair_propose import propose_pair
 from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -242,13 +243,36 @@ async def run_relations(
 # ---- 読む口の行 ----
 
 
-def _term_card(t: dict) -> dict:
-    return {
+def _term_card(t: dict, stored: dict | None = None) -> dict:
+    """語の札。``term_iri`` は、確認済みの関係を置いたときに決めたストアの用語の IRI
+    （台帳の ``stored_terms``。**無いときは欄ごと出さない**＝既存の札の形を変えない。14e-1b）。"""
+    slug = ((stored or {}).get(str(t["id"])) or {}).get("slug")
+    iri = None
+    if isinstance(slug, str):
+        try:
+            iri = term_iri(slug)
+        except ValueError:
+            iri = None
+    card = {
         "id": str(t["id"]),
         "name": t.get("name"),
         "kind": t.get("kind"),
         "role": t.get("role"),
     }
+    if iri is not None:
+        card["term_iri"] = iri
+    return card
+
+
+def _store_of(e: dict) -> dict | None:
+    """件の ``store``（確認済みを正本に置いた結果）を ``{ok, reason?}`` に。無ければ ``None``。"""
+    st = e.get("store")
+    if not (e.get("confirmed") and isinstance(st, dict) and "ok" in st):
+        return None
+    out: dict[str, Any] = {"ok": bool(st["ok"])}
+    if not st["ok"] and st.get("reason"):
+        out["reason"] = st["reason"]
+    return out
 
 
 def build_rows(
@@ -273,6 +297,7 @@ def build_rows(
     terms = {str(t["id"]): t for t in copy.terms if "id" in t}
     claims = {str(c["id"]): c for c in copy.claims if "id" in c}
     sentences = REL_SENTENCE.get(lang) or REL_SENTENCE["ja"]
+    stored = ledger.get("stored_terms") if isinstance(ledger.get("stored_terms"), dict) else {}
 
     def sentence(rel: Any, frm: dict, to: dict) -> str | None:
         tmpl = sentences.get(rel) if rel else None
@@ -301,7 +326,7 @@ def build_rows(
         tt = terms.get(str(e.get("to") or e.get("b")))
         if tf is None or tt is None:
             continue
-        frm, to = _term_card(tf), _term_card(tt)
+        frm, to = _term_card(tf, stored), _term_card(tt, stored)
         evidence = []
         for cid in e.get("evidence") or []:
             c = claims.get(str(cid))
@@ -340,6 +365,8 @@ def build_rows(
             "confirmed": True if e.get("confirmed") else None,
             "rejected": e.get("state") == "dropped" and e.get("reason") == "rejected",
         }
+        if (store := _store_of(e)) is not None:  # 無いときは欄ごと出さない（既存の行の形のまま）
+            row["store"] = store
         if e.get("state") == "relation" and key in agreed:
             row["origin_iri"] = agreed[key]
         rows.append(row)
@@ -357,7 +384,7 @@ def build_rows(
         tf, tt = terms.get(str(o.get("from"))), terms.get(str(o.get("to")))
         if tf is None or tt is None:
             continue
-        frm, to = _term_card(tf), _term_card(tt)
+        frm, to = _term_card(tf, stored), _term_card(tt, stored)
         origin.append(
             {
                 "key": pr.origin_key(o),

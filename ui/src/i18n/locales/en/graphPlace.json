@@ -105,5 +105,17 @@
     "other": "{{n}} could not be changed.",
     "stale": "It was already in that state (changed by another action).",
     "unknown": "This row cannot be changed in its current state."
+  },
+  "store": {
+    "line": "Confirmed, but could not be placed in the store ({{reason}})",
+    "failedNote": "{{n}} confirmed, but could not be placed in the store ({{reason}}). The confirmation is kept in the ledger.",
+    "errorNote": "The confirmation is kept in the ledger, but placing it in the store stopped partway.",
+    "reason": {
+      "role_mismatch": "its role differs from the existing term of the same name",
+      "kind_mismatch": "its kind (concept / item) differs from the existing term of the same name",
+      "cycle": "it would make the relations loop",
+      "self": "it would relate a term to itself",
+      "error": "an error occurred while placing it"
+    }
   }
 }

@@ -539,6 +539,8 @@ def load_ledger(root: str | Path, source: str) -> dict:
     data["source"] = source
     data.setdefault("dataset_id", None)
     data.setdefault("origin", [])
+    if "stored_terms" in data and not isinstance(data["stored_terms"], dict):
+        del data["stored_terms"]  # 14e-1b: 語の対応の控え。形が違えば捨てる（次の回で決め直す）
     return data
 
 

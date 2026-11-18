@@ -678,6 +678,10 @@ async def answer_knowledge_question(
         if isinstance(cand, dict) and cand.get("mode") == "knowledge":
             sel = cand
             break
+    if sel is None:  # 取り込み元の問い（確認済みでストアに置けた関係。14e-1b）
+        from asterism.knowledge_sources import selections as _source_selections
+
+        sel = next((c for _t, n, c in _source_selections(registry_root) if n == tool_name), None)
     if sel is None or not sel.get("target_slug"):
         return {
             "tool_name": tool_name,

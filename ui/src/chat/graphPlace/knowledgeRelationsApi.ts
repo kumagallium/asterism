@@ -20,6 +20,26 @@ export interface TermCard {
   name: string
   kind: string | null
   role: string | null
+  /** ストアに置いた語の IRI（無ければ null＝まだ台帳だけの語）。 */
+  termIri: string | null
+}
+
+/** 確認済みの関係を正本に置いた結果（行の `store`）。`reason` は置けなかった理由の記号。 */
+export interface StoreOutcome {
+  ok: boolean
+  reason?: string
+}
+
+/** 確認・付ける操作の返りの `store`（置いた数・外した数・置けなかった件・残り）。 */
+export interface StoreReport {
+  placed: number
+  removed: number
+  failed: { key: string; reason: string }[]
+  remaining: number
+  /** 置く段そのものが落ちた（台帳の確認は通っている）。 */
+  error: boolean
+  /** 追い付きで落ちた、この操作と関係のない件の数（画面には出さない）。 */
+  backlogFailed?: number
 }
 
 export interface EvidenceItem {
@@ -51,6 +71,8 @@ export interface LedgerRow {
   confirmed: boolean
   /** 人が「違う」とした（見せない・戻せる）。 */
   rejected: boolean
+  /** 確認済みで結果がある件だけ。無ければ null。 */
+  store: StoreOutcome | null
 }
 
 export interface LedgerSummary {
@@ -104,7 +126,26 @@ async function post(path: string, body: unknown): Promise<unknown> {
 
 const term = (x: unknown): TermCard | null => {
   if (!isObj(x) || typeof x.id !== 'string') return null
-  return { id: x.id, name: str(x.name) ?? x.id, kind: str(x.kind), role: str(x.role) }
+  return { id: x.id, name: str(x.name) ?? x.id, kind: str(x.kind), role: str(x.role), termIri: str(x.term_iri) }
+}
+
+const storeOutcome = (x: unknown): StoreOutcome | null => {
+  if (!isObj(x) || typeof x.ok !== 'boolean') return null
+  const reason = str(x.reason)
+  return reason ? { ok: x.ok, reason } : { ok: x.ok }
+}
+
+/** 返りの `store` を正す。無い（古い裏側）なら null。 */
+export function normalizeStoreReport(x: unknown): StoreReport | null {
+  if (!isObj(x)) return null
+  return {
+    placed: num(x.placed),
+    removed: num(x.removed),
+    failed: Array.isArray(x.failed) ? x.failed.filter(isObj).map((f) => ({ key: String(f.key ?? ''), reason: String(f.reason ?? '') })) : [],
+    remaining: num(x.remaining),
+    error: x.error === true,
+    ...(typeof x.backlog_failed === 'number' ? { backlogFailed: x.backlog_failed } : {}),
+  }
 }
 
 /** 行 1 つを正す。形が壊れた行・両端の語が無い行は null。 */
@@ -139,6 +180,7 @@ export function normalizeRow(source: string, x: unknown, fallbackState: LedgerRo
     // 今の api は confirmed に台帳の dict を入れる（無ければ null）。新しい api は bool。どちらも真偽に直す
     confirmed: !!x.confirmed,
     rejected: x.rejected === true || (state === 'dropped' && reason === 'rejected'),
+    store: storeOutcome(x.store),
   }
 }
 
@@ -186,6 +228,8 @@ export const REVIEW_MAX = 50
 export interface ReviewResult {
   changed: string[]
   skipped: { key: string; reason: string }[]
+  /** 正本に置いた結果（古い裏側なら無し）。 */
+  store?: StoreReport | null
 }
 
 /** 確認・確認の取り消し・違う・戻す。1 回に 1〜50 件（超える分は呼び手が分ける。`reviewInChunks`）。 */
@@ -195,21 +239,31 @@ export async function postReview(source: string, action: ReviewAction, keys: str
   return {
     changed: Array.isArray(o.changed) ? o.changed.map(String) : [],
     skipped: Array.isArray(o.skipped) ? o.skipped.filter(isObj).map((s) => ({ key: String(s.key ?? ''), reason: String(s.reason ?? '') })) : [],
+    store: normalizeStoreReport(o.store),
   }
+}
+
+/** 分けて送った返りの `store` を足し合わせる。 */
+export function mergeStore(a: StoreReport | null, b: StoreReport | null): StoreReport | null {
+  if (!a) return b
+  if (!b) return a
+  return { placed: a.placed + b.placed, removed: a.removed + b.removed, failed: [...a.failed, ...b.failed], remaining: b.remaining, error: a.error || b.error }
 }
 
 /** 50 件を超えるときは分けて送る。1 回でも失敗したらそこで投げる（済んだ分は台帳に残る）。 */
 export async function reviewInChunks(source: string, action: ReviewAction, keys: string[]): Promise<ReviewResult> {
-  const out: ReviewResult = { changed: [], skipped: [] }
+  const out: ReviewResult = { changed: [], skipped: [], store: null }
   for (let i = 0; i < keys.length; i += REVIEW_MAX) {
     const r = await postReview(source, action, keys.slice(i, i + REVIEW_MAX))
     out.changed.push(...r.changed)
     out.skipped.push(...r.skipped)
+    out.store = mergeStore(out.store ?? null, r.store ?? null)
   }
   return out
 }
 
 /** 候補に関係を付ける。`subject` は組のどちらが主語か（a＝先・b＝後）。検査に落ちたら 422（理由は message）。 */
-export async function postAssign(source: string, key: string, rel: string, subject: 'a' | 'b', lang?: 'ja' | 'en'): Promise<void> {
-  await post(`/api/knowledge-copies/${encodeURIComponent(source)}/relations/assign`, { key, rel, subject, ...(lang ? { lang } : {}) })
+export async function postAssign(source: string, key: string, rel: string, subject: 'a' | 'b', lang?: 'ja' | 'en'): Promise<StoreReport | null> {
+  const body = await post(`/api/knowledge-copies/${encodeURIComponent(source)}/relations/assign`, { key, rel, subject, ...(lang ? { lang } : {}) })
+  return normalizeStoreReport(isObj(body) ? body.store : null)
 }
