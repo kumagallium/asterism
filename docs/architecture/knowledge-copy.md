@@ -50,6 +50,10 @@
 
 - 行は 1 件 1 オブジェクトで、キーは全行に出す（無い値は `null`・配列は `[]`）。`id` は
   `[A-Za-z0-9._~-]+`。本文は出さない（人の文章の正本は取り込み元）。
+- **知見の確からしさの語彙**（2026-11-18 追記・[`pair-relations.md`](pair-relations.md) §2）: `claims.json` の
+  `review_state` は `verified`／`candidate`。`epistemic_status` が `speculation`、または `modal_qualifier` が
+  `possibly`／`rarely` の知見を、Asterism は「見込み」と読む。ほかの値はそのまま運び、意味は付けない。
+  取り込み元は、自分の語彙をこの値に写して出す。
 - **Graphium 固有のコードは Asterism に置かない**（`source-switch-mcp-client.md` §2 と同じ線引き）。
   道具名は設定、IRI の基底は束、題の割り方は取り込み元の仕事。
 - 取り込み元プロトコルに 4 つ目の道具名 `sourceProvider.knowledge` を足す（既定は空）。入力は無し、
