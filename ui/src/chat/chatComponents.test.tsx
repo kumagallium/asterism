@@ -63,12 +63,8 @@ const list = (over: Partial<Parameters<typeof SessionList>[0]> = {}) =>
       sessions={[summary(), summary({ id: 'cdef67890y', title: '', proposed: 0 })]}
       error={null}
       activeId="cabc12345x"
-      folded={false}
-      showToggle
-      onToggle={noop}
       onNew={noop}
       onOpen={noop}
-      onOpenSettings={noop}
       onChanged={noop}
       onDeleted={noop}
       {...over}
@@ -268,7 +264,6 @@ describe('SessionList', () => {
     const html = list()
     expect(html.match(/data-testid="session-row"/g)).toHaveLength(2)
     expect(html).toContain('data-testid="session-new"')
-    expect(html).toContain('data-testid="list-toggle"')
     expect(text(html)).toContain('熱電材料')
     expect(text(html)).toContain('提案 2')
   })
@@ -277,11 +272,11 @@ describe('SessionList', () => {
     expect(html).not.toContain('session-row')
     expect(text(html)).toContain('設定 › サーバで鍵を入れると、チャットを保存できます')
   })
-  it('たたむと一覧の開閉だけ（新しいチャットも一覧も出ない）', () => {
-    const html = list({ folded: true })
-    expect(html).toContain('list-toggle')
-    expect(html).not.toContain('session-new')
-    expect(html).not.toContain('session-row')
+  it('ブランド・≡・⚙ は NavRail に移ったので、ここには出ない', () => {
+    const html = list()
+    expect(html).not.toContain('list-toggle')
+    expect(html).not.toContain('chat-brand')
+    expect(html).not.toContain('設定')
   })
 })
 
@@ -425,7 +420,7 @@ describe('PointCard', () => {
     expect(tx).toContain('項目')
     expect(html).not.toContain('point-sentences')
     expect(tx).toContain('チャット「熱電材料」で 2026-10-22 に AI が追加し、人が承認')
-    expect(html).toContain('href="#/t/cabc12345x"')
+    expect(html).toContain('href="#/chat/cabc12345x"')
     expect(html).toContain('data-testid="point-contents"')
     expect(html).toContain('data-testid="point-revert"')
     expect(tx).toContain('知識 1')

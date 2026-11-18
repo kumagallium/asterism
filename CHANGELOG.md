@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.68.0](https://github.com/kumagallium/asterism/compare/v0.67.0...v0.68.0) - 2026-11-18
+
+- docs(manual): v0.67.0 の節目とバッジ（実験の記録の関係・知識で答える型） by @kumagallium in https://github.com/kumagallium/asterism/pull/807
+- feat: 語の組ごとに、閉じた集合から関係を 1 つ選ぶ（PR 14c・台帳と走らせる口） by @kumagallium in https://github.com/kumagallium/asterism/pull/809
+- feat(ui): 左のナビを 3 つの仕事で組み直す — 取り込み・知識グラフ・チャット（PR 14d-1・殻） by @kumagallium in https://github.com/kumagallium/asterism/pull/810
+
 ## [v0.67.0](https://github.com/kumagallium/asterism/compare/v0.66.0...v0.67.0) - 2026-11-18
 
 - docs(manual): v0.66.0の外観選択とブランド刷新を記録する by @kumagallium in https://github.com/kumagallium/asterism/pull/799
