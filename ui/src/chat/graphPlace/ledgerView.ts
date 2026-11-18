@@ -46,14 +46,35 @@ export function filterRelations(ledgers: readonly Ledger[], f: LedgerFilter): Le
   return out.sort(compareRows)
 }
 
-/** 候補（関係の無い組）。取り込み元の絞り込みだけ効く（関係の種類・状態は無い）。根拠の多い順。 */
+/** 候補（関係の無い組）。組（`pair`）ごとに 1 行: AI の「言えない」の行を主にし、同じ組の取り込み元の食い違いはその言い分を添える。
+ *  取り込み元の絞り込みだけ効く（関係の種類・状態は無い）。根拠の多い順。 */
 export function filterCandidates(ledgers: readonly Ledger[], f: Pick<LedgerFilter, 'source'>): LedgerRow[] {
-  return bySource(ledgers, f.source).filter(isCandidate).sort(compareRows)
+  const byPair = new Map<string, LedgerRow>()
+  const origins: LedgerRow[] = []
+  for (const r of bySource(ledgers, f.source).filter(isCandidate)) {
+    if (r.by === 'origin') origins.push(r)
+    else if (!byPair.has(`${r.source}|${r.pair}`)) byPair.set(`${r.source}|${r.pair}`, r)
+  }
+  for (const o of origins) {
+    const k = `${o.source}|${o.pair}`
+    const cur = byPair.get(k)
+    if (cur) byPair.set(k, { ...cur, originSentence: cur.originSentence ?? o.sentence })
+    else byPair.set(k, { ...o, originSentence: o.sentence })
+  }
+  return [...byPair.values()].sort(compareRows)
 }
 
-/** 絞り込みの選択肢に出す関係の種類（台帳に実際にある名前だけ・名前の順）。 */
-export function relKinds(ledgers: readonly Ledger[]): string[] {
-  return [...new Set(ledgers.flatMap((l) => l.rows).filter(isShown).map((r) => r.rel).filter((x): x is string => !!x))].sort()
+/** 絞り込みの選択肢に出す関係の種類（台帳に実際にある名前だけ・名前の順）。状態が「違うとしたもの」のときは「違う」とした行から作る。 */
+export function relKinds(ledgers: readonly Ledger[], status: StatusFilter = 'all'): string[] {
+  const rows = ledgers.flatMap((l) => l.rows).filter(status === 'rejected' ? (r: LedgerRow) => r.rejected : isShown)
+  return [...new Set(rows.map((r) => r.rel).filter((x): x is string => !!x))].sort()
+}
+
+/** 選んでいる値が選択肢から無くなったら「すべて」に戻した絞り込み（見た目と状態をずらさない）。 */
+export function effectiveFilter(ledgers: readonly Ledger[], f: LedgerFilter): LedgerFilter {
+  const source = f.source === ALL || ledgers.some((l) => l.source.source === f.source) ? f.source : ALL
+  const rel = f.rel === ALL || relKinds(ledgers, f.status).includes(f.rel) ? f.rel : ALL
+  return source === f.source && rel === f.rel ? f : { ...f, source, rel }
 }
 
 export interface TermSummary {

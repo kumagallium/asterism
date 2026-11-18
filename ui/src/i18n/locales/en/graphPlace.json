@@ -17,7 +17,8 @@
     "toggle": "Also show links with no meaning yet (candidates)",
     "count": "{{n}} candidates",
     "note": "Pairs that appear together but could not be given a relation.",
-    "pairEvidence": "{{n}} findings"
+    "pairEvidence": "{{n}} findings",
+    "origin": "In the source: {{sentence}}"
   },
   "tab": {
     "aria": "Imported knowledge",
@@ -93,5 +94,12 @@
     "concept": "Concept",
     "confirmed": "Confirmed",
     "unconfirmed": "Unconfirmed (light)"
+  },
+  "skipped": {
+    "pair_has_relation": "These two terms already have a relation. Mark that one as wrong first.",
+    "cycle": "This would form a loop, so it cannot be restored.",
+    "other": "{{n}} could not be changed.",
+    "stale": "It was already in that state (changed by another action).",
+    "unknown": "This row cannot be changed in its current state."
   }
 }

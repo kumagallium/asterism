@@ -267,7 +267,9 @@ def build_rows(
     行の ``by`` は ``ai``／``origin``／``user``・``confirmed`` は今の確認の有無（``True``・
     無ければ ``None``。既存の読み手と形を変えない）・``rejected`` は今「違う」で見せていない件か
     （bool）。取り込み元の行（``origin``）にも組の鍵 ``key`` を付ける
-    （確認・「違う」の対象を指す）。"""
+    （確認・「違う」の対象を指す）。
+    組の鍵 ``pair`` は全部の行に付く。取り込み元の行の ``key`` は 3 つ組ごと
+    （``o:<from>|<rel>|<to>``・:func:`asterism.pair_relations.origin_key`）。"""
     terms = {str(t["id"]): t for t in copy.terms if "id" in t}
     claims = {str(c["id"]): c for c in copy.claims if "id" in c}
     sentences = REL_SENTENCE.get(lang) or REL_SENTENCE["ja"]
@@ -323,6 +325,7 @@ def build_rows(
         ]
         row = {
             "key": key,
+            "pair": key,
             "state": e.get("state"),
             "rel": e.get("rel"),
             "from": frm,
@@ -357,7 +360,8 @@ def build_rows(
         frm, to = _term_card(tf), _term_card(tt)
         origin.append(
             {
-                "key": "|".join(sorted((frm["id"], to["id"]))),
+                "key": pr.origin_key(o),
+                "pair": "|".join(sorted((frm["id"], to["id"]))),
                 "rel": o.get("rel"),
                 "from": frm,
                 "to": to,

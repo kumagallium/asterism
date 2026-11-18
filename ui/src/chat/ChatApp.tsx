@@ -64,7 +64,7 @@ import { ImportPlace } from './ImportPlace'
 import { PointCard } from './PointCard'
 import { PaperReader } from './PaperReader'
 import { GraphFilters, GraphPlaceSide, RoleLegend } from './graphPlace/GraphPlace'
-import { ledgerNodeId, parseLedgerNode } from './graphPlace/ledgerDrafts'
+import { ledgerNodeId, parseLedgerNode, withoutCopyDatasets } from './graphPlace/ledgerDrafts'
 import { useLedgers } from './graphPlace/useLedgers'
 import { ReaderSlot } from './ReaderSlot'
 import { PaperReaderContext, type PaperReaderApi } from './paperReaderContext'
@@ -221,6 +221,7 @@ export function ChatApp() {
   // 取り込んだ知識の台帳（取り込み元ごとの関係・絞り込み・確認）。図には合成の下書きとして足す（useSky の proposed には混ぜない）
   const ledger = useLedgers(chartTick, lang)
   /** 図で押した台帳の語（本物の点ではないので getPoint を呼ばない。「用語」のタブで開く）。 */
+  const ledgerNonce = useRef(0)
   const [ledgerFocus, setLedgerFocus] = useState<{ source: string; termId: string; nonce: number } | null>(null)
   const [busy, setBusy] = useState<Busy>(null)
   const [pendingUser, setPendingUser] = useState<string | null>(null)
@@ -266,6 +267,7 @@ export function ChatApp() {
     if (!next) {
       setPoint(null)
       setPickedId(null)
+      setLedgerFocus(null)
     } else setGraphQuestions(false)
   }, [])
   const onMapSelect = useCallback(
@@ -433,6 +435,7 @@ export function ChatApp() {
     setSel(null)
     setPoint(null)
     setPickedId(null)
+    setLedgerFocus(null)
     setScope(null)
     setHighlight(null)
     setComposerKey((n) => n + 1)
@@ -642,6 +645,7 @@ export function ChatApp() {
         setSel(null)
         setPoint(null)
         setPickedId(null)
+        setLedgerFocus(null)
         setScope(null)
       } catch (e) {
         setError(messageOf(e))
@@ -948,6 +952,7 @@ export function ChatApp() {
   }
   /** 「取り込み」の一覧の行: 「知識グラフ」に移り、そのデータセットを選ぶ（データのタブに行が出る）。 */
   const openDataset = (id: string) => {
+    setLedgerFocus(null)
     onMapSelect(null, `d|${id}`)
     setGraphQuestions(false)
     navigate({ kind: 'graph' })
@@ -972,9 +977,8 @@ export function ChatApp() {
   /** 知識グラフと凡例。3 つの場所すべてに出る（大きさと、点を押したときの行き先だけが場所で変わる）。 */
   const mapDrafts = useMemo(() => (okSky ? [...okSky.proposed, ...ledger.drafts] : []), [okSky, ledger.drafts])
   /** 知識の写しのデータセット（種類・項目）は図に出さない（台帳の語として見せる）。 */
-  const copyIds = useMemo(() => new Set(ledger.ledgers.map((l) => l.source.datasetId).filter((x): x is string => !!x)), [ledger.ledgers])
-  const mapSky = useMemo(() => (okSky && copyIds.size > 0 ? { ...okSky.sky, datasets: okSky.sky.datasets.filter((d) => !copyIds.has(d.id)) } : okSky?.sky), [okSky, copyIds])
-  const mapProposed = useMemo(() => (okSky ? okSky.proposedDatasets.filter((d) => !copyIds.has(d.id)) : []), [okSky, copyIds])
+  const mapSky = useMemo(() => (okSky ? { ...okSky.sky, datasets: withoutCopyDatasets(okSky.sky.datasets, ledger.ledgers) } : undefined), [okSky, ledger.ledgers])
+  const mapProposed = useMemo(() => (okSky ? withoutCopyDatasets(okSky.proposedDatasets, ledger.ledgers) : []), [okSky, ledger.ledgers])
   /** 台帳の語を押したら getPoint を呼ばず（裏に無く 404 になる）、「知識グラフ」に移ってその語を「用語」のタブで開く。 */
   const selectOnMap = (onSelectPoint: (next: PointSel | null, nodeId: string | null) => void) => (next: PointSel | null, nodeId: string | null) => {
     const l = parseLedgerNode(nodeId)
@@ -983,7 +987,7 @@ export function ChatApp() {
       return onSelectPoint(next, nodeId)
     }
     onMapSelect(null, null)
-    setLedgerFocus((cur) => ({ ...l, nonce: (cur?.nonce ?? 0) + 1 }))
+    setLedgerFocus({ ...l, nonce: ++ledgerNonce.current })
     if (placeRef.current !== 'graph') navigate({ kind: 'graph' })
   }
   const mapBlock = (onSelectPoint: (next: PointSel | null, nodeId: string | null) => void) =>

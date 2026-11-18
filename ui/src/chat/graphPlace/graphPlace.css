@@ -280,3 +280,8 @@
   gap: 8px;
   align-items: center;
 }
+
+.gp-origin {
+  display: block;
+  margin-top: 2px;
+}

@@ -112,8 +112,8 @@ describe('候補の行', () => {
     const html = renderToStaticMarkup(<ul><CandidateRow {...props} error="この関係は付けられません: 輪になる" /></ul>)
     expect(html).toContain('輪になる')
   })
-  it('鍵の無い候補（取り込み元の食い違い）には「関係を付ける」を出さない', () => {
-    expect(byTestId(CandidateRow({ ...props, open: false, row: { ...cand, key: null } }), 'gp-assign-open')).toHaveLength(0)
+  it('「関係を付ける」は組の鍵（pair）で出る。取り込み元の行（鍵が組の鍵でない）でも出す', () => {
+    expect(byTestId(CandidateRow({ ...props, open: false, row: { ...cand, key: null } }), 'gp-assign-open')).toHaveLength(1)
   })
 })
 

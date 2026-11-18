@@ -6,6 +6,7 @@ export const term = (id: string, name: string, role: string | null = 'concept', 
 export const row = (over: Partial<LedgerRow> & { from: TermCard; to: TermCard }): LedgerRow => ({
   source: 'src-a',
   key: `${over.from.id}|${over.to.id}`,
+  pair: [over.from.id, over.to.id].sort().join('|'),
   state: 'relation',
   rel: 'makes',
   sentence: null,

@@ -142,7 +142,10 @@ export function CandidateRow({
   error: string | null
 }) {
   const { t } = useTranslation('graphPlace')
-  const [a, b] = [row.from.name, row.to.name]
+  // 2 語は `pair` を分けた順（a・b）で並べ、名前は id で引く（from／to の向きを a／b と思い込まない）
+  const [idA, idB] = row.pair.split('|')
+  const nameOf = (id: string) => (row.from.id === id ? row.from.name : row.to.id === id ? row.to.name : id)
+  const [a, b] = [nameOf(idA), nameOf(idB)]
   const preview = form.rel ? (form.subject === 'a' || isSymmetricRel(form.rel) ? relSentence(form.rel, a, b, lang) : relSentence(form.rel, b, a, lang)) : ''
   return (
     <li className="gp-item" data-testid="gp-candidate-row">
@@ -150,12 +153,13 @@ export function CandidateRow({
         <span className="gp-sent">
           {a} ― {b}
           <span className="gp-ev">（{t('candidates.pairEvidence', { n: row.evidence.length })}）</span>
+          {row.originSentence && <span className="gp-ev gp-origin" data-testid="gp-origin-says">{t('candidates.origin', { sentence: row.originSentence })}</span>}
         </span>
-        {row.key && !open && (
+        {!open && (
           <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-assign-open" onClick={onOpen}>{t('act.assign')}</button>
         )}
       </div>
-      {open && row.key && (
+      {open && (
         <div className="gp-assign">
           <label className="gp-sel">
             {t('assign.rel')}

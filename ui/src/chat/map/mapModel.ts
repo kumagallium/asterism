@@ -336,7 +336,8 @@ const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 /** 線の同一性の鍵（端は id の順・関係・薄さ）。 */
 function edgeKey(a: string, b: string, at: MapEdgeAttrs): string {
   const [p, q] = a < b ? [a, b] : [b, a]
-  return `${at.kind}|${p}|${q}|${at.relation ?? ''}|${at.thin ? 1 : 0}`
+  // 台帳の線は確認・未確認で薄さが変わるだけ（形は同じ）。鍵に入れると確認のたびに図が作り直されてカメラが戻る
+  return `${at.kind}|${p}|${q}|${at.relation ?? ''}|${at.ledger ? 0 : at.thin ? 1 : 0}`
 }
 
 /** 点は id の順・線は鍵の順に入れ直したグラフ。隣の順が入力順に依らなくなるので、forceAtlas2 の結果も入力順に依らない。

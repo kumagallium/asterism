@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from asterism_api import registry
-from asterism_api.knowledge_copy import copy_is_current, find_copy_dataset
+from asterism_api.knowledge_copy import busy_kind, copy_is_current, find_copy_dataset
 from asterism_api.knowledge_import import _hold, _release
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,8 @@ def register_knowledge_review_routes(
     ) -> tuple[dict, dict]:
         """握る → 台帳と写しを読む → ``op`` → ``finalize`` → 保存。返りは ``(結果, 台帳)``。"""
         dataset_id, src = _current(source)
+        if busy_kind(app, source) == _KIND:
+            raise HTTPException(409, "別の確認の操作が終わってから、もう一度やってください")
         _hold(app, source, _KIND)  # 走っている作業があれば 409
         try:
             try:

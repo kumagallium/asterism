@@ -25,19 +25,36 @@ describe('normalizeRow', () => {
 })
 
 describe('fetchLedger', () => {
-  it('状態ごとに 3 回読んで束ねる。origin の行は鍵なしで入る', async () => {
+  it('state=all の 1 回で読み、relations と origin を束ねる。origin の行は ai の判定で状態を決め、failed は捨てる', async () => {
     const calls: string[] = []
     vi.stubGlobal('fetch', async (url: string) => {
       calls.push(url)
-      if (url.includes('state=relation')) return json({ summary: { shown: 2, terms: 3, candidates: 1 }, relations: [{ key: 'k1', state: 'relation', rel: 'makes', from: T('t-a', 'あ'), to: T('t-b', 'い') }], origin: [{ rel: 'sub', from: T('t-b', 'い'), to: T('t-c', 'う'), by: 'origin' }] })
-      if (url.includes('state=none')) return json({ summary: {}, relations: [{ key: 'k2', state: 'none', from: T('t-a', 'あ'), to: T('t-c', 'う') }], origin: [] })
-      return json({ summary: {}, relations: [{ key: 'k3', state: 'dropped', reason: 'rejected', rel: 'makes', from: T('t-a', 'あ'), to: T('t-d', 'え') }], origin: [] })
+      return json({
+        summary: { shown: 2, terms: 3, candidates: 1 },
+        relations: [
+          { key: 'k1', pair: 't-a|t-b', state: 'relation', rel: 'makes', from: T('t-a', 'あ'), to: T('t-b', 'い') },
+          { key: 'k2', pair: 't-a|t-c', state: 'none', from: T('t-a', 'あ'), to: T('t-c', 'う') },
+          { key: 'k3', pair: 't-a|t-d', state: 'dropped', reason: 'rejected', rel: 'makes', from: T('t-a', 'あ'), to: T('t-d', 'え') },
+          { key: 'k4', pair: 't-a|t-e', state: 'failed', from: T('t-a', 'あ'), to: T('t-e', 'お') },
+        ],
+        origin: [
+          { key: 'o:t-b|sub|t-c', pair: 't-b|t-c', rel: 'sub', from: T('t-b', 'い'), to: T('t-c', 'う'), by: 'origin', ai: 'unseen' },
+          { key: 'o:t-a|sub|t-c', pair: 't-a|t-c', rel: 'sub', from: T('t-a', 'あ'), to: T('t-c', 'う'), by: 'origin', ai: 'disputes' },
+        ],
+      })
     })
     const l = await fetchLedger(info, 'ja')
-    expect(calls.map((c) => /state=(\w+)/.exec(c)?.[1]).sort()).toEqual(['dropped', 'none', 'relation'])
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('state=all')
     expect(l.summary).toEqual({ shown: 2, terms: 3, candidates: 1 })
-    expect(l.rows.map((r) => `${r.state}:${r.key}`)).toEqual(['relation:k1', 'relation:null', 'none:k2', 'dropped:k3'])
-    expect(l.rows[3].rejected).toBe(true)
+    expect(l.rows.map((r) => `${r.state}:${r.key}:${r.pair}`)).toEqual([
+      'relation:k1:t-a|t-b',
+      'none:k2:t-a|t-c',
+      'dropped:k3:t-a|t-d',
+      'relation:o:t-b|sub|t-c:t-b|t-c',
+      'none:o:t-a|sub|t-c:t-a|t-c',
+    ])
+    expect(l.rows[2].rejected).toBe(true)
   })
   it('失敗は status つきで投げる', async () => {
     vi.stubGlobal('fetch', async () => json({ detail: '作り直している途中です' }, 409))

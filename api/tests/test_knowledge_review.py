@@ -11,18 +11,18 @@ from asterism import pair_relations as pr
 from fastapi.testclient import TestClient
 
 from .test_ingest import _AUTH
-from .test_knowledge_relations import _Env, _env
+from .test_knowledge_relations import _Env, _env, _terms_bundle
 
 pytest.importorskip("morph_kgc", reason="the copy runs the real declarative ingest")
 
 _URL = "/api/knowledge-copies/lab/relations"
 
 
-def _ready(tmp_path: Path) -> tuple[_Env, TestClient]:
+def _ready(tmp_path: Path, bundle: dict | None = None) -> tuple[_Env, TestClient]:
     env = _env(tmp_path)
     client = TestClient(env.app, headers=_AUTH)
     client.__enter__()
-    env.copy(client)
+    env.copy(client, bundle)
     env.go(client)
     return env, client
 
@@ -79,35 +79,81 @@ def test_reject_と_restore_違うにした関係は状態_all_と_dropped_に�
 
 
 def test_取り込み元の行を確認する_違うにする(tmp_path: Path) -> None:
-    env, client = _ready(tmp_path)
+    both = _terms_bundle(
+        relations=[("tp-si", "has_property", "tp-kappa"), ("tp-si", "lowers", "tp-kappa")]
+    )
+    env, client = _ready(tmp_path, both)
     with client:
         # 題から来た「Mg2Si の 熱伝導率」は AI と食い違い候補になっている。違う関係の行で試す
         body = client.get(_URL, params={"state": "all"}).json()
         o = body["origin"]
-        assert o and all("key" in x for x in o)
-        # AI が読んでいない行を作る: 台帳の origin を unseen に書き換えて保存する
+        assert o and all(x["key"].startswith("o:") and x["pair"] for x in o)
+        assert all(r["pair"] == r["key"] for r in body["relations"])
+        # AI が読んでいない行を作る: 台帳の origin を unseen に書き換え、同じ 2 語の別の関係の行を足す
         led = pr.load_ledger(env.root, "lab")
-        key = o[0]["key"]
-        del led["pairs"][key]
+        pair = o[0]["pair"]
+        del led["pairs"][pair]
         for row in led["origin"]:
             row["ai"] = "unseen"
         pr.save_ledger(env.root, led, at="2026-11-18T00:00:00+00:00")
         shown = client.get(_URL).json()["origin"]
-        assert [x["key"] for x in shown] == [key]
+        keys = [x["key"] for x in shown]
+        key, other = keys[0], keys[1]
+        assert len(keys) == 2 and {x["pair"] for x in shown} == {pair}
+        # 組の鍵では取り込み元の行を指せない
+        assert _review(client, "confirm", [pair]).json()["changed"] == []
         ok = _review(client, "confirm", [key])
         assert ok.json()["changed"] == [key]
-        rel = _rows(client, "relation")[key]
+        rel = _rows(client, "relation")[pair]
         assert rel["by"] == "origin" and rel["confirmed"] is True and rel["evidence"] == []
-        assert client.get(_URL).json()["origin"] == []
-        # 確認を取り消すと取り込み元の行に戻り、違うにすると消える
+        left = client.get(_URL, params={"state": "all"}).json()["origin"]
+        assert [(x["key"], x["ai"]) for x in left] == [(other, "disputes")]
+        # 同じ組の別の行は、組に関係があるので確認できない
+        no = _review(client, "confirm", [other]).json()
+        assert no["changed"] == [] and no["skipped"][0]["reason"] == "pair_has_relation"
+        # 確認を取り消すと取り込み元の行に戻る
         _review(client, "unconfirm", [key])
-        assert [x["key"] for x in client.get(_URL).json()["origin"]] == [key]
-        _review(client, "reject", [key])
-        assert client.get(_URL).json()["origin"] == []
+        assert sorted(x["key"] for x in client.get(_URL).json()["origin"]) == sorted(keys)
+        # 違うにするのはその行だけ。2 回送っても同じ
+        first = _review(client, "reject", [key]).json()
+        assert first["changed"] == [key]
+        assert _review(client, "reject", [key]).json()["skipped"][0]["reason"] == "already_rejected"
+        assert [x["key"] for x in client.get(_URL).json()["origin"]] == [other]
         rejected = client.get(_URL, params={"state": "dropped"}).json()["origin"]
         assert [x["key"] for x in rejected] == [key] and rejected[0]["rejected"] is True
         _review(client, "restore", [key])
-        assert [x["key"] for x in client.get(_URL).json()["origin"]] == [key]
+        assert sorted(x["key"] for x in client.get(_URL).json()["origin"]) == sorted(keys)
+
+
+def test_確認した取り込み元の行を違うにしても_読み直しの後に戻らない(tmp_path: Path) -> None:
+    env, client = _ready(tmp_path)
+    with client:
+        o = client.get(_URL, params={"state": "all"}).json()["origin"]
+        led = pr.load_ledger(env.root, "lab")
+        del led["pairs"][o[0]["pair"]]
+        for row in led["origin"]:
+            row["ai"] = "unseen"
+        pr.save_ledger(env.root, led, at="2026-11-18T00:00:00+00:00")
+        key = o[0]["key"]
+        assert _review(client, "confirm", [key]).json()["changed"] == [key]
+        pair = o[0]["pair"]
+        assert _review(client, "reject", [pair]).json()["changed"] == [pair]
+        env.go(client)  # 関係を選び直す
+        assert client.get(_URL).json()["origin"] == []
+        assert _rows(client, "relation").get(pair, {}).get("rel") != "has_property"
+
+
+def test_review_どうしがぶつかると_取り込み中とは別の文の_409(tmp_path: Path) -> None:
+    env, client = _ready(tmp_path)
+    with client:
+        row = _first(_rows(client), state="relation")
+        env.app.state.knowledge_busy = {"lab": "review"}
+        mine = _review(client, "confirm", [row["key"]])
+        env.app.state.knowledge_busy = {"lab": "import"}
+        other = _review(client, "confirm", [row["key"]])
+        env.app.state.knowledge_busy = {}
+    assert mine.status_code == other.status_code == 409
+    assert "確認" in mine.json()["detail"] and "確認" not in other.json()["detail"]
 
 
 def test_assign_候補に関係を付ける_落ちたら_422_と理由(tmp_path: Path) -> None:

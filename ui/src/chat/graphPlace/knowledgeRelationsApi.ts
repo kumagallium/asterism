@@ -31,8 +31,12 @@ export interface EvidenceItem {
 /** 台帳の行 1 本。`state` は api の状態（relation＝関係・none＝候補・dropped＝見せない）。 */
 export interface LedgerRow {
   source: string
-  /** 組の鍵。取り込み元の関係（origin）の行には無い（確認などの操作はできない）。 */
+  /** 操作の鍵（確認・「違う」・戻す）。AI の行＝組の鍵、取り込み元の行＝`o:<from>|<rel>|<to>`（行ごとに一意）。 */
   key: string | null
+  /** 組の鍵（2 語の id を文字列順に `|` でつないだもの）。「関係を付ける」はこれを渡す。a＝先の語。 */
+  pair: string
+  /** 候補の組にまとめた取り込み元の言い分（食い違い）の文。 */
+  originSentence?: string | null
   state: 'relation' | 'none' | 'dropped'
   rel: string | null
   from: TermCard
@@ -104,12 +108,13 @@ const term = (x: unknown): TermCard | null => {
 }
 
 /** 行 1 つを正す。形が壊れた行・両端の語が無い行は null。 */
-export function normalizeRow(source: string, x: unknown, fallbackState: LedgerRow['state']): LedgerRow | null {
+export function normalizeRow(source: string, x: unknown, fallbackState: LedgerRow['state'] | null): LedgerRow | null {
   if (!isObj(x)) return null
   const from = term(x.from)
   const to = term(x.to)
   if (!from || !to) return null
   const state = x.state === 'relation' || x.state === 'none' || x.state === 'dropped' ? x.state : fallbackState
+  if (!state) return null // failed など、見せない状態
   const evidence: EvidenceItem[] = Array.isArray(x.evidence)
     ? x.evidence.filter(isObj).map((e) => ({ id: String(e.id ?? ''), title: str(e.title) ?? '', sourceUrl: str(e.source_url) }))
     : []
@@ -119,6 +124,7 @@ export function normalizeRow(source: string, x: unknown, fallbackState: LedgerRo
   return {
     source,
     key: str(x.key),
+    pair: str(x.pair) ?? [from.id, to.id].sort().join('|'),
     state,
     rel: str(x.rel),
     from,
@@ -151,27 +157,26 @@ export async function fetchImports(): Promise<ImportSource[]> {
     }))
 }
 
-/** 台帳の行を、状態ごとに読んで束ねる（relation＝関係・none＝候補・dropped＝「違う」と見せない関係。failed は読まない）。
- *  取り込み元の関係（origin）の行は relation／none の返りに付いてくる（鍵が無い）。 */
+/** 取り込み元の行の AI の判定（`ai`）→ 台帳の状態。見解が同じ（agrees）行は api が出さない。 */
+const ORIGIN_STATE: Record<string, LedgerRow['state']> = { unseen: 'relation', disputes: 'none', rejected: 'dropped' }
+
+/** 台帳の行を `state=all` の 1 回で読む（分けて読むと、書き込みと重なって行が二重・欠落する）。
+ *  `relations`（AI の行）と `origin`（取り込み元の関係）を束ね、見せない状態（failed など）は捨てる。 */
 export async function fetchLedger(info: ImportSource, lang: 'ja' | 'en'): Promise<Ledger> {
-  const path = (state: string) => `/api/knowledge-copies/${encodeURIComponent(info.source)}/relations?state=${state}&lang=${lang}`
-  const [rel, none, dropped] = await Promise.all([get(path('relation')), get(path('none')), get(path('dropped'))])
+  const body = await get(`/api/knowledge-copies/${encodeURIComponent(info.source)}/relations?state=all&lang=${lang}`)
+  if (!isObj(body)) throw new KnowledgeApiError(0, 'bad shape')
   const rows: LedgerRow[] = []
-  const take = (body: unknown, state: LedgerRow['state']) => {
-    if (!isObj(body)) throw new KnowledgeApiError(0, 'bad shape')
-    for (const key of ['relations', 'origin'] as const) {
-      const list = body[key]
-      if (!Array.isArray(list)) continue
-      for (const x of list) {
-        const r = normalizeRow(info.source, key === 'origin' && isObj(x) ? { ...x, state } : x, state)
-        if (r) rows.push(r)
-      }
-    }
+  for (const x of Array.isArray(body.relations) ? body.relations : []) {
+    const r = normalizeRow(info.source, x, null)
+    if (r) rows.push(r)
   }
-  take(rel, 'relation')
-  take(none, 'none')
-  take(dropped, 'dropped')
-  const sum = isObj(rel) && isObj(rel.summary) ? rel.summary : {}
+  for (const x of Array.isArray(body.origin) ? body.origin : []) {
+    if (!isObj(x)) continue
+    const state = ORIGIN_STATE[String(x.ai ?? '')] ?? (x.rejected === true ? 'dropped' : null)
+    const r = state ? normalizeRow(info.source, { ...x, state }, null) : null
+    if (r) rows.push(r)
+  }
+  const sum = isObj(body.summary) ? body.summary : {}
   return { source: info, rows, summary: { shown: num(sum.shown), terms: num(sum.terms), candidates: num(sum.candidates) } }
 }
 
@@ -205,6 +210,6 @@ export async function reviewInChunks(source: string, action: ReviewAction, keys:
 }
 
 /** 候補に関係を付ける。`subject` は組のどちらが主語か（a＝先・b＝後）。検査に落ちたら 422（理由は message）。 */
-export async function postAssign(source: string, key: string, rel: string, subject: 'a' | 'b'): Promise<void> {
-  await post(`/api/knowledge-copies/${encodeURIComponent(source)}/relations/assign`, { key, rel, subject })
+export async function postAssign(source: string, key: string, rel: string, subject: 'a' | 'b', lang?: 'ja' | 'en'): Promise<void> {
+  await post(`/api/knowledge-copies/${encodeURIComponent(source)}/relations/assign`, { key, rel, subject, ...(lang ? { lang } : {}) })
 }

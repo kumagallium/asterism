@@ -4,7 +4,7 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { draftRelationLabel } from '../map/mapModel'
-import type { ReviewAction } from './knowledgeRelationsApi'
+import { KnowledgeApiError, type ReviewAction, type ReviewResult } from './knowledgeRelationsApi'
 import { ALL, filterCandidates, filterRelations, firstRows, PAGE_SIZE, relKinds, summarizeTerms, unconfirmedKeys, type LedgerFilter, type StatusFilter, type TermSummary } from './ledgerView'
 import { CandidateRow, RelationRow, TermRow } from './LedgerRows'
 import { rowId, type AssignForm } from './rowFns'
@@ -63,7 +63,7 @@ export function GraphFilters({ api, lang }: { api: LedgersApi; lang: Lang }) {
           {t('filters.rel')}
           <select data-testid="gp-filter-rel" value={f.rel} onChange={(e) => set({ rel: e.target.value })}>
             <option value={ALL}>{t('filters.all')}</option>
-            {relKinds(api.ledgers).map((r) => (
+            {relKinds(api.ledgers, f.status).map((r) => (
               <option key={r} value={r}>{draftRelationLabel(r, lang)}</option>
             ))}
           </select>
@@ -118,7 +118,8 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   }
   const errorText = (e: unknown): string => {
     const w = writeFailureOf(e)
-    if (w.kind === 'busy') return t('error.busy')
+    // 409: 裏側が「別の確認の操作が終わってから」「取り込みが終わってから」を分けて返す。detail をそのまま出す
+    if (w.kind === 'busy') return e instanceof KnowledgeApiError && e.message && !/^HTTP \d+$/.test(e.message) ? e.message : t('error.busy')
     if (w.kind === 'rejected') return t('error.rejected', { reason: w.reason })
     return t('error.other', { message: w.message })
   }
@@ -133,11 +134,24 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
       setPending(false)
     }
   }
-  const act = (id: string, source: string, key: string, action: ReviewAction) => run(id, () => api.review(source, action, [key]))
-  const confirmTerm = (term: TermSummary) => run(term.id, () => api.review(term.source, 'confirm', unconfirmedKeys(term)))
-  const submitAssign = (id: string, source: string, key: string) =>
+  /** review の `skipped`（変えられなかった分）を、行のそばの 1 行で知らせる。黙って捨てない。 */
+  const skippedNote = (res: ReviewResult | void): string | null => {
+    if (!res || res.skipped.length === 0) return null
+    const r = res.skipped[0].reason
+    if (r === 'pair_has_relation' || r === 'cycle' || r === 'unknown') return t(`skipped.${r}`)
+    if (/^(already_|not_)/.test(r)) return t('skipped.stale')
+    return t('skipped.other', { n: res.skipped.length })
+  }
+  const review = (id: string, source: string, action: ReviewAction, keys: string[]) =>
     run(id, async () => {
-      await api.assign(source, key, form.rel, form.subject)
+      const note = skippedNote(await api.review(source, action, keys))
+      if (note) setMsg({ id, text: note })
+    })
+  const act = (id: string, source: string, key: string, action: ReviewAction) => review(id, source, action, [key])
+  const confirmTerm = (term: TermSummary) => review(term.id, term.source, 'confirm', unconfirmedKeys(term))
+  const submitAssign = (id: string, source: string, pair: string) =>
+    run(id, async () => {
+      await api.assign(source, pair, form.rel, form.subject)
       setOpen(null)
     })
 
@@ -150,6 +164,8 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
 
   let body: ReactNode
   if (api.status === 'loading') body = <p className="gp-note" role="status">{t('state.loading')}</p>
+  else if (api.status === 'error') body = <p className="gp-note" role="alert" data-testid="gp-load-failed">{t('state.loadFailed')}</p>
+  else if (api.ledgers.length === 0 && api.failed.length > 0) body = <p className="gp-note" role="alert" data-testid="gp-load-failed">{t('state.failedSources', { names: api.failed.join('、') })}</p>
   else if (api.ledgers.length === 0) {
     body = (
       <div className="gp-empty" data-testid="gp-empty">
@@ -215,7 +231,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
           <p className="gp-note">{t('candidates.note')}</p>
           <ul className="gp-list" data-testid="gp-candidates">
             {firstRows(candidates, shown.candidates).map((r) => {
-              const id = rowId(r)
+              const id = `${r.source}|c|${r.pair}`
               return (
                 <CandidateRow
                   key={id}
@@ -229,7 +245,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
                     setMsg(null)
                   }}
                   onForm={setForm}
-                  onSubmit={() => r.key && void submitAssign(id, r.source, r.key)}
+                  onSubmit={() => void submitAssign(id, r.source, r.pair)}
                   onCancel={() => setOpen(null)}
                   pending={pending}
                   error={msg?.id === id ? msg.text : null}

@@ -54,3 +54,9 @@ export function parseLedgerNode(nodeId: string | null): { source: string; termId
 }
 
 export const ledgerNodeId = (source: string, termId: string): string => `draft|${LEDGER_PREFIX}${source}|${termId}`
+
+/** 知識の写しのデータセット（取り込み元の `datasetId`）を図の元から除く。写しは台帳の語として見せるので、種類・項目の点は出さない。 */
+export function withoutCopyDatasets<D extends { id: string }>(datasets: readonly D[], ledgers: readonly Ledger[]): D[] {
+  const ids = new Set(ledgers.map((l) => l.source.datasetId).filter((x): x is string => !!x))
+  return ids.size === 0 ? [...datasets] : datasets.filter((d) => !ids.has(d.id))
+}
