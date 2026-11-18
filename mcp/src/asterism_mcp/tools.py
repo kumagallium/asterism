@@ -648,14 +648,25 @@ async def answer_knowledge_question(
     ``mode == "knowledge"``) and answered by the closed runner
     :func:`asterism.knowledge.knowledge_answer` — a fixed template over the alignment graph
     only, so only lines a person CONFIRMED can appear (a draft never reaches the store).
-    No SPARQL is taken from the caller.
+    No SPARQL is taken from the caller. ``op`` is one of ``factors`` (with ``direction``) /
+    ``parts`` / ``kinds`` / ``makers`` / ``products`` / ``measurers`` / ``measured`` /
+    ``sources`` / ``outcomes`` / ``competitors`` / ``properties`` / ``bearers`` /
+    ``missing``.
 
     Returns ``{found: True, tool_name, question, op, target, target_iri, direction, count,
     items}`` where ``items`` is ``[{label, relation, via_label, reason, drafted_by, at}]``
-    (``drafted_by`` = ``ai`` / ``human``; ``reason`` / ``at`` may be ``None``), or
+    (``drafted_by`` = ``ai`` / ``human``; ``reason`` / ``at`` may be ``None``). For
+    ``missing`` a row is a property recorded for other terms but not for the target
+    (``reason`` / ``drafted_by`` / ``at`` are ``None``, ``evidence`` is empty) and it also carries
+    ``others`` (``[{iri, label}]``, up to 5 terms that have it) and ``others_count``. The new types'
+    rows (not ``factors`` / ``parts`` / ``kinds``) also carry ``sentence`` (the confirmed line in
+    words, in line direction — use it as is), and the top level carries
+    ``target_position`` (``"to"`` /
+    ``"from"`` / ``"either"``: where the target sits on the line; absent for the old types and
+    ``missing``); or
     ``{found: False, tool_name, error}`` when the registry has no such knowledge question.
     """
-    from asterism.knowledge import knowledge_answer
+    from asterism.knowledge import LINE_OPS, item_sentence, knowledge_answer
     from asterism.themes import load_themes_file
 
     if registry_root is None:
@@ -691,6 +702,12 @@ async def answer_knowledge_question(
     def _three(it: dict) -> list[dict]:
         return order_by_paper([cited[e] for e in it.get("evidence", []) if e in cited], 3)
 
+    op = answer["op"]
+
+    def _row(it: dict) -> dict:
+        text = item_sentence(op, it, "ja")
+        return {**({"sentence": text} if text is not None else {})}
+
     return {
         "found": True,
         "tool_name": tool_name,
@@ -700,6 +717,7 @@ async def answer_knowledge_question(
         "target_iri": target_iri,
         "direction": answer["direction"],
         "count": answer["count"],
+        **({"target_position": LINE_OPS[op][1]} if op in LINE_OPS else {}),
         "items": [
             {
                 "label": it["label"],
@@ -717,6 +735,9 @@ async def answer_knowledge_question(
                     }
                     for e in _three(it)
                 ],
+                **_row(it),
+                **({"others": it["others"]} if "others" in it else {}),
+                **({"others_count": it["others_count"]} if "others_count" in it else {}),
             }
             for it in answer["items"]
         ],

@@ -1756,6 +1756,20 @@ _KNOWLEDGE_SENTENCES: dict[str, dict[str, dict[str, str]]] = {
     },
     "parts": {"ja": {"": "の一部"}, "en": {"": "Parts of {t}"}},
     "kinds": {"ja": {"": "の一種"}, "en": {"": "Kinds of {t}"}},
+    # 14a-2: 実験の記録の関係（作る・測る・変わる・競合する・物性）
+    "makers": {"ja": {"": "を作る手法"}, "en": {"": "Methods that make {t}"}},
+    "products": {"ja": {"": "で作るもの"}, "en": {"": "What {t} makes"}},
+    "measurers": {"ja": {"": "を測る手法"}, "en": {"": "Methods that measure {t}"}},
+    "measured": {"ja": {"": "で測るもの"}, "en": {"": "What {t} measures"}},
+    "sources": {"ja": {"": "に変わるもの"}, "en": {"": "What turns into {t}"}},
+    "outcomes": {"ja": {"": "が変わる先"}, "en": {"": "What {t} turns into"}},
+    "competitors": {"ja": {"": "と競合するもの"}, "en": {"": "What competes with {t}"}},
+    "properties": {"ja": {"": "の物性"}, "en": {"": "Properties of {t}"}},
+    "bearers": {"ja": {"": "を持つ材料"}, "en": {"": "Materials that have {t}"}},
+    "missing": {
+        "ja": {"": "でまだ無い物性"},
+        "en": {"": "Properties not yet recorded for {t}"},
+    },
 }
 
 
@@ -1782,8 +1796,11 @@ def describe_selection(selection: dict, lang: str = "ja") -> str:
     （データセットごと）」。値で絞る・〜ごと・推移・結合 1 段は名詞句で言い切る:
     「試料のうち、組成に SnSe を含むもの」「試料を 組成 ごとに数える」
     「測定曲線の 温度 と Seebeck 係数 の並び」「論文 が 報告する 試料」。
-    知識で答える問い（``op`` = ``factors`` / ``parts`` / ``kinds``・``target`` と ``direction``）は
-    「熱伝導率 を下げるもの」「熱伝導率 の一部」「熱伝導率 の一種」。
+    知識で答える問い（``op`` = ``factors`` / ``parts`` / ``kinds`` と、14a-2 の ``makers`` /
+    ``products`` / ``measurers`` / ``measured`` / ``sources`` / ``outcomes`` / ``competitors`` /
+    ``properties`` / ``bearers`` / ``missing``・``target`` と ``direction``）は
+    「熱伝導率 を下げるもの」「熱伝導率 の一部」「熱伝導率 の一種」「Mg2Si を作る手法」
+    「Mg2Si の物性」「Mg2Si でまだ無い物性」。
     数え方が閉集合に無い・足りない部分がある（``count`` に種類が無い等）ときは ``""``。
     データの値は読まない — 選んだ名前を型に流し込むだけ。"""
     op = selection.get("op")

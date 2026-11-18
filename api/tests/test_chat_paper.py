@@ -1680,3 +1680,158 @@ def test_mark_supports_finds_a_competes_line_whichever_way_the_proposal_puts_it(
         got = _run(chat_paper.mark_supports(app.state.client, ops("https://example.org/p/s2")))
         (r,) = [o for o in got if o["op"] == "add_relation"]
         assert r["supports"] is True
+
+
+# ---- 14a-2: 作る・測る・変わる・競合する・物性（新しい 5 つの関係） ----------------------------
+
+
+def test_build_ops_decides_kinds_for_the_new_relations_and_drops_what_does_not_fit() -> None:
+    rels = [
+        _r("arc melting", "makes", "Mg2Si"),  # 両端とも種類
+        _r("X-ray diffraction", "measures", "Mg2Si"),  # 相手が種類 → measuresMaterial 側
+        _r("X-ray diffraction", "measures", "thermal conductivity"),  # 項目と決まる（下の物性）
+        _r("Mg2Si", "has_property", "thermal conductivity"),  # 相手は項目
+        _r("Mg2Sn", "becomes", "Mg2Si"),
+        _r("Mg2Si", "competes", "Mg2Sn"),  # 向きを逆にしても 1 本
+        _r("Mg2Sn", "competes", "Mg2Si", ev="s2"),
+        _r("Mg2Ge", "competes", "Mg2Si", ev="s3"),
+        _r("Mg2Ge", "makes", "thermal conductivity"),  # makes の相手が項目 → 落ちる
+        _r("Mg2Ge", "has_property", "Mg2Sn"),  # has_property の相手が（既存の）種類 → 落ちる
+        _r("Mg2Ge", "competes", "Mg2Ge"),  # 自己参照 → 落ちる
+    ]
+    sn = _term("mg2sn", "Mg2Sn", "Mg2Sn", "class")
+    ops, dropped = chat_paper.build_ops(rels, [sn])
+    kinds = {o["label_en"]: o["kind"] for o in ops if o["op"] == "add_concept"}
+    assert kinds == {
+        "arc melting": "class", "Mg2Si": "class", "X-ray diffraction": "class",
+        "thermal conductivity": "property", "Mg2Sn": "class", "Mg2Ge": "class",
+    }  # fmt: skip
+    assert dropped == 3
+    key = {o["label_en"]: o["key"] for o in ops if o["op"] == "add_concept"}
+    got = [(o["from"], o["rel"], o["to"], o["evidence"]) for o in ops if o["op"] == "add_relation"]
+    assert len(got) == 7
+    comp = [g for g in got if g[1] == "competes"]
+    assert len(comp) == 2  # Mg2Si–Mg2Sn（向き違いは 1 本・根拠は合流）と Mg2Si–Mg2Ge
+    pair = next(g for g in comp if {g[0], g[2]} == {key["Mg2Si"], key["Mg2Sn"]})
+    assert pair[3] == ["s1", "s2"]
+    # 種類と決まる measures の相手は、同じ提案に項目の根拠が無ければ種類
+    ops2, d2 = chat_paper.build_ops([_r("X-ray diffraction", "measures", "Mg2Si")], [])
+    assert d2 == 0 and [o["kind"] for o in ops2 if o["op"] == "add_concept"] == ["class", "class"]
+    # 既存の用語が項目なら、measures の相手は項目
+    tc = _term("tc", "熱伝導率", "thermal conductivity", "property")
+    ops3, d3 = chat_paper.build_ops(
+        [_r("X-ray diffraction", "measures", "thermal conductivity")], [tc]
+    )
+    assert d3 == 0
+    assert [o["kind"] for o in ops3 if o["op"] == "add_concept"] == ["class", "property"]
+
+
+def test_same_name_existing_terms_follow_the_position_of_the_new_relations() -> None:
+    cls = _term("si_c", "Mg2Si", "Mg2Si", "class")
+    prop = _term("si_p", "Mg2Si", "Mg2Si", "property")
+    ops, dropped = chat_paper.build_ops([_r("arc melting", "makes", "Mg2Si")], [cls, prop])
+    si = next(o for o in ops if o["op"] == "add_concept" and o["label_en"] == "Mg2Si")
+    assert si["use"] == "existing:si_c" and dropped == 0  # makes の相手は種類
+    ops, dropped = chat_paper.build_ops([_r("Mg2Si", "has_property", "Mg2Si")], [cls, prop])
+    assert dropped == 1  # 自己参照
+    ops, dropped = chat_paper.build_ops([_r("sample", "has_property", "Mg2Si")], [cls, prop])
+    si = next(o for o in ops if o["op"] == "add_concept" and o["label_en"] == "Mg2Si")
+    assert si["use"] == "existing:si_p" and dropped == 0  # has_property の相手は項目
+
+
+def test_questions_for_the_new_relations_follow_the_table_in_japanese_and_english() -> None:
+    cases = {
+        "makes": ("{} を作る手法は？", "Which methods make {}?", "makers"),
+        "measures": ("{} を測る手法は？", "Which methods measure {}?", "measurers"),
+        "becomes": ("{} に変わるものは？", "What turns into {}?", "sources"),
+        "competes": ("{} と競合するものは？", "What competes with {}?", "competitors"),
+        "has_property": ("{} を持つ材料は？", "Which materials have {}?", "bearers"),
+    }
+    for rel, (ja, en, kind) in cases.items():
+        a, b = ("sample a", "quantity b") if rel == "has_property" else ("thing a", "thing b")
+        for lang, want in (("ja", ja), ("en", en)):
+            base, dropped = chat_paper.build_ops([_r(a, rel, b, f="甲", t="乙")], [])
+            assert dropped == 0
+            made = chat_paper.add_questions(base, lang)[0]
+            q = next(o for o in made if o["op"] == "add_question")
+            assert q["question"] == want.format("乙" if lang == "ja" else b)
+            assert (q["mode"], q["op_kind"], q["direction"]) == ("knowledge", kind, None)
+        _commit_passes_new(rel, a, b)
+
+
+def _commit_passes_new(rel: str, a: str, b: str) -> None:
+    """新しい関係の提案（関係＋問い）が、下書きに載って確定の検査を通る。"""
+    import tempfile
+
+    ops, _ = chat_paper.build_ops([_r(a, rel, b)], [])
+    ops, q_dropped = chat_paper.add_questions(ops, "ja")
+    assert q_dropped == 0
+    with tempfile.TemporaryDirectory() as tmp:
+        _commit_passes(Path(tmp), ops)
+
+
+NEW_JATS = """<?xml version="1.0"?>
+<article><front><article-meta><title-group><article-title>Mg2Si</article-title></title-group>
+</article-meta></front><body><sec id="s1"><title>はじめに</title>
+<p>Mg2Si と Mg2Sn は競合し、Mg2Si はアーク溶解で作り、X 線回折で測り、熱伝導率を持つ。</p>
+</sec></body></article>
+""".encode()
+
+
+class _NewRelsLLM:
+    """新しい 5 つの関係を返すスタブ（競合は向きを逆にもう 1 本）。"""
+
+    def complete(self, system: str, user: str) -> str:
+        rows = {m[2]: m[1] for m in (re.match(r"- (s\d+) \| (.*)", x) for x in user.splitlines())
+                if m}  # fmt: skip
+        num = next(iter(rows.values()))
+
+        def rel(a: str, r: str, b: str) -> dict:
+            return {"from": a, "from_ja": None, "from_en": None, "rel": r, "to": b, "to_ja": None,
+                    "to_en": None, "evidence": [num]}  # fmt: skip
+
+        return json.dumps({"relations": [
+            rel("アーク溶解", "makes", "Mg2Si"),
+            rel("X 線回折", "measures", "Mg2Si"),
+            rel("Mg2Sn", "becomes", "Mg2Si"),
+            rel("Mg2Si", "competes", "Mg2Sn"),
+            rel("Mg2Sn", "competes", "Mg2Si"),
+            rel("Mg2Si", "has_property", "熱伝導率"),
+        ]}, ensure_ascii=False)  # fmt: skip
+
+
+def test_a_paper_with_the_new_relations_proposes_questions_and_one_approval_places_them(
+    tmp_path: Path,
+) -> None:
+    app, _ = _app(tmp_path, _NewRelsLLM())
+    with TestClient(app, headers=_AUTH) as client:
+        sid = _new(client)
+        r = _attach_many(client, sid, [("論文.xml", NEW_JATS)])
+        assert r.status_code == 201, r.text
+        _drain(client, r.json()["job_id"])
+        turn = _turn(client, sid, r.json()["turn"]["id"])
+        assert turn["paper"]["created"] is True, turn["reply"]["notes"]
+        ops = turn["reply"]["ops"]
+        kinds = {o["label_ja"]: o["kind"] for o in ops if o["op"] == "add_concept"}
+        assert kinds == {
+            "アーク溶解": "class", "Mg2Si": "class", "X 線回折": "class", "Mg2Sn": "class",
+            "熱伝導率": "property",
+        }  # fmt: skip
+        rels = sorted(o["rel"] for o in ops if o["op"] == "add_relation")
+        assert rels == ["becomes", "competes", "has_property", "makes", "measures"]  # 競合は 1 本
+        (q,) = [o for o in ops if o["op"] == "add_question"]
+        assert q["mode"] == "knowledge" and q["op_kind"] in {
+            "makers", "measurers", "sources", "competitors", "bearers",
+        }
+        assert q["question"] in {
+            "Mg2Si を作る手法は？", "Mg2Si を測る手法は？", "Mg2Si に変わるものは？",
+            "Mg2Si と競合するものは？", "Mg2Sn と競合するものは？", "熱伝導率 を持つ材料は？",
+        }  # fmt: skip
+        done = _confirm(client, sid, turn["id"])
+        assert done.status_code == 200, done.text
+        assert done.json()["turn"]["state"] == "confirmed"
+        theme_id = done.json()["commit"]["theme_id"]
+        # 置かれた問いが答えの口で引ける（確定した線から）
+        a = client.get(f"/api/themes/{theme_id}/answers").json()["answers"]
+        assert len(a) == 1 and a[0]["mode"] == "knowledge" and a[0]["knowledge"]["count"] >= 1
+        assert all(i["sentence"] for i in a[0]["knowledge"]["items"])

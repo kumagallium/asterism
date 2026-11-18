@@ -76,7 +76,54 @@ FITTING_OPS = ("count", "range", "top", *sv.DATA_OPS)
 #: ``themes.json`` の ``selections`` に残す欄（実行文を組む表示名と値）。
 _SELECTION_KEYS = ("op", "kind", "property", "value", "match", "property2", "kind2")
 #: 知識で答える（``asterism.knowledge`` の走者・``theme_propose.KNOWLEDGE_OPS`` と同じ）。
-KNOWLEDGE_OPS = ("factors", "parts", "kinds")
+#: 並びは ``knowledge.OPS`` と同じ（既存の 3 つが先頭・テストで固定）。
+KNOWLEDGE_OPS = (
+    "factors",
+    "parts",
+    "kinds",
+    "makers",
+    "products",
+    "measurers",
+    "measured",
+    "sources",
+    "outcomes",
+    "competitors",
+    "properties",
+    "bearers",
+    "missing",
+)
+#: 14a-2 の新しい型の対象の種別（``class`` = 種類・``property`` = 項目・``None`` = どちらでも）。
+#: 既存の 3 つは検査しない（今のまま）。
+KNOWLEDGE_TARGET_KINDS: dict[str, str | None] = {
+    "makers": "class",
+    "products": "class",
+    "measurers": None,
+    "measured": "class",
+    "sources": "class",
+    "outcomes": "class",
+    "competitors": "class",
+    "properties": "class",
+    "bearers": "property",
+    "missing": "class",
+}
+_TARGET_KIND_WORDS = {"class": "種類", "property": "項目"}
+
+
+def knowledge_target_kind_ok(op: str | None, kind: str | None) -> bool:
+    """新しい型の対象の種別が合うか。既存の 3 つ・どちらでもの型は常に ``True``。"""
+    want = KNOWLEDGE_TARGET_KINDS.get(str(op))
+    return want is None or kind == want
+
+
+def _knowledge_target_kind_message(q: str, op: str) -> str:
+    want = KNOWLEDGE_TARGET_KINDS[op]
+    other = "property" if want == "class" else "class"
+    return (
+        f"問い「{q}」の対象は{_TARGET_KIND_WORDS[str(want)]}にしてください"
+        f"（「〜{sv._KNOWLEDGE_SENTENCES[op]['ja']['']}」は"
+        f"{_TARGET_KIND_WORDS[str(want)]}を対象にします。"
+        f"今は{_TARGET_KIND_WORDS[other]}が選ばれています）"
+    )
 KNOWLEDGE_DIRECTIONS = ("lowers", "raises", "affects")
 #: 下書きの関係の名前（``theme_propose.RELATIONS`` と同じ）。ストアの述語には
 #: :func:`relation_predicate` で写す。
@@ -1123,7 +1170,9 @@ def postprocess_draft(
             out_answers.append(_answer_row(q, "memo", memo="none"))
             continue
         mode, op = a["mode"], a.get("op")
-        t_row = resolve(a["target"])[0] if a.get("target") else None
+        # 新しい型は対象の種別が決まっている → 同名の種類と項目があれば合うほうを引く
+        t_hint = KNOWLEDGE_TARGET_KINDS.get(str(op)) if mode == "knowledge" else None
+        t_row = resolve(a["target"], t_hint)[0] if a.get("target") else None
         k_row = resolve(a["kind"], "class")[0] if a.get("kind") else None
         p_row = resolve(a["property"], "property")[0] if a.get("property") else None
         p2_row = resolve(a["property2"], "property")[0] if a.get("property2") else None
@@ -1143,6 +1192,8 @@ def postprocess_draft(
             good = op in KNOWLEDGE_OPS and t_row is not None
             if op == "factors":
                 good = good and direction in KNOWLEDGE_DIRECTIONS
+            if good and not knowledge_target_kind_ok(op, t_row["kind"]):
+                good = False  # 新しい型の対象の種別が合わない → メモの問いへ
             memo = None if good else "ai"
         elif mode == "data":
             good = data_answer_complete(
@@ -1758,6 +1809,8 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                     raise ThemeError(f"問い「{q}」の対象の概念がありません")
                 if op == "factors" and direction not in KNOWLEDGE_DIRECTIONS:
                     raise ThemeError(f"問い「{q}」の向きは {KNOWLEDGE_DIRECTIONS} のどれかです")
+                if not knowledge_target_kind_ok(op, t.kind):
+                    raise ThemeError(_knowledge_target_kind_message(q, op))
                 name = knowledge_tool_name(t.slug, op, direction)
                 summary = {
                     "mode": "knowledge",
@@ -2373,6 +2426,7 @@ __all__ = [
     "FITTING_OPS",
     "KNOWLEDGE_DIRECTIONS",
     "KNOWLEDGE_OPS",
+    "KNOWLEDGE_TARGET_KINDS",
     "MAX_CONCEPTS",
     "RELATION_KINDS",
     "RESERVED_IDS",
@@ -2392,6 +2446,7 @@ __all__ = [
     "draft_rel_key",
     "ensure_migrated",
     "experiment_relation_problem",
+    "knowledge_target_kind_ok",
     "knowledge_tool_name",
     "list_drafts",
     "load_draft",

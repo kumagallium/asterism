@@ -302,6 +302,11 @@ export interface KnowledgeItem {
   drafted_by: string
   at: string
   batch: string | null
+  /** missing: その項目を持つほかの語（ラベル順・最大 5）と全数。 */
+  others?: { iri: string; label: string }[]
+  others_count?: number
+  /** 新しい型の行: その関係を線の向きどおりに言い表す文（サーバが返す）。 */
+  sentence?: string
 }
 
 export interface QuestionAnswer {

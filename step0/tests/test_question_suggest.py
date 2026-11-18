@@ -96,7 +96,7 @@ def test_a_good_answer_passes_and_is_normalised() -> None:
 def test_the_vocabulary_is_the_closed_one_of_the_theme_draft() -> None:
     enum = question_json_schema()["properties"]["questions"]["items"]["properties"]["op"]["enum"]
     assert enum == [*DATA_OPS, *KNOWLEDGE_OPS]
-    assert len(DATA_OPS) == 7 and len(KNOWLEDGE_OPS) == 3
+    assert len(DATA_OPS) == 7 and len(KNOWLEDGE_OPS) == 13
 
 
 def test_unknown_keys_are_dropped_not_read() -> None:

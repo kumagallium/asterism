@@ -441,8 +441,13 @@ def _knowledge_tool_def(reg_root: str | None) -> dict | None:
         "name": "answer_knowledge_question",
         "description": (
             "[verified] Answer a KNOWLEDGE question from the relations a person confirmed "
-            "(what lowers / raises / affects a term, its parts, its kinds). Each item may carry "
-            "the paper sentences it was read from (evidence). Takes only the question's name. "
+            "(what lowers / raises / affects a term, its parts, its kinds; which methods make / "
+            "measure it, what it makes / measures, what turns into it / what it turns into, "
+            "what competes with it, its properties / which materials have a property, which "
+            "properties are not yet recorded for it). Each item may carry the paper sentences "
+            "it was read from (evidence). Rows of the new types carry `sentence`, the relation "
+            "in words: use it as is and do not assemble the direction yourself. "
+            "Takes only the question's name. "
             "Available: " + "; ".join(names[:20])
         ),
         "input_schema": {

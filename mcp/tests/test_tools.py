@@ -1358,6 +1358,7 @@ async def test_answer_knowledge_question_reads_the_theme_and_runs_the_closed_tem
     assert (out["op"], out["target"], out["direction"], out["count"]) == (
         "factors", "熱伝導率", "lowers", 1,
     )  # fmt: skip
+    assert "target_position" not in out  # 既存の型の返り値の形は変えない
     assert out["items"] == [
         {
             "label": "粒界散乱", "relation": "lowers", "via_label": "格子熱伝導率",
@@ -1369,6 +1370,117 @@ async def test_answer_knowledge_question_reads_the_theme_and_runs_the_closed_tem
     from asterism.crosswalk_runtime import ALIGNMENT_GRAPH
 
     assert seen and ALIGNMENT_GRAPH in seen[0]
+
+
+def _canned_client(rows: list[dict]) -> OxigraphClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = {"head": {"vars": list(rows[0]) if rows else []}, "results": {"bindings": rows}}
+        return httpx.Response(
+            200, text=json.dumps(body), headers={"content-type": "application/sparql-results+json"}
+        )
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+def _lit(v: str) -> dict:
+    return {"type": "literal", "value": v, "xml:lang": "ja"}
+
+
+async def test_answer_knowledge_question_answers_makers_from_the_confirmed_makes_lines(
+    tmp_path,
+) -> None:
+    from asterism import shared_vocab as sv
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS
+
+    _write_themes(
+        tmp_path,
+        {"kq_mg2si_makers": {"mode": "knowledge", "op": "makers", "target_slug": "mg2si",
+                             "target": "Mg2Si", "title": "Mg2Si を作る手法は"}},
+    )  # fmt: skip
+    row = {
+        "from": {"type": "uri", "value": sv.term_iri("arc_melting")},
+        "rel": {"type": "uri", "value": ALIGN_RELATIONS["makes"]},
+        "via": {"type": "uri", "value": sv.term_iri("mg2si")},
+        "lbl": _lit("アーク溶解"), "vlbl": _lit("Mg2Si"),
+        "who": {"type": "literal", "value": "human"},
+        "at": {"type": "literal", "value": "2026-11-17T00:00:00+00:00"},
+    }  # fmt: skip
+    out = await answer_knowledge_question(
+        "kq_mg2si_makers", _canned_client([row]), registry_root=tmp_path
+    )
+    assert out["found"] is True and out["op"] == "makers" and out["count"] == 1
+    assert out["direction"] is None
+    (item,) = out["items"]
+    assert (item["label"], item["relation"], item["via_label"]) == (
+        "アーク溶解", "makes", "Mg2Si",
+    )  # fmt: skip
+    assert item["drafted_by"] == "human" and item["evidence"] == []
+    assert "others" not in item and "others_count" not in item
+
+
+async def test_answer_knowledge_question_sentence_follows_the_line_and_target_position(
+    tmp_path,
+) -> None:
+    from asterism import shared_vocab as sv
+    from asterism.crosswalk_runtime import ALIGN_RELATIONS
+
+    _write_themes(
+        tmp_path,
+        {
+            "kq_arc_products": {"mode": "knowledge", "op": "products",
+                                "target_slug": "arc_melting", "target": "アーク溶解"},
+            "kq_mg2si_makers": {"mode": "knowledge", "op": "makers",
+                                "target_slug": "mg2si", "target": "Mg2Si"},
+        },
+    )  # fmt: skip
+    row = {
+        "from": {"type": "uri", "value": sv.term_iri("arc_melting")},
+        "rel": {"type": "uri", "value": ALIGN_RELATIONS["makes"]},
+        "via": {"type": "uri", "value": sv.term_iri("mg2si")},
+        "lbl": _lit("Mg2Si"), "vlbl": _lit("アーク溶解"),
+        "who": {"type": "literal", "value": "human"},
+    }  # fmt: skip
+    prow = {**{k: v for k, v in row.items() if k != "from"},
+            "other": {"type": "uri", "value": sv.term_iri("mg2si")}}  # fmt: skip
+    out = await answer_knowledge_question(
+        "kq_arc_products", _canned_client([prow]), registry_root=tmp_path
+    )
+    assert out["target_position"] == "from"
+    assert out["items"][0]["sentence"] == "アーク溶解 で Mg2Si を作る"  # 主語は X
+    row2 = {**row, "lbl": _lit("アーク溶解"), "vlbl": _lit("Mg2Si")}
+    out = await answer_knowledge_question(
+        "kq_mg2si_makers", _canned_client([row2]), registry_root=tmp_path
+    )
+    assert out["target_position"] == "to"
+    assert out["items"][0]["sentence"] == "アーク溶解 で Mg2Si を作る"
+
+
+async def test_answer_knowledge_question_returns_others_for_missing(tmp_path) -> None:
+    from asterism import shared_vocab as sv
+
+    _write_themes(
+        tmp_path,
+        {"kq_mg2si_missing": {
+            "mode": "knowledge", "op": "missing", "target_slug": "mg2si",
+            "target": "Mg2Si", "title": "Mg2Si でまだ無い物性は"}},
+    )  # fmt: skip
+    seebeck = sv.term_iri("seebeck")
+    rows = [
+        {"from": {"type": "uri", "value": sv.term_iri(s)}, "p": {"type": "uri", "value": seebeck},
+         "fl": _lit(lbl), "pl": _lit("ゼーベック係数")}
+        for s, lbl in (("mg2sn", "Mg2Sn"), ("mg2ge", "Mg2Ge"))
+    ]  # fmt: skip
+    out = await answer_knowledge_question(
+        "kq_mg2si_missing", _canned_client(rows), registry_root=tmp_path
+    )
+    assert out["found"] is True and out["op"] == "missing" and out["count"] == 1
+    (item,) = out["items"]
+    assert (item["label"], item["relation"]) == ("ゼーベック係数", "hasProperty")
+    assert item["reason"] is None and item["drafted_by"] is None and item["at"] is None
+    assert item["evidence"] == [] and item["others_count"] == 2
+    assert [o["label"] for o in item["others"]] == ["Mg2Ge", "Mg2Sn"]
+    assert item["others"][0]["iri"] == sv.term_iri("mg2ge")
 
 
 async def test_answer_knowledge_question_items_carry_evidence_sentences_up_to_three(

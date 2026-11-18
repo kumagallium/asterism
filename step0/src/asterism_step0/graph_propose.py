@@ -125,7 +125,9 @@ _SHAPE = """\
   {"op": "rename", "key": "<key>", "label_ja": "...", "label_en": "...", "aliases": ["..."],
    "reason": "..."},
   {"op": "add_question", "question": "<a sentence>", "mode": "knowledge|data",
-   "op_kind": "factors|parts|kinds|count|range|top|filter|group|trend|join",
+   "op_kind": "factors|parts|kinds|makers|products|measurers|measured|sources|outcomes|
+               competitors|properties|bearers|missing|count|range|top|filter|group|
+               trend|join",
    "target": "<key> or null", "direction": "lowers|raises|affects or null",
    "kind": "<key of a class> or null", "property": "<key of a property> or null",
    "value": "<a word from the question> or null", "match": "contains|exact or null",
@@ -158,7 +160,9 @@ Meaning:
   attached to the wrong concept; do not use remove + add_relation for that.
 - "remove" takes a concept (its relations go with it) or one relation away.
 - "add_question": a question the graph should answer. mode "knowledge": op "factors" (with
-  direction: what lowers / raises / changes the target), "parts" or "kinds"; "target" is a key.
+  direction: what lowers / raises / changes the target), "parts", "kinds", "makers",
+  "products", "measurers", "measured", "sources", "outcomes", "competitors", "properties",
+  "bearers" (the target is a property) or "missing"; "target" is a key.
   mode "data": op "count" (give "kind"), "range" or "top" (give "property"), "filter" (give
   "kind", "property", "value" = a word WRITTEN IN THE QUESTION, "match" contains or exact),
   "group" (give "kind", "property"), "trend" (give "kind", "property" = x, "property2" = y) or

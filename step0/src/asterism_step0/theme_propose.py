@@ -55,7 +55,11 @@ __all__ = [
 ]
 
 #: 知識で答える（決定論の走者 ``asterism.knowledge``）。
-KNOWLEDGE_OPS = ("factors", "parts", "kinds")
+KNOWLEDGE_OPS = (
+    "factors", "parts", "kinds",
+    "makers", "products", "measurers", "measured", "sources", "outcomes", "competitors",
+    "properties", "bearers", "missing",
+)  # fmt: skip
 #: データで答える（決定論のテンプレートで宣言ツールになる・``asterism.shared_vocab``）。
 #: ``filter`` 値で絞る／``group`` 〜ごと／``trend`` 推移／``join`` 結合 1 段。
 DATA_OPS = ("count", "range", "top", "filter", "group", "trend", "join")
@@ -132,7 +136,9 @@ _SHAPE = """\
    "to": "<key or curie>", "reason": "..."}],
  "answers": [{"question": "<the question, copied verbatim>",
               "mode": "knowledge|data|memo",
-              "op": "factors|parts|kinds|count|range|top|filter|group|trend|join or null",
+              "op": "factors|parts|kinds|makers|products|measurers|measured|sources|outcomes|
+                     competitors|properties|bearers|missing|count|range|top|filter|group|trend|join
+                     or null",
               "target": "<key> or null", "direction": "lowers|raises|affects or null",
               "kind": "<key of a class> or null", "property": "<key of a property> or null",
               "value": "<a word from the question> or null",
@@ -168,8 +174,16 @@ Meaning:
   "to" is a key, or a curie of a standard term.
 - "answers": for EVERY question, exactly one entry saying how it is answered:
   mode "knowledge": op "factors" (with direction lowers / raises / affects: what lowers /
-  raises / changes the target), "parts" (what the target is made of) or "kinds" (kinds of
-  the target); "target" is the key of the concept the question is about.
+  raises / changes the target), "parts" (what the target is made of), "kinds" (kinds of
+  the target), "makers" (which methods make the target material), "products" (what the
+  target method makes), "measurers" (which methods measure the target, a material or a
+  property), "measured" (what the target method measures), "sources" (what turns into the
+  target material), "outcomes" (what the target material turns into), "competitors" (what
+  competes with the target material), "properties" (which properties the target material
+  has), "bearers" (which materials have the target property; the target is a PROPERTY) or
+  "missing" (which properties are not yet recorded for the target material
+  although other materials have them); "target" is the key of the concept the question is
+  about.
   mode "data": op "count" (how many of a kind: give "kind"), "range" (min and max of a
   property: give "property"), "top" (the one with the largest value: give "kind" and
   "property"), "filter" (the kind whose property contains / equals a word that is WRITTEN IN
