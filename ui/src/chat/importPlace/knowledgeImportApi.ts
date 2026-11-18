@@ -35,6 +35,9 @@ export interface ImportSource {
 export type SkipReason = 'ai_unset' | 'off' | 'error' | 'cancelled' | 'aborted'
 
 export interface ImportQuestion {
+  /** 押すと入口 1（AI なし）で台帳に答えさせる名前と取り込み元（14e-2）。 */
+  name?: string
+  source?: string
   op: string
   term: { id: string; name: string }
   text: string
@@ -120,7 +123,7 @@ export function normalizeResult(v: unknown): ImportResult | null {
     },
     questions: qs.flatMap((q): ImportQuestion[] =>
       isObj(q) && typeof q.text === 'string' && isObj(q.term)
-        ? [{ op: String(q.op ?? ''), term: { id: String(q.term.id ?? ''), name: String(q.term.name ?? '') }, text: q.text, count: num(q.count) }]
+        ? [{ name: String(q.name ?? ''), source: String(q.source ?? v.source), op: String(q.op ?? ''), term: { id: String(q.term.id ?? ''), name: String(q.term.name ?? '') }, text: q.text, count: num(q.count) }]
         : [],
     ),
     questions_total: num(v.questions_total),

@@ -555,3 +555,23 @@ def test_a_rejected_only_entry_does_not_disturb_an_import_without_the_ai(tmp_pat
     after = pr.load_ledger(env.root, "lab")["pairs"][key]
     assert full["relations"]["asked"] > 0
     assert after["state"] == "dropped" and after["reason"] == "rejected" and after["rejected"]
+
+
+def test_result_questions_carry_the_names_the_chat_answers_with(tmp_path: Path) -> None:
+    """14e-2: 結果の問いは名前（``lq_…``）と取り込み元を持ち、数と並びは今までどおり。"""
+    env = _env(tmp_path)
+    with TestClient(env.app, headers=_AUTH) as client:
+        out = _go(client)
+    qs = out["questions"]
+    assert qs and all(q["name"].startswith("lq_") and q["source"] == "lab" for q in qs)
+    assert len({q["name"] for q in qs}) == len(qs)
+    from asterism import knowledge_bundle as kb
+    from asterism import pair_relations as pr
+
+    src = registry.source_dir(env.root, out["dataset_id"])
+    ledger, copy = pr.load_ledger(env.root, "lab"), kb.read_copy(src)
+    want, total = pr.questions(ledger, copy, lang="ja", limit=20)
+    assert out["questions_total"] == total
+    assert [(q["op"], q["term"], q["text"], q["count"]) for q in qs] == [
+        (q["op"], q["term"], q["text"], q["count"]) for q in want
+    ]

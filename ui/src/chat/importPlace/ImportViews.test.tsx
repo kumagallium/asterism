@@ -10,7 +10,7 @@ vi.mock('react-i18next', async (importOriginal) => ({
 
 import '../../i18n'
 import { prepareGraphium, type ConnectDeps } from './graphiumConnect'
-import { GraphiumCard, ImportNotice, ImportProgress, ImportResultCard, ImportSources, type SourcesProps } from './ImportViews'
+import { GraphiumCard, ImportNotice, ImportProgress, ImportResultCard, ImportSources, SHOW_RESULT_QUESTIONS, type SourcesProps } from './ImportViews'
 import { result } from './testData'
 import type { ImportSource } from './knowledgeImportApi'
 
@@ -122,8 +122,8 @@ describe('進み', () => {
 })
 
 describe('結果の 1 枚', () => {
-  const props = (r = result(), over = {}) => ({ result: r, name: '実験ノート', lang: 'ja' as const, onAsk: noop, onGraph: noop, onClose: noop, onOpenSettings: noop, ...over })
-  const qs = Array.from({ length: 20 }, (_, i) => ({ op: 'o', term: { id: `t${i}`, name: `語${i}` }, text: `問い${i}`, count: 1 }))
+  const props = (r = result(), over = {}) => ({ showQuestions: true, result: r, name: '実験ノート', lang: 'ja' as const, onAsk: noop, onGraph: noop, onClose: noop, onOpenSettings: noop, ...over })
+  const qs = Array.from({ length: 20 }, (_, i) => ({ name: `lq_o_t${i}`, source: 'graphium', op: 'o', term: { id: `t${i}`, name: `語${i}` }, text: `問い${i}`, count: 1 }))
   it('問いは先頭 5・押すとその文が渡る・「ほか」・知識グラフを見る', () => {
     const r = result({ questions: qs, questions_total: 38 })
     const onAsk = vi.fn()
@@ -132,7 +132,7 @@ describe('結果の 1 枚', () => {
     const rows = byTestId(tree, 'import-question')
     expect(rows).toHaveLength(5)
     press(rows[2])
-    expect(onAsk).toHaveBeenCalledWith('問い2')
+    expect(onAsk).toHaveBeenCalledWith({ source: 'graphium', name: 'lq_o_t2', text: '問い2' })
     press(byTestId(tree, 'import-see-graph')[0])
     expect(onGraph).toHaveBeenCalledTimes(1)
     expect(renderToStaticMarkup(<ImportResultCard {...props(r)} />)).toContain('result.more')
@@ -146,6 +146,17 @@ describe('結果の 1 枚', () => {
     expect(html).toContain('graphium.openSettings')
     expect(html).not.toContain('import-lost')
     expect(renderToStaticMarkup(<ImportResultCard {...props(result({}, { failed: 2 }))} />)).toContain('import-lost')
+  })
+  it('旗は true（既定）・showQuestions=false のときは問いの節を出さない・ほかの行は残る', () => {
+    const r = result({ questions: qs, questions_total: 38 })
+    const html = renderToStaticMarkup(<ImportResultCard {...props(r, { showQuestions: false })} />)
+    expect(SHOW_RESULT_QUESTIONS).toBe(true)
+    expect(html).not.toContain('result.questions')
+    expect(html).not.toContain('import-question')
+    expect(html).not.toContain('result.more')
+    expect(html).toContain('result.read')
+    expect(html).toContain('import-see-graph')
+    expect(html).toContain('import-close-result')
   })
   it('問いが 0 なら問いの欄を出さない', () => {
     expect(renderToStaticMarkup(<ImportResultCard {...props()} />)).not.toContain('result.questions')
