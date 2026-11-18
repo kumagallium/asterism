@@ -2,8 +2,10 @@
 import { postReview, REVIEW_MAX, type ReviewResult } from '../graphPlace/knowledgeRelationsApi'
 import { relKey, type LedgerAnswer } from './types'
 
-/** 確認が通ったら図（知識グラフ）と、画面にあるほかの答えを読み直す合図。 */
+/** 答えの帯で確認が通った: ChatApp が図（知識グラフ）を読み直す合図。 */
 export const LEDGER_REVIEWED_EVENT = 'asterism:ledger-reviewed'
+/** 台帳が変わった（確認・取り込み・外す。ChatApp が出す）: 画面にある答えが今の台帳で数え直す合図。ChatApp の読み直しは起こさない（輪にしない）。 */
+export const LEDGER_CHANGED_EVENT = 'asterism:ledger-changed'
 
 export interface ReviewOutcome {
   /** 通った鍵（取り込み元＋鍵）。先に確認済みだった（`already_confirmed`）鍵も含む。 */

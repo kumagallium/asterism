@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { bandOf, clearLedgerRowsCache, currentUse, readCurrentRows, type RowsBySource } from './current'
-import { confirmUsed, LEDGER_REVIEWED_EVENT, reasonKeyOf, type PostReviewFn } from './review'
+import { confirmUsed, LEDGER_CHANGED_EVENT, LEDGER_REVIEWED_EVENT, reasonKeyOf, type PostReviewFn } from './review'
 import { groupItems, itemPending, relKey, type LedgerAnswer, type LedgerItem } from './types'
 import './ledgerAnswer.css'
 
@@ -44,10 +44,10 @@ export function LedgerAnswerView({ ledger, post }: LedgerAnswerViewProps) {
       clearLedgerRowsCache()
       load(off)
     }
-    window.addEventListener(LEDGER_REVIEWED_EVENT, on)
+    window.addEventListener(LEDGER_CHANGED_EVENT, on)
     return () => {
       off.v = true
-      window.removeEventListener(LEDGER_REVIEWED_EVENT, on)
+      window.removeEventListener(LEDGER_CHANGED_EVENT, on)
     }
   }, [load])
 
@@ -68,7 +68,7 @@ export function LedgerAnswerView({ ledger, post }: LedgerAnswerViewProps) {
       if (out.done.size > 0) {
         setDone((cur0) => new Set([...cur0, ...out.done]))
         // 図（知識グラフ）と、ほかの答えを読み直す合図
-        window.dispatchEvent(new CustomEvent(LEDGER_REVIEWED_EVENT))
+        window.dispatchEvent(new CustomEvent(LEDGER_REVIEWED_EVENT)) // ChatApp が図を読み直し、台帳が変わると LEDGER_CHANGED_EVENT が出る
       }
       setReasons(out.reasons)
       setNotDone(out.notDone)
