@@ -58,9 +58,28 @@
     "proposeChip": "Add to the knowledge graph",
     "sent": "Sent"
   },
-  "tabs": {
-    "label": "Area to show",
+  "nav": {
+    "label": "Places",
+    "import": "Import",
+    "graph": "Knowledge graph",
     "chat": "Chat"
+  },
+  "import": {
+    "title": "Import",
+    "lead": "Attach a table or a paper, and its terms and relations go into the knowledge graph.",
+    "attachTitle": "Attach files",
+    "attachBody": "Tables (CSV, Excel, JSON) and papers (PDF, Word, JATS XML). Reading starts in a new chat.",
+    "datasets": "Datasets",
+    "empty": "No datasets yet.",
+    "row": "{{kinds}} kinds · {{rows}} rows",
+    "paper": "Paper",
+    "unpublished": "Not published yet"
+  },
+  "graph": {
+    "title": "Knowledge graph"
+  },
+  "first": {
+    "loading": "Loading…"
   },
   "chart": {
     "back": "Back",

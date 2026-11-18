@@ -58,9 +58,28 @@
     "proposeChip": "知識グラフに追加",
     "sent": "送りました"
   },
-  "tabs": {
-    "label": "表示する領域",
+  "nav": {
+    "label": "場所",
+    "import": "取り込み",
+    "graph": "知識グラフ",
     "chat": "チャット"
+  },
+  "import": {
+    "title": "取り込み",
+    "lead": "表や論文を添えると、用語と関係が知識グラフに入ります。",
+    "attachTitle": "ファイルを添える",
+    "attachBody": "表（CSV・Excel・JSON）と論文（PDF・Word・JATS XML）。添えると、新しいチャットで読み取りが始まります。",
+    "datasets": "データセット",
+    "empty": "データセットはまだありません。",
+    "row": "種類 {{kinds}}・{{rows}} 件",
+    "paper": "論文",
+    "unpublished": "まだ公開していません"
+  },
+  "graph": {
+    "title": "知識グラフ"
+  },
+  "first": {
+    "loading": "読み込み中…"
   },
   "chart": {
     "back": "戻る",

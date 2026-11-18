@@ -1,16 +1,29 @@
-/* 3 領域の殻（PR 11a）: 左＝話の一覧／中央＝チャット／右＝図。色・余白は index.css のトークンから（点線は使わない）。 */
+/* 3 領域の殻（PR 14d-1）: 左＝ナビ 3 つ／中央／右。場所（is-import・is-graph・is-chat）で中央と右の幅だけ変える。
+   色・余白は index.css のトークンから（点線は使わない）。 */
 
 .chat-app {
+  --nav-w: 220px;
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 220px minmax(360px, 1.15fr) minmax(320px, 1fr);
+  grid-template-columns: var(--nav-w) minmax(360px, 1.15fr) minmax(320px, 1fr);
   background: var(--bg);
   font-family: var(--font-ui);
   color: var(--fg);
 }
 .chat-app.is-folded {
-  grid-template-columns: 56px minmax(360px, 1.15fr) minmax(320px, 1fr);
+  --nav-w: 56px;
+}
+/* 知識グラフ: 図を大きく、右は一覧の幅 */
+.chat-app.is-graph {
+  grid-template-columns: var(--nav-w) minmax(420px, 1.9fr) minmax(320px, 1fr);
+}
+/* 取り込み: 中央に入口と一覧、右に知識グラフ（小） */
+.chat-app.is-import {
+  grid-template-columns: var(--nav-w) minmax(420px, 1.5fr) minmax(300px, 1fr);
+}
+.chat-app.is-opening {
+  grid-template-columns: var(--nav-w) minmax(0, 1fr);
 }
 .chat-app [hidden] {
   display: none !important;
@@ -630,7 +643,7 @@
   max-width: 100%;
 }
 
-/* ── 980px 以下: 中央と右をタブ・左は ≡ で左から出るシート ── */
+/* ── 980px 以下: 場所ごとに 1 列・下に 3 つのタブ・左（チャットの一覧）は ≡ で左から出るシート ── */
 .chat-tabbar {
   display: flex;
   align-items: center;
@@ -672,13 +685,23 @@
 }
 .chat-app.is-tabs {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
-.chat-app.is-tabs .chat-center,
-.chat-app.is-tabs .chat-right {
+.chat-app.is-tabs .chat-center {
   grid-column: 1;
   grid-row: 2;
   border-right: none;
+}
+.chat-app.is-tabs .place-tabbar {
+  grid-column: 1;
+  grid-row: 3;
+}
+.chat-tabbar {
+  justify-content: space-between;
+}
+.chat-tabbar-brand {
+  flex: 1;
+  justify-content: center;
 }
 .chat-app.is-tabs .chat-list {
   position: fixed;
@@ -1423,4 +1446,278 @@ button.chat-question-title:hover {
     width: 44px;
     height: 44px;
   }
+}
+
+/* ── 14d-1: 左のナビ・下のタブ・取り込み ── */
+.nav-rail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+.nav-rail--folded {
+  align-items: center;
+  padding: var(--space-4) var(--space-3);
+}
+.nav-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.nav-rail--folded .nav-items {
+  align-items: center;
+  margin-top: var(--space-2);
+}
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  text-align: left;
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--fg);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+.nav-item:hover:not(.is-active) {
+  background: var(--surface-sink);
+}
+.nav-item.is-active {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.nav-item--icon {
+  width: var(--control-height);
+  justify-content: center;
+  padding: 0;
+}
+.nav-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-rail-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-left: var(--space-3);
+}
+.nav-rail--sheet .nav-rail-list {
+  padding-left: 0;
+}
+.chat-list-rows-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.place-tabbar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.place-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: var(--space-1) 0;
+  color: var(--muted);
+  background: none;
+  border: none;
+}
+.place-tab.is-active {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+.place-tab-name {
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.import-place {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.import-title {
+  margin: 0;
+  font-size: var(--text-title);
+}
+.import-lead {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-md);
+}
+.import-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.import-entry-title,
+.import-datasets-title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.import-datasets-title {
+  margin-top: var(--space-3);
+}
+.import-entry-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.import-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.import-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.import-rows li {
+  border-bottom: 1px solid var(--border);
+}
+.import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-3) var(--space-2);
+  text-align: left;
+  color: var(--fg);
+  background: none;
+  border: none;
+}
+.import-row:hover {
+  background: var(--surface-alt);
+}
+.import-row-name {
+  min-width: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.import-row-tag {
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-radius: var(--radius-sm);
+}
+.import-row-tag--soft {
+  color: var(--muted);
+  background: var(--surface-sink);
+}
+.import-row-meta {
+  margin-left: auto;
+  display: inline-flex;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* ── 14d-1: 場所の中央（取り込み・知識グラフ）の入れ物 ── */
+.place-opening {
+  align-items: center;
+  justify-content: center;
+}
+.place-center {
+  flex-direction: column;
+}
+.place-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.place-title {
+  flex: none;
+  margin: 0;
+  padding: var(--space-4) var(--space-4) var(--space-2);
+  font-size: var(--text-title);
+}
+/* 知識グラフ（大）: 残りの高さいっぱい。高さは ChatApp が入れ物から測って MapView に渡す */
+.place-map {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--space-3) var(--space-3);
+  overflow: hidden;
+}
+.place-error {
+  margin: var(--space-4) var(--space-6) 0;
+}
+/* 右の領域の先頭: 選んだ点の 1 枚 */
+.place-point {
+  margin-bottom: var(--space-3);
+}
+/* 375: 中央の下に積む部品（知識グラフ（小）・1 枚・関係／データ／問い） */
+.place-stack {
+  flex: none;
+  padding: var(--space-3);
+}
+.chat-app.is-tabs .place-map {
+  flex: none;
+  overflow: visible;
+}
+.chat-app.is-tabs .import-place {
+  padding: var(--space-4);
+}
+/* ナビ: 3 つの項目とチャットの一覧が伸び、⚙ は下に残る */
+.nav-rail {
+  overflow: hidden;
+}
+.nav-rail .nav-items {
+  flex: 1;
+  min-height: 0;
+}
+.nav-rail .nav-group:last-child,
+.nav-rail .nav-rail-list,
+.nav-rail .chat-list-rows-wrap {
+  flex: 1;
+  min-height: 0;
+}
+.nav-rail--folded .nav-items {
+  flex: none;
+}
+.nav-rail--sheet .nav-rail-list {
+  flex: 1;
+  min-height: 0;
 }

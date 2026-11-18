@@ -15,7 +15,7 @@
 <main>
 <h1 id="設定-外観-AI-利用許可コード-保存先">設定 — 外観・AI・利用許可コード・保存先</h1>
 <h2 id="設定の開き方">設定の開き方</h2>
-<p>左のチャットの一覧の下にある ⚙ を開くと、タブに分かれた設定画面になります。言語（日本語・English）の切り替えも、設定の中にあります。</p>
+<p>左下の ⚙ を開くと、タブに分かれた設定画面になります。言語（日本語・English）の切り替えも、設定の中にあります。</p>
 <figure><a href="../screenshots/settings-overview.png" title="原寸で開く"><img src="../screenshots/settings-overview.png" alt="設定画面全体（タブ一覧）"></a></figure>
 <h2 id="外観を変える">外観を変える <span class="badge">v0.66.0 (2026-11-10) で追加</span></h2>
 <p>設定画面の上部にある「外観」で「ダーク」または「ライト」を選びます。どのタブを開いていても切り替えられます。初めは濃紺の背景の「ダーク」です。選んだ外観はこの端末のアプリ、またはこのブラウザに記憶され、次に開いたときも続きます。OS の明暗設定を変えても、Asterism の外観は変わりません。</p>
@@ -56,7 +56,7 @@
 <div class="tablewrap"><table><thead><tr><th>項目</th><th>内容</th></tr></thead><tbody><tr><td>足せる先</td><td>承認して公開済みのデータセットだけ。データセットの設計は変わらず、行が増えるだけです</td></tr><tr><td>渡すもの</td><td>データセットの id・設計で読むファイルの名前（例 <code>judgments.json</code>）・1 件 1 オブジェクトの行。子の表（例 <code>rule_terms.json</code>）は同じ 1 回に一緒に渡せます</td></tr><tr><td>同じ行をもう一度</td><td>同じ内容の行は、もう一度送っても増えません（1 回分のまま）。内容を直した行は別の行として足されます（置き換えはまだできません）</td></tr><tr><td>最初の 1 回</td><td>設計はこの画面の外で人が決めて承認します（チャットにファイルを添えて作る、または設計の見本を使う）。<code>append_rows</code> はその後の回だけに使います</td></tr><tr><td>鍵</td><td>この画面の接続先（同じパソコンの中）からだけ使えます。別の鍵の配布はありません</td></tr><tr><td>直した・消した行</td><td><code>append_rows</code> では届きません。もう 1 つのツール <code>resync_rows</code> に<strong>全部の行</strong>を渡すと、元のファイルを置き直して取り込み直し、新しい版に差し替えます（id が同じなら知識グラフの名前は変わりません）。ふだんの同期はこちらを既定にし、<code>append_rows</code> は増分だけに使います</td></tr></tbody></table></div>
 <p>ほかの道具と組み合わせる手順の見本は、リポジトリの<a href="https://github.com/kumagallium/asterism/tree/main/docs/examples/graphium"><code>docs/examples/graphium/</code></a>にあります（記録の道具 Graphium で書いた判断・規則・観察を、保存のたびにAsterism へ足し、AI が検索して答えを Graphium に戻す 1 周）。</p>
 <h2 id="MCP-サーバ-タブ">「MCP サーバ」タブ <span class="badge">v0.61.0 (2026-10-23) で追加</span></h2>
-<p>ほかのアプリが出している MCP サーバを登録し、そのアプリが持つ<strong>表のファイル</strong>をチャットの 📎 の<strong>取り込み元</strong>に選べるようにするタブです。デスクトップアプリ（単一ユーザーモード）でだけ出ます。ブラウザから共有のサーバを開いているときは出ません。</p>
+<p>ほかのアプリが出している MCP サーバを登録し、そのアプリが持つ<strong>表のファイル</strong>を「取り込み」と チャットの 📎 の<strong>取り込み元</strong>に選べるようにするタブです。デスクトップアプリ（単一ユーザーモード）でだけ出ます。ブラウザから共有のサーバを開いているときは出ません。</p>
 <p><img src="../screenshots/settings-mcp-servers-form.png" alt="MCP サーバタブ（Graphium と連携する: パスを入れてコマンド全文を確かめる）"><img src="../screenshots/settings-mcp-servers.png" alt="つながったあと"></p>
 <h3 id="Graphium-と連携する">Graphium と連携する</h3>
 <p>一番上の「Graphium と連携する」に ☑ を入れると、Graphium に置いた表のファイルをチャットの 📎 から取り込み元に選べるようになります。</p>

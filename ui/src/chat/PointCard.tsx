@@ -97,7 +97,7 @@ export function PointCard({ point: p, busy, titleOf, onContents, onRevert, onRem
           {sessionId && (
             <>
               {' '}
-              <a href={`#/t/${encodeURIComponent(sessionId)}`} data-testid="point-open-session">
+              <a href={`#/chat/${encodeURIComponent(sessionId)}`} data-testid="point-open-session">
                 {t('point.openSession')}
               </a>
             </>
