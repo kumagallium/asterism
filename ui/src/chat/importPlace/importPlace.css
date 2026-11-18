@@ -1,0 +1,368 @@
+/* 「取り込み」の窓口・進み・結果・一覧（PR 14d-2b）。見本 mock-23-11 の #p-import を製品のトークンで。 */
+.imp-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+.imp-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 0;
+}
+.imp-card-title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.imp-card-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.imp-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+.imp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.imp-field input {
+  width: 100%;
+  min-width: 0;
+}
+.imp-link {
+  padding: 0;
+  color: var(--accent);
+  background: none;
+  border: none;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.imp-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* 進み */
+.imp-prog {
+  padding: var(--space-3);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.imp-prog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+.imp-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.imp-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+}
+.imp-steps li.is-cur {
+  border-color: var(--accent);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.imp-steps li[data-state='done'] {
+  color: var(--fg);
+}
+.imp-mark {
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--success-fg);
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-radius: 99px;
+}
+.imp-bar {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  background: var(--surface-sink);
+  border-radius: 99px;
+}
+.imp-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.imp-bar.is-flow i {
+  width: 30%;
+  animation: imp-flow 1.4s ease-in-out infinite alternate;
+}
+@keyframes imp-flow {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(230%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .imp-bar.is-flow i {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+/* 結果の 1 枚 */
+.imp-res {
+  padding: var(--space-4);
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius);
+  color: var(--success-fg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.imp-res p {
+  margin: 0;
+  color: var(--fg);
+}
+.imp-res .imp-note {
+  color: var(--muted);
+}
+.imp-big {
+  font-weight: 600;
+}
+.imp-qs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.imp-qrow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+.imp-qrow:hover {
+  border-color: var(--accent);
+}
+.imp-res-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* 一覧 */
+.imp-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}
+.imp-table {
+  table-layout: fixed;
+}
+.imp-c-name {
+  width: 19%;
+}
+.imp-c-contents {
+  width: 17%;
+}
+.imp-c-num {
+  width: 9%;
+}
+.imp-c-rel {
+  width: 18%;
+}
+.imp-c-at {
+  width: 15%;
+}
+.imp-c-act {
+  width: 22%;
+}
+.imp-table th {
+  white-space: nowrap;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  background: var(--surface-sink);
+}
+.imp-table td {
+  padding: var(--space-3);
+  vertical-align: top;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.imp-name {
+  font-weight: 600;
+}
+.imp-running {
+  margin-left: var(--space-2);
+  font-weight: 400;
+  font-size: var(--text-xs);
+  color: var(--accent);
+}
+.imp-un {
+  display: block;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.imp-act {
+  white-space: normal;
+}
+.imp-act .btn {
+  margin: 0 var(--space-1) var(--space-1) 0;
+}
+.imp-ds {
+  cursor: pointer;
+}
+.imp-ds:hover {
+  background: var(--surface-alt);
+}
+.imp-ds-open {
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--fg);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.imp-tag {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-radius: var(--radius-sm);
+}
+.imp-tag--soft {
+  color: var(--muted);
+  background: var(--surface-sink);
+}
+.imp-confirm {
+  white-space: normal;
+}
+.imp-confirm-row td {
+  border-top: none;
+  padding-top: 0;
+}
+.imp-confirm p {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+}
+
+/* 375: 表を行ごとのカードに（横スクロールを出さない） */
+@media (max-width: 640px) {
+  .imp-table,
+  .imp-table tbody,
+  .imp-table tr,
+  .imp-table td {
+    display: block;
+    width: 100%;
+  }
+  .imp-table thead {
+    display: none;
+  }
+  .imp-table col {
+    display: none;
+  }
+  .imp-table tr {
+    margin-bottom: var(--space-3);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .imp-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    border-top: none;
+    padding: var(--space-2) var(--space-3);
+  }
+  .imp-table td::before {
+    content: attr(data-label);
+    flex: none;
+    color: var(--muted);
+    font-size: var(--text-xs);
+  }
+  .imp-act {
+    white-space: normal;
+    flex-wrap: wrap;
+  }
+  .imp-table {
+    border: none;
+    background: none;
+  }
+  .imp-un {
+    display: inline;
+    white-space: normal;
+  }
+  .imp-act:empty {
+    display: none;
+  }
+}
+
+/* 見つけた場所（欄を出さずに 1 行で見せる）・欄の下の 1 行 */
+.imp-found {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.imp-found code {
+  font-size: inherit;
+}
+.imp-field small {
+  color: var(--muted);
+}

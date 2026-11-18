@@ -21,6 +21,8 @@ export interface SourceProviderNames {
   list: string
   get: string
   add: string
+  /** 知識の束を出す道具（取り込みの画面が使う）。無くても「つながっている」と見る。 */
+  knowledge?: string
 }
 
 export interface McpRecentCall {
@@ -77,15 +79,30 @@ export async function fetchMcpServerTools(name: string): Promise<McpToolInfo[]> 
 }
 
 /** node など実行ファイルの場所を探す（読むだけ・起動しない）。単一ユーザーでなければ 404。 */
+export interface LocateResult {
+  found: string | null
+  /** 起動ファイルの候補のうち最初に在った物（古い裏側は返さない → undefined）。 */
+  file?: string | null
+  /** フォルダの候補のうち最初に在った物。 */
+  dir?: string | null
+  user_home: string
+}
+
 export async function locateMcpCommand(
   command: string,
   candidates: string[],
-): Promise<{ found: string | null; user_home: string }> {
+  extra: { fileCandidates?: string[]; dirCandidates?: string[] } = {},
+): Promise<LocateResult> {
   const res = await fetch(`${API_BASE}/api/mcp-servers/locate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ command, candidates }),
+    body: JSON.stringify({
+      command,
+      candidates,
+      ...(extra.fileCandidates ? { file_candidates: extra.fileCandidates } : {}),
+      ...(extra.dirCandidates ? { dir_candidates: extra.dirCandidates } : {}),
+    }),
   })
   if (!res.ok) throw await failure(res)
-  return (await res.json()) as { found: string | null; user_home: string }
+  return (await res.json()) as LocateResult
 }

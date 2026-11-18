@@ -1,0 +1,96 @@
+{
+  "title": "Import",
+  "lead": "Add past data and its terms and relations go into the knowledge graph.",
+  "attach": {
+    "title": "Add files",
+    "body": "Tables (CSV, Excel), papers (PDF, Word), folders. Choosing one starts reading in a new chat.",
+    "from": "File from {{name}}"
+  },
+  "graphium": {
+    "title": "Connect to Graphium",
+    "body": "Copy Graphium's findings and topics, and build terms and relations.",
+    "connect": "Connect",
+    "import": "Import",
+    "script": "Graphium start file",
+    "root": "Graphium vault folder",
+    "openSettings": "Open settings",
+    "fail": {
+      "form": "Could not connect. Enter the start file and the vault folder, or connect in Settings > MCP servers.",
+      "node": "node was not found. Connect in Settings > MCP servers and enter its location.",
+      "tool": "The connected server has no {{tool}} tool. Check the start file and the vault.",
+      "old": "This Graphium has no tool for exporting knowledge ({{tool}}). Please update Graphium."
+    },
+    "searching": "Looking…",
+    "scriptHint": "The Graphium app was not found. Install Graphium, or enter where graphium-mcp.mjs is.",
+    "rootHint": "The folder where Graphium keeps your notes",
+    "found": "Found",
+    "foundApp": "Graphium app",
+    "foundVault": "vault folder",
+    "change": "Change"
+  },
+  "steps": {
+    "copy": "Copy",
+    "pairs": "Pick relations",
+    "done": "Summarize",
+    "mark": "Done"
+  },
+  "progress": {
+    "pairsCount": "Pick relations ({{done}} / {{total}} pairs)",
+    "note": "Only the relation-picking step uses AI.",
+    "cancel": "Cancel",
+    "cancelled": "Cancelled. What was already done is kept.",
+    "failed": "Could not import: {{reason}}"
+  },
+  "result": {
+    "read": "Read {{claims}} findings and {{topics}} topics from {{name}}.",
+    "added": "Added {{terms}} terms and {{relations}} relations to the knowledge graph (unconfirmed).",
+    "candidates": "{{n}} pairs without a stated relation (kept as candidates).",
+    "lost": "{{n}} dropped or failed.",
+    "skip": {
+      "ai_unset": "AI is not set up, so no relations were picked. Set it up, then copy again to add them.",
+      "off": "Relations were not picked (turned off by the request).",
+      "error": "The relation-picking step failed. The copy is done. Copy again to pick them once more.",
+      "cancelled": "The relation-picking step was cancelled. What was already done is kept.",
+      "aborted": "The relation-picking step stopped after repeated failures. Check the AI setup and copy again."
+    },
+    "questions": "{{n}} questions it can answer",
+    "more": "{{n}} more",
+    "seeGraph": "See the knowledge graph",
+    "close": "Close",
+    "label": "Import result"
+  },
+  "sources": {
+    "title": "Imported",
+    "source": "Source",
+    "contents": "Contents",
+    "terms": "Terms",
+    "relations": "Relations",
+    "at": "Last copied",
+    "actions": "Actions",
+    "counts": "{{claims}} findings, {{topics}} topics",
+    "unconfirmed": "({{n}} unconfirmed)",
+    "running": "Running",
+    "rerun": "Copy again",
+    "remove": "Remove",
+    "keep": "Cancel",
+    "confirmRemove": "This deletes unconfirmed terms and relations. Confirmed ones and \"wrong\" records are kept. The copy is withdrawn and can be imported again.",
+    "empty": "Nothing has been imported yet.",
+    "paper": "Paper",
+    "unpublished": "Not published yet",
+    "kinds": "{{kinds}} kinds · {{rows}} rows",
+    "rerunNamed": "Re-import {{name}}",
+    "removeNamed": "Remove {{name}}",
+    "confirmLabel": "Confirm removing {{name}}"
+  },
+  "reason": {
+    "badResult": "The result could not be read. Please import again.",
+    "connectionLost": "The connection for progress was lost. Check the result in the list.",
+    "cancelled": "Cancelled.",
+    "unknown": "The import failed for an unknown reason."
+  },
+  "notice": {
+    "remove": "Could not remove: {{reason}}",
+    "cancel": "Could not cancel: {{reason}}",
+    "list": "Could not load the imported list: {{reason}}"
+  }
+}

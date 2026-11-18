@@ -1,0 +1,96 @@
+{
+  "title": "取り込み",
+  "lead": "過去のデータを入れると、用語と関係が知識グラフに入ります。",
+  "attach": {
+    "title": "ファイルを置く",
+    "body": "表（CSV・Excel）、論文（PDF・Word）、フォルダ。選ぶと新しいチャットで読み取りが始まります。",
+    "from": "{{name}} のファイル"
+  },
+  "graphium": {
+    "title": "Graphium とつなぐ",
+    "body": "Graphium の知見とトピックを写し、用語と関係を作ります。",
+    "connect": "つなぐ",
+    "import": "取り込む",
+    "script": "Graphium の起動ファイル",
+    "root": "Graphium の vault のフォルダ",
+    "openSettings": "設定を開く",
+    "fail": {
+      "form": "つなげませんでした。起動ファイルと vault のフォルダを入れるか、設定の MCP サーバでつないでください。",
+      "node": "node が見つかりませんでした。設定の MCP サーバで場所を入れてつないでください。",
+      "tool": "つないだ先に {{tool}} の道具がありません。起動ファイルと vault を確かめてください。",
+      "old": "この Graphium には知識を出す道具（{{tool}}）がありません。Graphium を新しくしてください。"
+    },
+    "searching": "探しています…",
+    "scriptHint": "Graphium のアプリが見つかりませんでした。Graphium を入れるか、graphium-mcp.mjs の場所を入れてください。",
+    "rootHint": "Graphium のノートを置いているフォルダ",
+    "found": "見つけた場所",
+    "foundApp": "Graphium のアプリ",
+    "foundVault": "vault のフォルダ",
+    "change": "変える"
+  },
+  "steps": {
+    "copy": "写す",
+    "pairs": "関係を選ぶ",
+    "done": "まとめ",
+    "mark": "済"
+  },
+  "progress": {
+    "pairsCount": "関係を選ぶ（{{done}} / {{total}} 組）",
+    "note": "関係を選ぶ段だけ AI を使います。",
+    "cancel": "取り消す",
+    "cancelled": "取り消しました。済んだ分は残っています。",
+    "failed": "取り込めませんでした: {{reason}}"
+  },
+  "result": {
+    "read": "{{name}} から 知見 {{claims}}・トピック {{topics}} を読みました。",
+    "added": "用語 {{terms}}・関係 {{relations}} を知識グラフに足しました（未確認）。",
+    "candidates": "関係を言えなかった組 {{n}}（候補として残しています）。",
+    "lost": "落とした・失敗したもの {{n}}。",
+    "skip": {
+      "ai_unset": "AI が未設定なので、関係は選んでいません。設定してから写し直すと付きます。",
+      "off": "関係は選んでいません（指定で止めています）。",
+      "error": "関係を選ぶ段で失敗しました。写しは出来ています。写し直すと、もう一度選びます。",
+      "cancelled": "関係を選ぶ段を取り消しました。済んだ分は残っています。",
+      "aborted": "関係を選ぶ段が続けて失敗したので止めました。AI の設定を確かめて、写し直してください。"
+    },
+    "questions": "答えられる問い {{n}}",
+    "more": "ほか {{n}}",
+    "seeGraph": "知識グラフを見る",
+    "close": "閉じる",
+    "label": "取り込みの結果"
+  },
+  "sources": {
+    "title": "取り込んだもの",
+    "source": "取り込み元",
+    "contents": "中身",
+    "terms": "用語",
+    "relations": "関係",
+    "at": "最後に写した時",
+    "actions": "操作",
+    "counts": "知見 {{claims}}・トピック {{topics}}",
+    "unconfirmed": "（未確認 {{n}}）",
+    "running": "走っています",
+    "rerun": "写し直す",
+    "remove": "外す",
+    "keep": "やめる",
+    "confirmRemove": "未確認の用語と関係を消します。確認済みと「違う」の記録は残ります。写しは取り下げで、入れ直せます。",
+    "empty": "まだ何も取り込んでいません。",
+    "paper": "論文",
+    "unpublished": "まだ公開していません",
+    "kinds": "種類 {{kinds}}・{{rows}} 件",
+    "rerunNamed": "{{name}} を写し直す",
+    "removeNamed": "{{name}} を外す",
+    "confirmLabel": "{{name}} を外す確認"
+  },
+  "reason": {
+    "badResult": "結果の形が読めませんでした。写し直してください。",
+    "connectionLost": "進みを受け取る通信が切れました。一覧で結果を確かめてください。",
+    "cancelled": "取り消しました。",
+    "unknown": "原因が分からない失敗でした。"
+  },
+  "notice": {
+    "remove": "外せませんでした: {{reason}}",
+    "cancel": "取り消せませんでした: {{reason}}",
+    "list": "取り込んだものの一覧を読めませんでした: {{reason}}"
+  }
+}

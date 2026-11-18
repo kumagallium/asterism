@@ -249,7 +249,11 @@ def register_mcp_client_routes(
         本文 ``{command: "node", candidates: ["/opt/homebrew/bin/node", …]}``。候補を順に
         見て、無ければ PATH（``shutil.which``）。デスクトップ版は PATH を引き継がないことが
         あるので候補が先。返り ``{found: path | null, user_home: "<ホーム>"}``（``user_home`` は
-        既定の vault の場所を UI が組み立てるため）。"""
+        既定の vault の場所を UI が組み立てるため）。
+
+        任意で ``file_candidates``（起動ファイルなどの「ファイル」）と ``dir_candidates``
+        （vault などの「フォルダ」）も受け、最初に在った物を ``file``／``dir`` で返す
+        （無ければ null）。在りかを見るだけで、中身は読まない。"""
         _registry_or_404()
         _reject_if_content_length_exceeds(request, MAX_CALL_BODY_BYTES)
         try:
@@ -276,7 +280,25 @@ def register_mcp_client_routes(
                 break
         if found is None:
             found = shutil.which(command)
-        return {"found": found, "user_home": str(Path.home())}
+
+        def first_existing(key: str, want_dir: bool) -> str | None:
+            raw = body.get(key)
+            if raw is None:
+                return None
+            if not isinstance(raw, list) or not all(isinstance(c, str) for c in raw):
+                raise HTTPException(400, f"{key} は文字列の配列です")
+            for cand in raw[:32]:
+                path = Path(os.path.expanduser(cand))
+                if (path.is_dir() if want_dir else path.is_file()):
+                    return str(path)
+            return None
+
+        return {
+            "found": found,
+            "file": first_existing("file_candidates", False),
+            "dir": first_existing("dir_candidates", True),
+            "user_home": str(Path.home()),
+        }
 
     @app.post("/api/mcp-servers/{name}/tools", dependencies=write_auth)
     async def mcp_servers_tools(name: str) -> dict[str, Any]:
