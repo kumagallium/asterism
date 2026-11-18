@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.71.1](https://github.com/kumagallium/asterism/compare/v0.71.0...v0.71.1) - 2026-11-18
+
+- docs(manual): v0.71.0 の節目（確認した関係が正本に入る） by @kumagallium in https://github.com/kumagallium/asterism/pull/825
+
 ## [v0.71.0](https://github.com/kumagallium/asterism/compare/v0.70.0...v0.71.0) - 2026-11-18
 
 - feat: 確認済みの関係をストアの正本に置く（14e-1b） by @kumagallium in https://github.com/kumagallium/asterism/pull/822
