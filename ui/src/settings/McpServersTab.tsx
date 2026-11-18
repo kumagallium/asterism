@@ -8,11 +8,10 @@ import {
   type McpFormIssue,
   type McpServerEntry,
 } from './mcpServerForm'
-import { applyPreset, expandHome, GRAPHIUM_PRESET, presetEntry, presetState, verifyPresetTools } from './mcpPresets'
+import { applyPreset, expandHome, GRAPHIUM_PRESET, locatePreset, presetEntry, presetState, verifyPresetTools } from './mcpPresets'
 import {
   fetchMcpServers,
   fetchMcpServerTools,
-  locateMcpCommand,
   type McpRecentCall,
   type McpToolInfo,
   type SourceProviderNames,
@@ -56,7 +55,7 @@ export function McpServersTab() {
   const [warnings, setWarnings] = useState<McpFormIssue[]>([])
 
   // Graphium プリセットの節
-  const [located, setLocated] = useState<{ found: string | null; userHome: string } | null>(null)
+  const [located, setLocated] = useState<{ found: string | null; script: string | null; root: string | null; userHome: string } | null>(null)
   const [openForm, setOpenForm] = useState(false)
   const [fScript, setFScript] = useState<string | null>(null)
   const [fRoot, setFRoot] = useState<string | null>(null)
@@ -76,8 +75,8 @@ export function McpServersTab() {
 
   useEffect(() => {
     if (!writable) return
-    locateMcpCommand(GRAPHIUM_PRESET.command, GRAPHIUM_PRESET.nodeCandidates)
-      .then((r) => setLocated({ found: r.found, userHome: r.user_home }))
+    locatePreset(GRAPHIUM_PRESET)
+      .then((r) => setLocated({ found: r.node, script: r.script, root: r.root, userHome: r.userHome }))
       .catch(() => setLocated(null))
   }, [writable])
 
@@ -201,10 +200,11 @@ export function McpServersTab() {
   const pState = presetState(GRAPHIUM_PRESET, { servers, home, provider })
   const existing = servers[GRAPHIUM_PRESET.serverName]
   const existingStdio = existing && existing.transport === 'stdio' ? existing : undefined
-  const scriptValue = fScript ?? existingStdio?.args?.[0] ?? ''
+  const scriptValue = fScript ?? existingStdio?.args?.[0] ?? located?.script ?? ''
   const rootValue =
     fRoot ??
     existingStdio?.env?.[GRAPHIUM_PRESET.envName] ??
+    located?.root ??
     (located ? GRAPHIUM_PRESET.defaultRoot(located.userHome) : '')
   const nodeValue = fNode ?? existingStdio?.command ?? located?.found ?? ''
   // 画面ではホームを ~ に省略する（長いフルパスで驚かせない）。保存する値はフルパスのまま。

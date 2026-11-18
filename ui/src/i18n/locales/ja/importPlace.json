@@ -3,7 +3,8 @@
   "lead": "過去のデータを入れると、用語と関係が知識グラフに入ります。",
   "attach": {
     "title": "ファイルを置く",
-    "body": "表（CSV・Excel）、論文（PDF・Word）、フォルダ。選ぶと新しいチャットで読み取りが始まります。"
+    "body": "表（CSV・Excel）、論文（PDF・Word）、フォルダ。選ぶと新しいチャットで読み取りが始まります。",
+    "from": "{{name}} のファイル"
   },
   "graphium": {
     "title": "Graphium とつなぐ",
@@ -18,7 +19,14 @@
       "node": "node が見つかりませんでした。設定の MCP サーバで場所を入れてつないでください。",
       "tool": "つないだ先に {{tool}} の道具がありません。起動ファイルと vault を確かめてください。",
       "old": "この Graphium には知識を出す道具（{{tool}}）がありません。Graphium を新しくしてください。"
-    }
+    },
+    "searching": "探しています…",
+    "scriptHint": "Graphium のアプリが見つかりませんでした。Graphium を入れるか、graphium-mcp.mjs の場所を入れてください。",
+    "rootHint": "Graphium のノートを置いているフォルダ",
+    "found": "見つけた場所",
+    "foundApp": "Graphium のアプリ",
+    "foundVault": "vault のフォルダ",
+    "change": "変える"
   },
   "steps": {
     "copy": "写す",

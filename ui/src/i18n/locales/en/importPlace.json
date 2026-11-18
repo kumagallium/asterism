@@ -3,7 +3,8 @@
   "lead": "Add past data and its terms and relations go into the knowledge graph.",
   "attach": {
     "title": "Add files",
-    "body": "Tables (CSV, Excel), papers (PDF, Word), folders. Choosing one starts reading in a new chat."
+    "body": "Tables (CSV, Excel), papers (PDF, Word), folders. Choosing one starts reading in a new chat.",
+    "from": "File from {{name}}"
   },
   "graphium": {
     "title": "Connect to Graphium",
@@ -18,7 +19,14 @@
       "node": "node was not found. Connect in Settings > MCP servers and enter its location.",
       "tool": "The connected server has no {{tool}} tool. Check the start file and the vault.",
       "old": "This Graphium has no tool for exporting knowledge ({{tool}}). Please update Graphium."
-    }
+    },
+    "searching": "Looking…",
+    "scriptHint": "The Graphium app was not found. Install Graphium, or enter where graphium-mcp.mjs is.",
+    "rootHint": "The folder where Graphium keeps your notes",
+    "found": "Found",
+    "foundApp": "Graphium app",
+    "foundVault": "vault folder",
+    "change": "Change"
   },
   "steps": {
     "copy": "Copy",

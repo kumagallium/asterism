@@ -60,7 +60,7 @@
 <p><img src="../screenshots/settings-mcp-servers-form.png" alt="MCP サーバタブ（Graphium と連携する: パスを入れてコマンド全文を確かめる）"><img src="../screenshots/settings-mcp-servers.png" alt="つながったあと"></p>
 <h3 id="Graphium-と連携する">Graphium と連携する</h3>
 <p>一番上の「Graphium と連携する」に ☑ を入れると、Graphium に置いた表のファイルをチャットの 📎 から取り込み元に選べるようになります。</p>
-<ol><li>Graphium のソースを clone して <code>pnpm bundle:mcp</code> でビルドした<code>dist-mcp/graphium-mcp.mjs</code> のフルパスを入れます（Graphium のデスクトップ版にはMCP サーバは同梱されていません）。</li><li>「Graphium のフォルダ（vault）」は既定で <code>~/Documents/Graphium</code> が入っています。別の場所に置いているときは直します。</li><li>「node のパス」は Asterism が探して入れます（この PC の Node 20 以上）。見つからなかったときはパスを入れてください。デスクトップ版の Asterism はNode を同梱しません。</li><li>下に出るコマンド全文を確かめて「つなぐ」を押します。すぐに Graphium に繋いで「Graphium につながりました（list_media が見つかりました）」と出れば完了です。取り込み元のサーバ・道具の名前・「原本を送る」の設定も一緒に入ります。</li></ol>
+<ol><li>「Graphium の MCP サーバのファイル」は、Graphium のアプリが入っていれば Asterism が探して入れます。見つからなかったときは、Graphium のアプリが無いか、置き場が違います。Graphium を入れるか、<code>graphium-mcp.mjs</code> のフルパスを入れてください。</li><li>「Graphium のフォルダ（vault）」は、<code>~/Documents/Graphium</code> があればそれが入ります。別の場所に置いているときは直します。</li><li>「node のパス」も Asterism が探して入れます。Graphium のアプリが同梱する node があれば、それを先に使います。見つからなかったときはパスを入れてください。</li><li>下に出るコマンド全文を確かめて「つなぐ」を押します。すぐに Graphium に繋いで「Graphium につながりました（list_media が見つかりました）」と出れば完了です。取り込み元のサーバ・道具の名前・「原本を送る」の設定も一緒に入ります。</li></ol>
 <p>☑ を外すと、Graphium の MCP サーバは無効になり、取り込み元の設定も外れます（登録そのものは残るので、もう一度 ☑ を入れればすぐ戻ります）。</p>
 <h3 id="ほかの-MCP-サーバを登録する-くわしい設定">ほかの MCP サーバを登録する（くわしい設定）</h3>
 <p>Graphium 以外の MCP サーバを使うときは、「ほかの MCP サーバ（くわしい設定）」を開きます。</p>

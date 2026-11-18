@@ -69,6 +69,25 @@ describe('Graphium の窓口', () => {
     press(byTestId(GraphiumCard(card({ error: 'x', onOpenSettings })), 'import-open-settings')[0])
     expect(onOpenSettings).toHaveBeenCalled()
   })
+  it('探している間は「探しています」で押せない・両方見つけたら欄を出さず見つけた場所と「変える」', () => {
+    const searching = renderToStaticMarkup(<GraphiumCard {...card({ searching: true, form: { script: '', root: '' } })} />)
+    expect(searching).toContain('graphium.searching')
+    expect(searching).not.toContain('import-graphium-script')
+    expect(searching).toMatch(/disabled=""[^>]*data-testid="import-graphium-go"|data-testid="import-graphium-go"[^>]*disabled=""/)
+    const found = { script: '/app/graphium-mcp.mjs', root: '/v' }
+    const html = renderToStaticMarkup(<GraphiumCard {...card({ form: null, found })} />)
+    expect(html).toContain('import-graphium-found')
+    expect(html).not.toContain('import-graphium-script')
+    const onEdit = vi.fn()
+    press(byTestId(GraphiumCard(card({ form: null, found, onEdit })), 'import-graphium-edit')[0])
+    expect(onEdit).toHaveBeenCalled()
+  })
+  it('見つからなかった物だけ欄を出し、起動ファイルには何を入れるかの 1 行', () => {
+    const html = renderToStaticMarkup(<GraphiumCard {...card({ form: { script: '', root: '/v' }, showScript: true, showRoot: false, scriptMissing: true })} />)
+    expect(html).toContain('import-graphium-script')
+    expect(html).not.toContain('import-graphium-root')
+    expect(html).toContain('graphium.scriptHint')
+  })
   it('入力欄は form があるときだけ', () => {
     expect(renderToStaticMarkup(<GraphiumCard {...card()} />)).not.toContain('import-graphium-script')
     expect(renderToStaticMarkup(<GraphiumCard {...card({ form: { script: '', root: '' } })} />)).toContain('import-graphium-script')

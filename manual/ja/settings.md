@@ -173,14 +173,13 @@ Asterism へ足し、AI が検索して答えを Graphium に戻す 1 周）。
 一番上の「Graphium と連携する」に ☑ を入れると、Graphium に置いた表のファイルを
 チャットの 📎 から取り込み元に選べるようになります。
 
-1. Graphium のソースを clone して `pnpm bundle:mcp` でビルドした
-   `dist-mcp/graphium-mcp.mjs` のフルパスを入れます（Graphium のデスクトップ版には
-   MCP サーバは同梱されていません）。
-2. 「Graphium のフォルダ（vault）」は既定で `~/Documents/Graphium` が入っています。
+1. 「Graphium の MCP サーバのファイル」は、Graphium のアプリが入っていれば Asterism が探して入れます。
+   見つからなかったときは、Graphium のアプリが無いか、置き場が違います。Graphium を入れるか、
+   `graphium-mcp.mjs` のフルパスを入れてください。
+2. 「Graphium のフォルダ（vault）」は、`~/Documents/Graphium` があればそれが入ります。
    別の場所に置いているときは直します。
-3. 「node のパス」は Asterism が探して入れます（この PC の Node 20 以上）。
-   見つからなかったときはパスを入れてください。デスクトップ版の Asterism は
-   Node を同梱しません。
+3. 「node のパス」も Asterism が探して入れます。Graphium のアプリが同梱する node があれば、それを先に使います。
+   見つからなかったときはパスを入れてください。
 4. 下に出るコマンド全文を確かめて「つなぐ」を押します。すぐに Graphium に繋いで
    「Graphium につながりました（list_media が見つかりました）」と出れば完了です。
    取り込み元のサーバ・道具の名前・「原本を送る」の設定も一緒に入ります。

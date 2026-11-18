@@ -69,7 +69,8 @@ describe('ImportPlace', () => {
     expect(place()).not.toContain('import-attach-source')
     const html = place({ sourceHome: 'graphium' })
     expect(html).toContain('data-testid="import-attach-source"')
-    expect(text(html)).toContain('graphium のファイル')
+    expect(text(html)).toContain('Graphium のファイル')
+    expect(text(place({ sourceHome: 'lab-mcp' }))).toContain('lab-mcp のファイル')
   })
   it('busy で入口のボタンを止める', () => {
     expect(place({ busy: true })).toMatch(/disabled=""[^>]*data-testid="import-attach-local"|data-testid="import-attach-local"[^>]*disabled=""/)

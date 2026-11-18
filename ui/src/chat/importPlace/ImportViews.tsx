@@ -16,10 +16,19 @@ export interface GraphiumCardProps {
   connected: boolean
   /** 取り込み中はボタンを止める。 */
   busy: boolean
+  /** 起動ファイルと vault を機械で探している間（最初の一瞬）。 */
+  searching?: boolean
   /** 失敗の理由 1 行（無ければ null）。 */
   error: string | null
-  /** つないでいないとき: 起動ファイルと vault の入力（設定に Graphium が無いときだけ）。 */
+  /** つないでいないとき: 起動ファイルと vault の入力（出すものは showScript／showRoot）。 */
   form: { script: string; root: string } | null
+  showScript?: boolean
+  showRoot?: boolean
+  /** 起動ファイルが見つからなかった（何を入れるかを 1 行で出す）。 */
+  scriptMissing?: boolean
+  /** 両方見つけた場所（欄を出さずに 1 行で見せる）。 */
+  found?: { script: string; root: string } | null
+  onEdit?: () => void
   onForm: (patch: { script?: string; root?: string }) => void
   onGo: () => void
   onOpenSettings: () => void
@@ -27,25 +36,46 @@ export interface GraphiumCardProps {
 
 export function GraphiumCard(p: GraphiumCardProps) {
   const { t } = useTranslation('importPlace')
+  const showScript = p.showScript ?? true
+  const showRoot = p.showRoot ?? true
   return (
     <section className="imp-card" data-testid="import-graphium">
       <h2 className="imp-card-title">{t('graphium.title')}</h2>
       <p className="imp-card-body">{t('graphium.body')}</p>
-      {!p.connected && p.form && (
+      {!p.connected && p.searching && (
+        <p className="imp-note" role="status" data-testid="import-graphium-searching">
+          {t('graphium.searching')}
+        </p>
+      )}
+      {!p.connected && !p.searching && p.form && (
         <div className="imp-form">
-          <label className="imp-field">
-            <span>{t('graphium.script')}</span>
-            <input value={p.form.script} data-testid="import-graphium-script" placeholder="/path/to/Graphium/dist-mcp/graphium-mcp.mjs" onChange={(e) => p.onForm({ script: e.target.value })} />
-          </label>
-          <label className="imp-field">
-            <span>{t('graphium.root')}</span>
-            <input value={p.form.root} data-testid="import-graphium-root" onChange={(e) => p.onForm({ root: e.target.value })} />
-          </label>
+          {showScript && (
+            <label className="imp-field">
+              <span>{t('graphium.script')}</span>
+              <input value={p.form.script} data-testid="import-graphium-script" placeholder="/path/to/Graphium/graphium-mcp.mjs" onChange={(e) => p.onForm({ script: e.target.value })} />
+              {p.scriptMissing && <small data-testid="import-graphium-script-hint">{t('graphium.scriptHint')}</small>}
+            </label>
+          )}
+          {showRoot && (
+            <label className="imp-field">
+              <span>{t('graphium.root')}</span>
+              <input value={p.form.root} data-testid="import-graphium-root" onChange={(e) => p.onForm({ root: e.target.value })} />
+              <small>{t('graphium.rootHint')}</small>
+            </label>
+          )}
         </div>
       )}
-      <button type="button" className="btn btn--sm" data-testid="import-graphium-go" disabled={p.busy} onClick={p.onGo}>
+      <button type="button" className="btn btn--sm" data-testid="import-graphium-go" disabled={p.busy || (!p.connected && !!p.searching)} onClick={p.onGo}>
         {p.connected ? t('graphium.import') : t('graphium.connect')}
       </button>
+      {!p.connected && !p.searching && p.found && (
+        <p className="imp-found" data-testid="import-graphium-found">
+          {t('graphium.found')}: {t('graphium.foundApp')} <code>{p.found.script}</code>・{t('graphium.foundVault')} <code>{p.found.root}</code>{' '}
+          <button type="button" className="imp-link" data-testid="import-graphium-edit" onClick={p.onEdit}>
+            {t('graphium.change')}
+          </button>
+        </p>
+      )}
       {p.error && (
         <p className="promote-err" role="alert" data-testid="import-graphium-error">
           {p.error}{' '}

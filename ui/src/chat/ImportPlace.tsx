@@ -12,8 +12,7 @@ import { isRegistered, prepareGraphium, rerunnableServers, type ConnectFailure }
 import { GraphiumCard, ImportListNotice, ImportNotice, ImportProgress, ImportResultCard, ImportSources } from './importPlace/ImportViews'
 import { importStore, isBusy, useImportStore } from './importPlace/importStore'
 import { startMcpImport } from './importPlace/knowledgeImportApi'
-import { GRAPHIUM_PRESET } from '../settings/mcpPresets'
-import { locateMcpCommand } from '../settings/mcpServersApi'
+import { GRAPHIUM_PRESET, locatePreset } from '../settings/mcpPresets'
 import './importPlace/importPlace.css'
 
 /** 走っている作業が一覧にあるとき、読み直す間隔（ms）。 */
@@ -55,12 +54,16 @@ export function ImportPlace(p: ImportPlaceProps) {
   const { t: tc } = useTranslation('chat')
   const fileInput = useRef<HTMLInputElement>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [form, setForm] = useState<{ script: string; root: string | null }>({ script: '', root: null })
+  const [form, setForm] = useState<{ script: string | null; root: string | null }>({ script: null, root: null })
   const [userHome, setUserHome] = useState('')
+  // 起動ファイル・vault を機械で探した結果（undefined=探している最中・null=探せなかった）
+  const [loc, setLoc] = useState<{ script: string | null; root: string | null } | null | undefined>(undefined)
+  const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState<string | null>(null)
   const st = useImportStore()
   const onOpenSettings = p.onOpenSettings ?? noop
   const registered = isRegistered()
+  const serverMode = isAppSettingsServerMode()
 
   // 取り込みの置き場は部品の外にある。ここでは「最後に渡された関数」を渡し、一覧を読み、走っている間は読み直すだけ。
   useEffect(() => {
@@ -77,17 +80,21 @@ export function ImportPlace(p: ImportPlaceProps) {
     const id = setInterval(() => void importStore.poll(), POLL_MS)
     return () => clearInterval(id)
   }, [anyRunning, jobLive])
-  // 入力欄の `~/` と vault の既定値のためにホームを知る（設定に登録が無いときだけ）
+  // 起動ファイル・vault を機械で探す（設定に登録が無いときだけ）。ホームは入力欄の `~/` のためにも使う
   useEffect(() => {
-    if (registered || !isAppSettingsServerMode()) return
+    if (registered || !serverMode) return
     let live = true
-    locateMcpCommand(GRAPHIUM_PRESET.command, GRAPHIUM_PRESET.nodeCandidates)
-      .then((r) => live && setUserHome(r.user_home))
-      .catch(() => {})
+    locatePreset(GRAPHIUM_PRESET)
+      .then((r) => {
+        if (!live) return
+        setUserHome(r.userHome)
+        setLoc({ script: r.script, root: r.root })
+      })
+      .catch(() => live && setLoc(null))
     return () => {
       live = false
     }
-  }, [registered])
+  }, [registered, serverMode])
 
   const copied = new Set(sources.map((s) => s.dataset_id).filter((x): x is string => !!x))
   const rows = importRows(
@@ -95,11 +102,16 @@ export function ImportPlace(p: ImportPlaceProps) {
     p.proposed.filter((d) => !copied.has(d.id)),
   )
   const busy = isBusy(st)
-  const rootShown = form.root ?? (userHome ? GRAPHIUM_PRESET.defaultRoot(userHome) : '')
+  const scriptShown = form.script ?? loc?.script ?? ''
+  const rootShown = form.root ?? loc?.root ?? (userHome ? GRAPHIUM_PRESET.defaultRoot(userHome) : '')
+  const searching = !registered && loc === undefined && serverMode
+  const foundBoth = !!loc?.script && !!loc?.root
+  const showScript = editing || !loc?.script
+  const showRoot = editing || !loc?.root
 
   /** 準備（設定・道具の確認）→ POST。失敗は理由（画面が文にする）。 */
   const begin = (server: string) => async () => {
-    const fail = await prepareGraphium({ script: form.script, root: rootShown }, userHome)
+    const fail = await prepareGraphium({ script: scriptShown, root: rootShown }, userHome)
     if (fail) return { ok: false as const, failure: fail }
     return { ok: true as const, jobId: await startMcpImport(server, p.lang, p.getCreds?.() ?? null) }
   }
@@ -125,7 +137,13 @@ export function ImportPlace(p: ImportPlaceProps) {
             connected={registered}
             busy={busy}
             error={errorLine}
-            form={registered ? null : { script: form.script, root: rootShown }}
+            searching={searching}
+            form={registered || (!editing && foundBoth) ? null : { script: scriptShown, root: rootShown }}
+            showScript={showScript}
+            showRoot={showRoot}
+            scriptMissing={!loc?.script}
+            found={!editing && foundBoth ? { script: loc?.script ?? '', root: loc?.root ?? '' } : null}
+            onEdit={() => setEditing(true)}
             onForm={(patch) => setForm((f) => ({ ...f, ...patch }))}
             onGo={() => startGraphium(GRAPHIUM_PRESET.serverName)}
             onOpenSettings={onOpenSettings}
@@ -159,7 +177,7 @@ export function ImportPlace(p: ImportPlaceProps) {
                 </button>
                 {p.sourceHome && (
                   <button type="button" className="btn btn--sm btn--ghost" data-testid="import-attach-source" disabled={p.busy} onClick={() => setPickerOpen(true)}>
-                    {tc('compose.attachFrom', { server: p.sourceHome })}
+                    {t('attach.from', { name: p.sourceHome === GRAPHIUM_PRESET.serverName ? 'Graphium' : p.sourceHome })}
                   </button>
                 )}
                 {p.busy && (

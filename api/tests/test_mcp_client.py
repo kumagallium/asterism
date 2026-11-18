@@ -661,6 +661,39 @@ def test_locate_finds_an_executable_among_candidates_without_starting_it(
     assert seen == {}  # 何も起動していない
 
 
+def test_locate_finds_a_file_and_a_folder_candidate(tmp_path: Path, healthy_client) -> None:
+    client, seen = _client_with_fake(tmp_path, healthy_client)
+    f = tmp_path / "app" / "mcp.mjs"
+    f.parent.mkdir()
+    f.write_text("// x\n")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    with client:
+        r = client.post(
+            "/api/mcp-servers/locate",
+            json={
+                "command": "node",
+                "candidates": [],
+                "file_candidates": [str(tmp_path / "nope.mjs"), str(vault), str(f)],
+                "dir_candidates": [str(tmp_path / "nodir"), str(f), str(vault)],
+            },
+        )
+        assert r.status_code == 200, r.text
+        # ファイル候補はフォルダを選ばず、フォルダ候補はファイルを選ばない
+        assert r.json()["file"] == str(f)
+        assert r.json()["dir"] == str(vault)
+        r = client.post("/api/mcp-servers/locate", json={"command": "node", "candidates": []})
+        assert r.json()["file"] is None and r.json()["dir"] is None
+        assert (
+            client.post(
+                "/api/mcp-servers/locate",
+                json={"command": "node", "candidates": [], "file_candidates": "x"},
+            ).status_code
+            == 400
+        )
+    assert seen == {}
+
+
 def test_locate_is_404_outside_single_user(tmp_path: Path, healthy_client) -> None:
     app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
     with TestClient(app, headers=_AUTH) as client:
