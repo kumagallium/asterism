@@ -26,10 +26,10 @@ describe('mcp presets', () => {
   const entry = presetEntry(P, { nodePath: '/usr/local/bin/node', scriptPath: '/g/dist-mcp/graphium-mcp.mjs', root: '/v' })
   const provider = P.sourceProvider
   const none = { list: '', get: '', add: '' }
-  it('Graphium のプリセットは取り込み元の 3 道具名を持つ', () => {
+  it('Graphium のプリセットは取り込み元の 4 道具名を持つ', () => {
     expect(P.serverName).toBe('graphium')
     expect(P.envName).toBe('GRAPHIUM_ROOT')
-    expect(provider).toEqual({ list: 'list_media', get: 'get_media_file', add: 'add_material' })
+    expect(provider).toEqual({ list: 'list_media', get: 'get_media_file', add: 'add_material', knowledge: 'export_asterism_knowledge' })
     expect(P.defaultRoot('/Users/a')).toBe('/Users/a/Documents/Graphium')
   })
   it('presetEntry は有効な stdio 1 件で、検証を通り秘密の警告もない', () => {
@@ -50,6 +50,8 @@ describe('mcp presets', () => {
     expect(presetState(P, { servers: { graphium: entry }, home: '', provider })).toBe('partial')
     expect(presetState(P, { servers: { graphium: entry }, home: 'graphium', provider: none })).toBe('partial')
     expect(presetState(P, { servers: {}, home: 'graphium', provider })).toBe('partial')
+    // knowledge の道具名が設定に無くても、既存の連携は on のまま（partial に落とさない）
+    expect(presetState(P, { servers: { graphium: entry }, home: 'graphium', provider: { list: 'list_media', get: 'get_media_file', add: 'add_material' } })).toBe('on')
     const off = { ...entry, enabled: false }
     expect(presetState(P, { servers: { graphium: off }, home: '', provider })).toBe('off')
   })

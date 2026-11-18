@@ -347,7 +347,8 @@
     "provider": {
       "list": "List tool",
       "get": "Get tool",
-      "add": "Add tool"
+      "add": "Add tool",
+      "knowledge": "Knowledge tool (import)"
     },
     "originalsTitle": "Send originals",
     "originalsLabel": "Also store the original tables of approved datasets on the import source server (default: on)",
