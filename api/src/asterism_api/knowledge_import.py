@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from asterism import knowledge_bundle as kb
+from asterism import ledger_answer
 from asterism import pair_relations as pr
 from fastapi import FastAPI, HTTPException, Request
 
@@ -117,7 +118,10 @@ async def _questions(
             return [], 0
         copy = await asyncio.to_thread(kb.read_copy, src)
         ledger = pr.load_ledger(root, source)
-        return pr.questions(ledger, copy, lang=lang, limit=QUESTIONS_LIMIT)
+        # 名前（``lq_…``）つきで返す（押したら AI なしでチャットが答える・14e-2）。数と並びは
+        # ``pr.questions`` と同じ（件数の多い順 → 文）
+        items = ledger_answer.ledger_questions(ledger, copy, lang=lang)
+        return items[:QUESTIONS_LIMIT], len(items)
     except Exception:
         logger.warning("knowledge import: could not count questions", exc_info=True)
         return [], 0

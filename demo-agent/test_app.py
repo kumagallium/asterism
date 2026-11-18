@@ -1318,3 +1318,137 @@ def test_gemini_without_key_never_builds_the_sdk_client(monkeypatch) -> None:
         demo._openai_client("", demo._GEMINI_BASE)
     assert ei.value.status_code == 400
     assert built == []
+
+
+# ---- 台帳の問い（印つきの答え・14e-2）。例は作り物 ----------------------------------------------
+
+
+def _ledger_registry(root, source="lab", dataset_id="ds-lab", extra_terms=0):
+    """作り物の台帳と写しを registry に置く。a・b・c は「b の一種」の関係（a は確認済み）。"""
+    from asterism import pair_relations as pr
+
+    terms = [
+        {"id": "a", "name": "甲", "kind": "class", "role": None},
+        {"id": "b", "name": "乙", "kind": "class", "role": None, "aliases": ["オツ"]},
+        {"id": "c", "name": "丙", "kind": "class", "role": None},
+    ]
+    pairs = {
+        "a|b": {"key": "a|b", "a": "a", "b": "b", "state": "relation", "rel": "sub", "from": "a",
+                "to": "b", "evidence": [], "claims": [], "claims_total": 0, "confirmed": {"at": "t"}},
+        "b|c": {"key": "b|c", "a": "b", "b": "c", "state": "relation", "rel": "sub", "from": "c",
+                "to": "b", "evidence": [], "claims": [], "claims_total": 0},
+    }
+    for i in range(extra_terms):  # 件数 1 の問い（「種i の一種」）を増やす・先頭 3 つは「全体」の一部にもする
+        terms.append({"id": f"x{i}", "name": f"種{i}", "kind": "class", "role": None})
+        terms.append({"id": f"y{i}", "name": f"類{i}", "kind": "class", "role": None})
+        for k, rel, frm, to in [(f"x{i}|y{i}", "sub", f"x{i}", f"y{i}")] + (
+            [(f"x{i}|z", "part", f"x{i}", "z")] if i < 3 else []
+        ):
+            pairs[k] = {"key": k, "a": min(frm, to), "b": max(frm, to), "state": "relation",
+                        "rel": rel, "from": frm, "to": to, "evidence": [], "claims": [],
+                        "claims_total": 0}
+    terms.append({"id": "z", "name": "全体", "kind": "class", "role": None})
+    d = root / dataset_id
+    (d / "source").mkdir(parents=True, exist_ok=True)
+    (d / "meta.json").write_text(json.dumps({"id": dataset_id, "status": "active"}), encoding="utf-8")
+    (d / "source" / "terms.json").write_text(json.dumps(terms, ensure_ascii=False), encoding="utf-8")
+    ld = pr.empty_ledger(source)
+    ld["pairs"] = pairs
+    ld["dataset_id"] = dataset_id
+    pr.save_ledger(root, ld, at="2026-11-18T00:00:00+00:00")
+
+
+def _ledger_ask(monkeypatch, tmp_path, script):
+    _ledger_registry(tmp_path)
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(tmp_path))
+    sessions: list = []
+    _copilot_setup(monkeypatch, script, sessions)
+    monkeypatch.setenv("ASTERISM_SINGLE_USER", "1")
+
+    async def no_usage(*a, **k):
+        return None
+
+    monkeypatch.setattr(demo, "_post_usage", no_usage)
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "乙の一種は？"},
+        headers={"X-LLM-Provider": "copilot-subscription"},
+    ).json()
+    return body, sessions
+
+
+def test_ledger_choices_put_questions_naming_a_term_first_and_cap_the_list(tmp_path) -> None:
+    _ledger_registry(tmp_path, extra_terms=60)
+    entries = demo._ledger_entries(str(tmp_path), "オツの一種は？")  # 別名でも当たる
+    choices = demo._ledger_choices(entries, "オツの一種は？")
+    assert len(choices) == demo._LEDGER_QUESTIONS_MAX == 40
+    assert choices[0][2]["term"]["id"] == "b"  # 件数は 2 だが、文に語が出るので先頭
+    # 語が出なければ件数の多い順（「全体の一部」は 3 件）
+    plain = demo._ledger_choices(entries, "関係なし")
+    assert plain[0][2]["term"]["id"] == "z" and plain[0][2]["count"] == 3
+    assert all(name.startswith("lq_") for name, _, _ in choices)
+
+
+def test_ledger_names_get_a_source_mark_when_there_are_several_sources(tmp_path) -> None:
+    _ledger_registry(tmp_path, "one", "ds-one")
+    _ledger_registry(tmp_path, "two", "ds-two")
+    choices = demo._ledger_choices(demo._ledger_entries(str(tmp_path), "q"), "q")
+    names = [n for n, _, _ in choices]
+    assert len(names) == len(set(names)) and all(n.startswith(("lq_s1_", "lq_s2_")) for n in names)
+    assert demo._ledger_tool_def([]) is None
+
+
+def test_ledger_tool_is_wired_and_finalize_collects_the_ledger(monkeypatch, tmp_path) -> None:
+    body, sessions = _ledger_ask(monkeypatch, tmp_path, [
+        ("answer_ledger_question", {"name": "lq_kinds_b"}),
+        ("submit_answer", {"answer": "甲と丙です。", "citations": []}),
+    ])
+    assert "answer_ledger_question" in sessions[0].kwargs["available_tools"]
+    sent = json.loads(sessions[0].results[0])
+    assert sent["count"] == 2 and sent["unconfirmed_count"] == 1
+    assert all(set(i) == {"label", "sentence", "confirmed", "tentative", "context"} for i in sent["items"])
+    led = body["ledger"]  # 機械が集めた（AI の文ではない）
+    assert led["unconfirmed"] == [{"source": "lab", "key": "b|c"}]
+    assert led["unconfirmed_count"] == 1 and led["confirmed_count"] == 1
+    assert [q["name"] for q in led["questions"]] == ["lq_kinds_b"]
+    assert body["verified_tools"] == []  # 緑の印（決定論の道具）は付かない
+
+
+def test_no_ledger_field_when_the_model_does_not_call_the_tool(monkeypatch, tmp_path) -> None:
+    body, sessions = _ledger_ask(monkeypatch, tmp_path, [
+        ("submit_answer", {"answer": "わかりません。", "citations": []}),
+    ])
+    assert "answer_ledger_question" in sessions[0].kwargs["available_tools"]
+    assert "ledger" not in body
+
+
+def test_unknown_ledger_question_name_is_an_error_and_leaves_no_ledger(monkeypatch, tmp_path) -> None:
+    body, sessions = _ledger_ask(monkeypatch, tmp_path, [
+        ("answer_ledger_question", {"name": "lq_kinds_nothing"}),
+        ("submit_answer", {"answer": "わかりません。", "citations": []}),
+    ])
+    assert "error" in json.loads(sessions[0].results[0])
+    assert "ledger" not in body
+
+
+def test_no_tool_when_there_is_no_registry_or_no_question(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("CSV2RDF_REGISTRY_ROOT", raising=False)
+    assert demo._ledger_entries(None, "q") == []
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(tmp_path))
+    assert demo._ledger_entries(str(tmp_path), "q") == []
+
+
+def test_one_broken_source_does_not_hide_the_questions_of_the_others(monkeypatch, tmp_path) -> None:
+    from asterism import ledger_answer
+
+    _ledger_registry(tmp_path, "good", "ds-good")
+    _ledger_registry(tmp_path, "bad", "ds-bad")
+    real = ledger_answer.ledger_questions
+
+    def flaky(ledger, copy, **kw):
+        if ledger["source"] == "bad":
+            raise RuntimeError("broken")
+        return real(ledger, copy, **kw)
+
+    monkeypatch.setattr(ledger_answer, "ledger_questions", flaky)
+    entries = demo._ledger_entries(str(tmp_path), "q")
+    assert [e["source"] for e in entries] == ["good"]

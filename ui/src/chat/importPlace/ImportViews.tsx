@@ -161,11 +161,8 @@ export function ImportListNotice({ notice, onDismiss }: { notice: ListNotice; on
 
 // ── 結果の 1 枚 ──
 
-/**
- * 結果の 1 枚に「答えられる問い」の節を出すか。
- * 未確認の関係を答えに使う段（14e-2）が入ったら true に戻す。
- */
-export const SHOW_RESULT_QUESTIONS = false
+/** 結果の 1 枚に「答えられる問い」の節を出すか（未確認の関係を答えに使う 14e-2 が入ったので出す）。 */
+export const SHOW_RESULT_QUESTIONS = true
 
 export interface ImportResultProps {
   /** 問いの節を出すか（既定は SHOW_RESULT_QUESTIONS。テストで両方を確かめる用）。 */
@@ -174,7 +171,7 @@ export interface ImportResultProps {
   /** 取り込み元の表示名（title が無いときは取り込み元の名前）。 */
   name: string
   lang: 'ja' | 'en'
-  onAsk: (text: string) => void
+  onAsk: (q: { source: string; name: string; text: string }) => void
   onGraph: () => void
   onClose: () => void
   onOpenSettings: () => void
@@ -209,7 +206,7 @@ export function ImportResultCard(p: ImportResultProps) {
           <ul className="imp-qs">
             {shown.map((q, i) => (
               <li key={`${q.term.id}-${q.op}-${i}`}>
-                <button type="button" className="imp-qrow" data-testid="import-question" onClick={() => p.onAsk(q.text)}>
+                <button type="button" className="imp-qrow" data-testid="import-question" onClick={() => p.onAsk({ source: q.source ?? r.source, name: q.name ?? '', text: q.text })}>
                   <span>{q.text}</span>
                   <span aria-hidden="true">›</span>
                 </button>

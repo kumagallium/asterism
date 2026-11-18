@@ -1,0 +1,38 @@
+{
+  "byNoAi": "Answered without AI",
+  "item": {
+    "evidence": "{{n}} evidence",
+    "unconfirmed": "Unconfirmed",
+    "tentative": "Tentative",
+    "about": "about {{names}}",
+    "sep": ", ",
+    "more": "and {{n}} more",
+    "rejected": "Marked not so"
+  },
+  "bar": {
+    "unconfirmed": "This answer used {{n}} unconfirmed relation(s)",
+    "confirm": "Confirm the {{n}} used in this answer",
+    "confirming": "Confirming…",
+    "done": "{{n}} confirmed",
+    "notDone": "{{n}} could not be confirmed",
+    "rejected": "{{n}} of the relations used in this answer were later marked \"not so\"",
+    "allConfirmed": "The relations used in this answer are confirmed",
+    "conflict": "{{n}} have several relations between the same two terms.",
+    "conflictLink": "Pick one in the knowledge graph and confirm it",
+    "gone": "{{n}} of the relations used in this answer are not in the current ledger (changed by a re-import)",
+    "removed": "The source used in this answer has been removed"
+  },
+  "evidence": {
+    "show": "Show evidence",
+    "hide": "Hide evidence",
+    "open": "Open in source",
+    "untitled": "(untitled)"
+  },
+  "reason": {
+    "unknown": "This row cannot be confirmed in its current state.",
+    "pair_has_relation": "These two terms already have a relation. Mark that one \"not so\" first.",
+    "cycle": "It would make a loop, so it cannot be confirmed.",
+    "stale": "It was already in that state (changed by another action).",
+    "other": "Could not be confirmed."
+  }
+}
