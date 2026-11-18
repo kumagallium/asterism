@@ -1,11 +1,11 @@
 {
-  "version": "0.68.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at e3438bd9165e790e92f8137b9b64453a0ab4572c -->\n\n## What's Changed\n* docs(manual): v0.67.0 の節目とバッジ（実験の記録の関係・知識で答える型） by @kumagallium in https://github.com/kumagallium/asterism/pull/807\n* feat: 語の組ごとに、閉じた集合から関係を 1 つ選ぶ（PR 14c・台帳と走らせる口） by @kumagallium in https://github.com/kumagallium/asterism/pull/809\n* feat(ui): 左のナビを 3 つの仕事で組み直す — 取り込み・知識グラフ・チャット（PR 14d-1・殻） by @kumagallium in https://github.com/kumagallium/asterism/pull/810\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.67.0...v0.68.0",
-  "pub_date": "2026-11-18T05:06:35Z",
+  "version": "0.69.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 561e9b05e114f45175074ccf676ac34bd7844a75 -->\n\n## What's Changed\n* feat: 「取り込み」の裏側 — 写す → 関係を選ぶ を 1 本のジョブに・入れた物の一覧・外す（PR 14d-2a） by @kumagallium in https://github.com/kumagallium/asterism/pull/812\n* docs(manual): v0.68.0 の節目とバッジ（左のナビ 3 つ） by @kumagallium in https://github.com/kumagallium/asterism/pull/811\n* chore(ci): api のテストの上限を 20 → 45 分にする — テストが増えて遅いランナーで切れた by @kumagallium in https://github.com/kumagallium/asterism/pull/814\n* feat: 「取り込み」の画面を入れる（14d-2b） by @kumagallium in https://github.com/kumagallium/asterism/pull/816\n* feat: 「知識グラフ」の場所に関係・用語・候補の一覧と確認を入れる（14e-1） by @kumagallium in https://github.com/kumagallium/asterism/pull/815\n* fix(ui): 取り込みの結果に「答えられる問い」を出さない — 答えに使う段が入るまで by @kumagallium in https://github.com/kumagallium/asterism/pull/817\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.68.0...v0.69.0",
+  "pub_date": "2026-11-18T09:25:37Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVZKYkxoQk1zTmxPMzJxTjdISkJDZ3c5S3QzZ08wdXFtMktlWnhxbzdYM0JQeUFIUHlsYjBaZTA3aE8yRmtjOHE2Um96azIvdHBlZUFCa1ltejdYVVFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0OTc4Mzk1CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmVXaEREMUMwRElxTzhuQ3cyUUxXQlhYcU84TzQvSWowOGhaTXFJaWIxeHBNWUJLdm5UcitQRXJMaE1IU2tCRDBSdVdvSTBiandXUExoR1MrUVFwcURnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.68.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVpiT01UbWZXQWVCSUttaVJGbHYzSEliYS9TTlZCc3Z3dzFnN0lSMnNIQ1p2V0NhbGJYeDY2cHlqL1BZU0UrSGZGRkI3ZE9aaE9hWUVpazRCTzNGS3dJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0OTkzOTM2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cm56YW9BSkJlK2pDUHJYVm55NXVHbjRaamdEWldTNkJXd20wa1ArOFhkQjQyYVlBd255YnF3bTAzNW9tbGV0cVlEQ0pTWmE0RGFCQ1FCTVBwM1dNSkJnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.69.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }

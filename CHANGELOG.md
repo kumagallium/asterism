@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.69.0](https://github.com/kumagallium/asterism/compare/v0.68.0...v0.69.0) - 2026-11-18
+
+- feat: 「取り込み」の裏側 — 写す → 関係を選ぶ を 1 本のジョブに・入れた物の一覧・外す（PR 14d-2a） by @kumagallium in https://github.com/kumagallium/asterism/pull/812
+- docs(manual): v0.68.0 の節目とバッジ（左のナビ 3 つ） by @kumagallium in https://github.com/kumagallium/asterism/pull/811
+- chore(ci): api のテストの上限を 20 → 45 分にする — テストが増えて遅いランナーで切れた by @kumagallium in https://github.com/kumagallium/asterism/pull/814
+- feat: 「取り込み」の画面を入れる（14d-2b） by @kumagallium in https://github.com/kumagallium/asterism/pull/816
+- feat: 「知識グラフ」の場所に関係・用語・候補の一覧と確認を入れる（14e-1） by @kumagallium in https://github.com/kumagallium/asterism/pull/815
+- fix(ui): 取り込みの結果に「答えられる問い」を出さない — 答えに使う段が入るまで by @kumagallium in https://github.com/kumagallium/asterism/pull/817
+
 ## [v0.68.0](https://github.com/kumagallium/asterism/compare/v0.67.0...v0.68.0) - 2026-11-18
 
 - docs(manual): v0.67.0 の節目とバッジ（実験の記録の関係・知識で答える型） by @kumagallium in https://github.com/kumagallium/asterism/pull/807

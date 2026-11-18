@@ -161,7 +161,15 @@ export function ImportListNotice({ notice, onDismiss }: { notice: ListNotice; on
 
 // ── 結果の 1 枚 ──
 
+/**
+ * 結果の 1 枚に「答えられる問い」の節を出すか。
+ * 未確認の関係を答えに使う段（14e-2）が入ったら true に戻す。
+ */
+export const SHOW_RESULT_QUESTIONS = false
+
 export interface ImportResultProps {
+  /** 問いの節を出すか（既定は SHOW_RESULT_QUESTIONS。テストで両方を確かめる用）。 */
+  showQuestions?: boolean
   result: ImportResult
   /** 取り込み元の表示名（title が無いときは取り込み元の名前）。 */
   name: string
@@ -195,7 +203,7 @@ export function ImportResultCard(p: ImportResultProps) {
           )}
         </p>
       )}
-      {r.questions_total > 0 && (
+      {(p.showQuestions ?? SHOW_RESULT_QUESTIONS) && r.questions_total > 0 && (
         <>
           <p className="imp-big">{t('result.questions', { n: n(r.questions_total) })}</p>
           <ul className="imp-qs">
