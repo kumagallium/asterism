@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.67.0](https://github.com/kumagallium/asterism/compare/v0.66.0...v0.67.0) - 2026-11-18
+
+- docs(manual): v0.66.0の外観選択とブランド刷新を記録する by @kumagallium in https://github.com/kumagallium/asterism/pull/799
+- feat: 関係の集合を広げる（作る・測る・変わる・競合する・物性）— 語に役割の札を足す by @kumagallium in https://github.com/kumagallium/asterism/pull/804
+- feat: 取り込み元の全部の知見を 1 つのデータセットに写す（PR 14b・知識の束） by @kumagallium in https://github.com/kumagallium/asterism/pull/805
+- feat: 知識で答える型を広げる — 新しい関係をどちらの端からも問える（3 → 13） by @kumagallium in https://github.com/kumagallium/asterism/pull/806
+
 ## [v0.66.0](https://github.com/kumagallium/asterism/compare/v0.65.1...v0.66.0) - 2026-11-10
 
 - feat(ui): 三つ星Aロゴと濃紺・淡い金の外観に統一する by @kumagallium in https://github.com/kumagallium/asterism/pull/797
