@@ -67,6 +67,7 @@ import { GraphFilters, GraphPlaceSide, MapLegend } from './graphPlace/GraphPlace
 import { ledgerNodeId, parseLedgerNode, withoutCopyDatasets } from './graphPlace/ledgerDrafts'
 import { datasetsShown, hasWords, isDatasetNode, withoutDatasetSide } from './graphPlace/datasetVisibility'
 import { useLedgers } from './graphPlace/useLedgers'
+import { LEDGER_CHANGED_EVENT, LEDGER_REVIEWED_EVENT } from './ledgerAnswer/review'
 import { ReaderSlot } from './ReaderSlot'
 import { PaperReaderContext, type PaperReaderApi } from './paperReaderContext'
 import { useChatLayout } from './useChatLayout'
@@ -380,7 +381,7 @@ export function ChatApp() {
       if (view.kind === 'session' && !session) return false // 話を読み込み中
       setBusy('send')
       setError(null)
-      setPendingUser(input.text ?? null)
+      setPendingUser(input.text ?? input.ask_ledger?.text ?? null)
       try {
         let s = session
         let created = false
@@ -910,6 +911,24 @@ export function ChatApp() {
     [runTurn],
   )
 
+  /** 取り込みの結果の問いを押した: AI を呼ばずに台帳で答える（入口 1）。runTurn が「チャット」に移る。 */
+  const onAskLedger = useCallback(
+    (q: { source: string; name: string; text: string }) =>
+      q.name ? runTurn({ ask_ledger: q }) : runTurn({ text: q.text, intent: 'ask' }), // 名前の無い問い（古い返り）は今までどおり文で送る
+    [runTurn],
+  )
+  // 答えの帯で確認が通った: 知識グラフの場所の台帳・図を読み直す（ReplyCard から窓の合図で届く）
+  useEffect(() => {
+    const on = () => afterChange()
+    window.addEventListener(LEDGER_REVIEWED_EVENT, on)
+    return () => window.removeEventListener(LEDGER_REVIEWED_EVENT, on)
+  }, [afterChange])
+
+  // 知識グラフの場所などで台帳が変わったら、チャットの答えも今の台帳で数え直す（答えの部品が合図を聞く。チャットは隠れるだけで消えない）
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(LEDGER_CHANGED_EVENT))
+  }, [ledger.ledgers])
+
   const list = (
     <SessionList
       sessions={sessions}
@@ -1156,7 +1175,7 @@ export function ChatApp() {
                 lang={lang}
                 getCreds={getActiveCredentials}
                 onChanged={() => setChartTick((n) => n + 1)}
-                onAsk={onAskQuestion}
+                onAsk={onAskLedger}
                 onGraph={() => goPlace('graph')}
                 onOpenSettings={() => openSettings()}
               />

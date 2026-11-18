@@ -33,7 +33,15 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from asterism import chat_sessions, crosswalk_runtime, evidence, shared_vocab, sky_view, themes
+from asterism import (
+    chat_sessions,
+    crosswalk_runtime,
+    evidence,
+    ledger_answer,
+    shared_vocab,
+    sky_view,
+    themes,
+)
 from asterism.subjects import valid_dataset_id
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -171,8 +179,18 @@ class ImportTableBody(BaseModel):
     lang: str = "ja"
 
 
+class AskLedgerBody(BaseModel):
+    """機械が作った問いを押した（14e-2 入口 1）。``name`` は ``lq_…``。``text`` は画面に出ている
+    問いの文（問いが消えていても手番の人の側に残すための添え。無くてもよい）。"""
+
+    source: str = Field(min_length=1, max_length=500)
+    name: str = Field(pattern=r"^lq_[A-Za-z0-9_]{1,400}$")
+    text: str | None = Field(default=None, max_length=500)
+
+
 class TurnBody(BaseModel):
     text: str | None = None
+    ask_ledger: AskLedgerBody | None = None
     scope: ScopeBody | None = None
     set_answer: SetAnswerBody | None = None
     ops: list[dict[str, Any]] | None = Field(default=None, max_length=chat_turns.MAX_OPS)
@@ -586,6 +604,22 @@ def register_chat(
             )
             return turn, chat_sessions.save_session(root, session)
 
+    def _ledger_answer_for(source: str, name: str, lang: str) -> dict:
+        """台帳と写しを読んで問いに答える（ブロッキング）。``{text, block, gone}``。"""
+        try:
+            loaded = ledger_answer.load_source(root, source)
+            if loaded is None:
+                return {"text": "", "block": None, "gone": True}
+            ledger, copy = loaded
+            q = ledger_answer.find_question(ledger, copy, name, lang=lang)
+            if q is None:
+                return {"text": "", "block": None, "gone": False}
+            block = ledger_answer.reply_block([ledger_answer.answer(ledger, copy, q, lang=lang)])
+            return {"text": q["text"], "block": block, "gone": False}
+        except Exception:  # 台帳の中身が壊れていても、断り文で返す（エラーにしない）
+            logger.warning("chat ask_ledger: ledger unreadable", exc_info=True)
+            return {"text": "", "block": None, "gone": True}
+
     def _n_datasets() -> int:
         """公開済みのデータセットの数（sky は読まない軽い読み）。"""
         return sum(
@@ -620,10 +654,12 @@ def register_chat(
             body.set_answer is not None,
             body.choice is not None,
             body.remove is not None,
+            body.ask_ledger is not None,
         ]
         if sum(given) != 1:
             raise HTTPException(
-                422, "text・ops・set_answer・choice・remove のどれか 1 つを送ってください"
+                422,
+                "text・ops・set_answer・choice・remove・ask_ledger のどれか 1 つを送ってください",
             )
         text = (body.text or "").strip()
         if has_text and not 1 <= len(text) <= chat_turns.MAX_TEXT:
@@ -631,6 +667,31 @@ def register_chat(
         if body.ops is not None and not body.ops:
             raise HTTPException(422, "ops が空です")
         _session_or_404(session_id)  # ストアを読む前に、話があるか
+        if body.ask_ledger is not None:
+            # 入口 1: AI も demo-agent も呼ばず、台帳の走者で直に答える（取り込み中でも読める）
+            found = await asyncio.to_thread(
+                _ledger_answer_for, body.ask_ledger.source, body.ask_ledger.name, body.lang
+            )
+            async with lock:
+                session = _session_or_404(session_id)
+                asked = found["text"] or (body.ask_ledger.text or "").strip()
+                if asked and not (session.get("title") or "").strip():
+                    # 一覧で見分けが付くよう、押した問いの文を題にする（利用者が付けた題は変えない）
+                    session["title"] = asked[:80]
+                turn = chat_turns.run_ask_ledger_turn(
+                    session,
+                    asked,
+                    found["block"],
+                    at=_now(),
+                    lang=body.lang,
+                    gone=found["gone"],
+                )
+                saved = chat_sessions.save_session(root, session)
+            return JSONResponse(
+                {"turn": turn, "session": _head(saved), "draft": _draft_card(saved, body.lang),
+                 "reverted": []},
+                status_code=201,
+            )  # fmt: skip
         if body.choice is not None:
             llm_headers = {
                 k: v

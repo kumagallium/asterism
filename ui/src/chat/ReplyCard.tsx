@@ -9,6 +9,8 @@ import { evidenceOf, type BindingDecision, type Decided, type Note, type Turn, t
 import { clipEvidence, evidenceSource } from './evidenceText'
 import { EvidenceLine } from './EvidenceLine'
 import { useOpenPaper } from './paperReaderContext'
+import { LedgerAnswerView } from './ledgerAnswer/LedgerAnswerView'
+import { hasUnconfirmed } from './ledgerAnswer/types'
 import { tableName } from './tableName'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -190,6 +192,7 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
       <div className="chat-answer-text answer-md">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer.text}</ReactMarkdown>
       </div>
+      {answer.ledger && <LedgerAnswerView ledger={answer.ledger} />}
       {answer.answered === false && (
         <p className="chat-note-line" data-testid="reply-no-answer">
           {t('ask.noAnswer')}
@@ -219,7 +222,7 @@ export function ReplyAnswerView({ answer, onHighlight }: { answer: ReplyAnswer; 
           {n}
         </p>
       ))}
-      {answer.verified_tools.length > 0 && !answer.unverified_sparql && (
+      {answer.verified_tools.length > 0 && !answer.unverified_sparql && !(answer.ledger && hasUnconfirmed(answer.ledger)) && (
         <span className="chat-mark chat-mark--confirmed" data-testid="reply-verified" title={answer.verified_tools.join(' · ')}>
           {t('ask.verified')}
         </span>
@@ -298,6 +301,7 @@ export function ReplyCard(p: ReplyCardProps) {
 
 function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, onPropose, names, onChoose, onImportTable, importedAlive, onHighlight, undone }: ReplyCardProps) {
   const { t, i18n } = useTranslation('chat')
+  const { t: tl } = useTranslation('ledgerAnswer')
   const r = turn.reply
   // 結ぶ／結ばないの選び（変えたものだけ持つ。✓ のときに既定へ重ねて送る）
   const [picked, setPicked] = useState<Readonly<Record<string, Decided>>>({})
@@ -390,7 +394,9 @@ function ReplyBody({ turn, canConfirm, count, busy, onConfirm, onRevert, onAsk, 
               </span>
             )}
             {headKind === 'reverted' && <span className="chat-card-head-main">{t('reply.reverted')}</span>}
-            {machineMark && <span className="chat-by-machine">{t('reply.byMachine')}</span>}
+            {machineMark && (
+              <span className="chat-by-machine">{r.answer?.ledger || r.notes.some((n) => n.kind === 'ask_ledger_declined') ? tl('byNoAi') : t('reply.byMachine')}</span>
+            )}
             {turn.attachment && turn.state === 'confirmed' && (
               <span className="chat-card-head-main chat-card-head--confirmed">
                 <CheckIcon size={14} />

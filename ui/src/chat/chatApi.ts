@@ -7,6 +7,7 @@ import i18n from '../i18n'
 import { type LlmCredentials, llmHeaders } from '../settings/store'
 import { EMPTY_SKY, type DraftSky, type SkyData, type SkyDataset } from '../sky/skyApi'
 import { ThemesApiError } from '../themes/themesApi'
+import { ledgerOf, type LedgerAnswer } from './ledgerAnswer/types'
 
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
@@ -116,6 +117,8 @@ export interface ReplyAnswer {
   unverified_sparql: boolean
   /** false なら答えが出なかった（無ければ true）。 */
   answered: boolean
+  /** 台帳の関係（未確認も）を使った答えの印と項目（14e-2）。無ければ null。 */
+  ledger?: LedgerAnswer | null
 }
 
 /** 列と用語の一致 1 件。`decided` は既定（結ぶ／結ばない）で、✓ のときに人の選びを送る。 */
@@ -442,6 +445,7 @@ export function answerOf(v: unknown): ReplyAnswer | null {
     verified_tools: strs(v.verified_tools),
     unverified_sparql: v.unverified_sparql === true,
     answered: v.answered !== false,
+    ledger: ledgerOf(v.ledger),
   }
 }
 
@@ -654,6 +658,8 @@ export interface TurnInput {
   scope?: ScopeBody
   /** 振り分けを飛ばす: 'ask'＝必ず答える（問いのタブ）／'propose'＝必ず知識グラフへの提案（返事の下のチップ）。 */
   intent?: 'ask' | 'propose'
+  /** 押した問い（取り込みの結果の `questions[]`）: AI を呼ばずに台帳で答える。`text` と同時には送らない。 */
+  ask_ledger?: { source: string; name: string; text: string }
   lang?: 'ja' | 'en'
 }
 
