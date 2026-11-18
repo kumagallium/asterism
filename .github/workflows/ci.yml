@@ -125,7 +125,9 @@ jobs:
   api:
     name: upload API tests (ruff + pytest)
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # 実測 3.0〜4.9 分
+    # 実測 10.2〜15.6 分（2026-11-18・テストが 2,100 件を超えた。10 月は 3.0〜4.9 分）。
+    # 20 分の上限のとき、同じ中身が遅いランナーで 20 分を超えて切れた（#811 の 20c2444b）。
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
