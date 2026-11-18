@@ -63,3 +63,18 @@ describe('地図モデルからの提案状態の受け渡し', () => {
     expect(mapEdgeAppearance(proposed, pal, idle).color).toBe('#8193ab')
   })
 })
+
+describe('台帳の線（14e-1）', () => {
+  it('未確認は提案と同じ薄い色・「提案」の印は付けない。名前は大きい図（names）で常に出る', () => {
+    const un = { label: '作る', thin: true, unconfirmed: true }
+    expect(mapEdgeAppearance(un, pal, idle)).toMatchObject({ color: pal.edgeProposed, label: '' })
+    expect(mapEdgeAppearance(un, pal, { ...idle, names: true })).toMatchObject({ color: pal.edgeProposed, label: '作る' })
+    expect(mapEdgeAppearance(un, pal, { ...idle, hovered: true }).label).toBe('作る')
+    const ok = { label: '作る' }
+    expect(mapEdgeAppearance(ok, pal, { ...idle, names: true })).toMatchObject({ color: pal.edge, size: 1, label: '作る' })
+  })
+  it('名前の無い線（候補）は names でも名前を出さない。薄く隠れた線の名前は出さない', () => {
+    expect(mapEdgeAppearance({ thin: true, unconfirmed: true }, pal, { ...idle, names: true }).label).toBe('')
+    expect(mapEdgeAppearance({ label: '作る' }, pal, { ...idle, names: true, faded: true }).label).toBe('')
+  })
+})

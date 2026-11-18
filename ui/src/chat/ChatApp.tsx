@@ -63,6 +63,10 @@ import { PlaceTabbar } from './PlaceTabbar'
 import { ImportPlace } from './ImportPlace'
 import { PointCard } from './PointCard'
 import { PaperReader } from './PaperReader'
+import { GraphFilters, GraphPlaceSide, MapLegend } from './graphPlace/GraphPlace'
+import { ledgerNodeId, parseLedgerNode, withoutCopyDatasets } from './graphPlace/ledgerDrafts'
+import { datasetsShown, hasWords, isDatasetNode, withoutDatasetSide } from './graphPlace/datasetVisibility'
+import { useLedgers } from './graphPlace/useLedgers'
 import { ReaderSlot } from './ReaderSlot'
 import { PaperReaderContext, type PaperReaderApi } from './paperReaderContext'
 import { useChatLayout } from './useChatLayout'
@@ -85,6 +89,8 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 const MAP_CHROME_PX = 96
 /** 「チャット」の右で知識グラフが取る高さの割合。下に 1 枚と「関係」「データ」「問い」が続くので半分弱。 */
 const CHAT_MAP_RATIO = 0.45
+/** 「知識グラフ」の場所で、図の上に積む絞り込みの分（図の高さから引く）。 */
+const GRAPH_FILTERS_PX = 110
 
 export function ChatApp() {
   const { t, i18n } = useTranslation('chat')
@@ -213,6 +219,11 @@ export function ChatApp() {
   // 未確認の図: 手番の返りのもの（すぐ使える）と、図を取り直して届いたもの（再読み込みのあとでも拾える）
   const [turnDraft, setDraft] = useState<SkyDraft | null>(null)
   const [chartTick, setChartTick] = useState(0)
+  // 取り込んだ知識の台帳（取り込み元ごとの関係・絞り込み・確認）。図には合成の下書きとして足す（useSky の proposed には混ぜない）
+  const ledger = useLedgers(chartTick, lang)
+  /** 図で押した台帳の語（本物の点ではないので getPoint を呼ばない。「用語」のタブで開く）。 */
+  const ledgerNonce = useRef(0)
+  const [ledgerFocus, setLedgerFocus] = useState<{ source: string; termId: string; nonce: number } | null>(null)
   const [busy, setBusy] = useState<Busy>(null)
   const [pendingUser, setPendingUser] = useState<string | null>(null)
   const [pendingReading, setPendingReading] = useState(false)
@@ -257,6 +268,7 @@ export function ChatApp() {
     if (!next) {
       setPoint(null)
       setPickedId(null)
+      setLedgerFocus(null)
     } else setGraphQuestions(false)
   }, [])
   const onMapSelect = useCallback(
@@ -424,6 +436,7 @@ export function ChatApp() {
     setSel(null)
     setPoint(null)
     setPickedId(null)
+    setLedgerFocus(null)
     setScope(null)
     setHighlight(null)
     setComposerKey((n) => n + 1)
@@ -633,6 +646,7 @@ export function ChatApp() {
         setSel(null)
         setPoint(null)
         setPickedId(null)
+        setLedgerFocus(null)
         setScope(null)
       } catch (e) {
         setError(messageOf(e))
@@ -855,7 +869,7 @@ export function ChatApp() {
       if (layout.tabs) return setMapH(Math.round(window.innerHeight * 0.55))
       const h = el?.clientHeight ?? 0
       // 「チャット」の右は下に 1 枚と一覧が続くので半分弱。ほかの場所は入れ物いっぱい（凡例と余白の分を引く）
-      if (h > 0) setMapH(Math.max(260, place === 'chat' ? Math.round(h * CHAT_MAP_RATIO) : h - MAP_CHROME_PX))
+      if (h > 0) setMapH(Math.max(260, place === 'chat' ? Math.round(h * CHAT_MAP_RATIO) : h - MAP_CHROME_PX - (place === 'graph' ? GRAPH_FILTERS_PX : 0)))
     }
     apply()
     window.addEventListener('resize', apply)
@@ -939,6 +953,7 @@ export function ChatApp() {
   }
   /** 「取り込み」の一覧の行: 「知識グラフ」に移り、そのデータセットを選ぶ（データのタブに行が出る）。 */
   const openDataset = (id: string) => {
+    setLedgerFocus(null)
     onMapSelect(null, `d|${id}`)
     setGraphQuestions(false)
     navigate({ kind: 'graph' })
@@ -961,30 +976,58 @@ export function ChatApp() {
     </>
   )
   /** 知識グラフと凡例。3 つの場所すべてに出る（大きさと、点を押したときの行き先だけが場所で変わる）。 */
+  const mapDrafts = useMemo(() => (okSky ? [...okSky.proposed, ...ledger.drafts] : []), [okSky, ledger.drafts])
+  /** 知識の写しのデータセット（種類・項目）は図に出さない（台帳の語として見せる）。 */
+  // 「知識グラフ」の場所の大きい図は、語と関係を見る場所: データセットの点は既定で分ける（語か関係が 1 つも無いときはオン）。小さい図は今までどおり出す
+  const [datasetsPref, setDatasetsPref] = useState<boolean | null>(null)
+  const wordsExist = useMemo(() => (okSky ? hasWords(okSky.sky, ledger.drafts) : false), [okSky, ledger.drafts])
+  const showDatasets = place !== 'graph' || datasetsShown(datasetsPref, wordsExist)
+  // 隠している間にデータセット側の点が選ばれた（チャットから来た・1 枚が開いている）: 選んだ点が図に無い状態を作らないよう、自動でオンにする
+  useEffect(() => {
+    if (place === 'graph' && !showDatasets && isDatasetNode(pickedId)) setDatasetsPref(true)
+  }, [place, showDatasets, pickedId])
+  /** 切り替え。隠すときは、データセット側の点を選んだままにしない。 */
+  const onToggleDatasets = (on: boolean) => {
+    if (!on && isDatasetNode(pickedId)) onMapSelect(null, null)
+    setDatasetsPref(on)
+  }
+  const mapSky = useMemo(() => {
+    if (!okSky) return undefined
+    const sky = { ...okSky.sky, datasets: withoutCopyDatasets(okSky.sky.datasets, ledger.ledgers) }
+    return showDatasets ? sky : withoutDatasetSide(sky)
+  }, [okSky, ledger.ledgers, showDatasets])
+  const mapProposed = useMemo(() => (okSky && showDatasets ? withoutCopyDatasets(okSky.proposedDatasets, ledger.ledgers) : []), [okSky, ledger.ledgers, showDatasets])
+  /** 台帳の語を押したら getPoint を呼ばず（裏に無く 404 になる）、「知識グラフ」に移ってその語を「用語」のタブで開く。 */
+  const selectOnMap = (onSelectPoint: (next: PointSel | null, nodeId: string | null) => void) => (next: PointSel | null, nodeId: string | null) => {
+    const l = parseLedgerNode(nodeId)
+    if (!l) {
+      setLedgerFocus(null)
+      return onSelectPoint(next, nodeId)
+    }
+    onMapSelect(null, null)
+    setLedgerFocus({ ...l, nonce: ++ledgerNonce.current })
+    if (placeRef.current !== 'graph') navigate({ kind: 'graph' })
+  }
   const mapBlock = (onSelectPoint: (next: PointSel | null, nodeId: string | null) => void) =>
     okSky && (
       <>
         <MapHost
-          sky={okSky.sky}
-          drafts={okSky.proposed}
-          proposedDatasets={okSky.proposedDatasets}
+          sky={mapSky ?? okSky.sky}
+          drafts={mapDrafts}
+          proposedDatasets={mapProposed}
           lang={lang}
           height={mapH}
           focusIds={focusIds}
-          selectedId={pickedId}
+          selectedId={ledgerFocus ? ledgerNodeId(ledgerFocus.source, ledgerFocus.termId) : pickedId}
           highlightIds={highlightIds}
           removeIds={removeIds}
-          onSelect={onSelectPoint}
+          onSelect={selectOnMap(onSelectPoint)}
+          showEdgeNames={place === 'graph'}
           emptyLabel={t('map.empty')}
           ariaLabel={t('map.aria')}
           fitLabel={t('map.fit')}
         />
-        <div className="chat-map-legend">
-          <span><span className="chat-legend-symbol chat-legend-symbol--term" aria-hidden="true">○</span>{t('map.legend.term')}</span>
-          <span><span className="chat-legend-symbol chat-legend-symbol--kind" aria-hidden="true">●</span>{t('map.legend.kind')}</span>
-          <span><span className="chat-legend-symbol chat-legend-symbol--dataset" aria-hidden="true">⊙</span>{t('map.legend.dataset')}</span>
-          <span className="chat-legend-proposal">{t('map.legend.proposal')}</span>
-        </div>
+        <MapLegend datasets={showDatasets} />
       </>
     )
   const sentencesPanel = (
@@ -1040,6 +1083,18 @@ export function ChatApp() {
       </div>
       {graphQuestions ? questionsPanel : subTab === 'sentences' ? sentencesPanel : contentsPanel}
     </>
+  )
+
+  /** 「知識グラフ」の場所の右: 取り込んだ知識の一覧（関係・用語・候補）。本物の点を押したときは、その 1 枚と「関係・データ・問い」を一覧の上に出す。 */
+  const graphPlaceSide = (
+    <GraphPlaceSide
+      api={ledger}
+      lang={lang}
+      focus={ledgerFocus}
+      onOpenImport={() => navigate({ kind: 'import' })}
+      point={okSky && (!!pickedId || !!sel) ? graphSide : null}
+      onClosePoint={() => onMapSelect(null, null)}
+    />
   )
 
   return (
@@ -1120,11 +1175,12 @@ export function ChatApp() {
                 {error}
               </p>
             )}
+            <GraphFilters api={ledger} lang={lang} datasets={{ checked: showDatasets, onChange: onToggleDatasets }} />
             <div className="place-map" ref={layout.tabs ? undefined : scrollRef}>
               {skyStatus}
               {mapBlock(onMapSelect)}
             </div>
-            {layout.tabs && <div className="place-stack">{graphSide}</div>}
+            {layout.tabs && <div className="place-stack">{graphPlaceSide}</div>}
           </div>
           {/* 375 の「チャット」には右の領域が無いので、AI 無しで手で追加するフォームはここに出す（送ると「チャット」に移る） */}
           {layout.tabs && showHand && <HandForm key={session?.id} draft={sessionDraft} nextKey={nextHandKey(handKeys)} busy={busy !== null} onSubmit={onSendOps} onAnswer={onSendAnswer} />}
@@ -1196,7 +1252,7 @@ export function ChatApp() {
       )}
       {!layout.tabs && place === 'graph' && (
         <section className="chat-right">
-          <div className="chat-right-scroll">{graphSide}</div>
+          <div className="chat-right-scroll">{graphPlaceSide}</div>
         </section>
       )}
       {/* 「チャット」の右は「知識グラフ」の場所と同じ部品・同じ順（知識グラフ → 1 枚 → 関係・データ・問い）。違いは大きさだけ */}
