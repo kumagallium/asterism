@@ -5,7 +5,8 @@
     "status": "状態",
     "rel": "関係",
     "all": "すべて",
-    "aria": "知識グラフの絞り込み"
+    "aria": "知識グラフの絞り込み",
+    "datasets": "データセットも出す"
   },
   "status": {
     "all": "すべて",
@@ -92,8 +93,10 @@
     "property": "物性",
     "method": "手法",
     "concept": "概念",
-    "confirmed": "確認済み",
-    "unconfirmed": "未確認（薄い）"
+    "confirmed": "確認済み（濃い線）",
+    "unconfirmed": "未確認（薄い点・線）",
+    "kind": "データの種類",
+    "dataset": "データセット"
   },
   "skipped": {
     "pair_has_relation": "この 2 語には既に関係があります。先にそちらを「違う」にしてください。",

@@ -63,8 +63,9 @@ import { PlaceTabbar } from './PlaceTabbar'
 import { ImportPlace } from './ImportPlace'
 import { PointCard } from './PointCard'
 import { PaperReader } from './PaperReader'
-import { GraphFilters, GraphPlaceSide, RoleLegend } from './graphPlace/GraphPlace'
+import { GraphFilters, GraphPlaceSide, MapLegend } from './graphPlace/GraphPlace'
 import { ledgerNodeId, parseLedgerNode, withoutCopyDatasets } from './graphPlace/ledgerDrafts'
+import { datasetsShown, hasWords, isDatasetNode, withoutDatasetSide } from './graphPlace/datasetVisibility'
 import { useLedgers } from './graphPlace/useLedgers'
 import { ReaderSlot } from './ReaderSlot'
 import { PaperReaderContext, type PaperReaderApi } from './paperReaderContext'
@@ -977,8 +978,25 @@ export function ChatApp() {
   /** 知識グラフと凡例。3 つの場所すべてに出る（大きさと、点を押したときの行き先だけが場所で変わる）。 */
   const mapDrafts = useMemo(() => (okSky ? [...okSky.proposed, ...ledger.drafts] : []), [okSky, ledger.drafts])
   /** 知識の写しのデータセット（種類・項目）は図に出さない（台帳の語として見せる）。 */
-  const mapSky = useMemo(() => (okSky ? { ...okSky.sky, datasets: withoutCopyDatasets(okSky.sky.datasets, ledger.ledgers) } : undefined), [okSky, ledger.ledgers])
-  const mapProposed = useMemo(() => (okSky ? withoutCopyDatasets(okSky.proposedDatasets, ledger.ledgers) : []), [okSky, ledger.ledgers])
+  // 「知識グラフ」の場所の大きい図は、語と関係を見る場所: データセットの点は既定で分ける（語か関係が 1 つも無いときはオン）。小さい図は今までどおり出す
+  const [datasetsPref, setDatasetsPref] = useState<boolean | null>(null)
+  const wordsExist = useMemo(() => (okSky ? hasWords(okSky.sky, ledger.drafts) : false), [okSky, ledger.drafts])
+  const showDatasets = place !== 'graph' || datasetsShown(datasetsPref, wordsExist)
+  // 隠している間にデータセット側の点が選ばれた（チャットから来た・1 枚が開いている）: 選んだ点が図に無い状態を作らないよう、自動でオンにする
+  useEffect(() => {
+    if (place === 'graph' && !showDatasets && isDatasetNode(pickedId)) setDatasetsPref(true)
+  }, [place, showDatasets, pickedId])
+  /** 切り替え。隠すときは、データセット側の点を選んだままにしない。 */
+  const onToggleDatasets = (on: boolean) => {
+    if (!on && isDatasetNode(pickedId)) onMapSelect(null, null)
+    setDatasetsPref(on)
+  }
+  const mapSky = useMemo(() => {
+    if (!okSky) return undefined
+    const sky = { ...okSky.sky, datasets: withoutCopyDatasets(okSky.sky.datasets, ledger.ledgers) }
+    return showDatasets ? sky : withoutDatasetSide(sky)
+  }, [okSky, ledger.ledgers, showDatasets])
+  const mapProposed = useMemo(() => (okSky && showDatasets ? withoutCopyDatasets(okSky.proposedDatasets, ledger.ledgers) : []), [okSky, ledger.ledgers, showDatasets])
   /** 台帳の語を押したら getPoint を呼ばず（裏に無く 404 になる）、「知識グラフ」に移ってその語を「用語」のタブで開く。 */
   const selectOnMap = (onSelectPoint: (next: PointSel | null, nodeId: string | null) => void) => (next: PointSel | null, nodeId: string | null) => {
     const l = parseLedgerNode(nodeId)
@@ -1009,13 +1027,7 @@ export function ChatApp() {
           ariaLabel={t('map.aria')}
           fitLabel={t('map.fit')}
         />
-        <div className="chat-map-legend">
-          <span><span className="chat-legend-symbol chat-legend-symbol--term" aria-hidden="true">○</span>{t('map.legend.term')}</span>
-          <span><span className="chat-legend-symbol chat-legend-symbol--kind" aria-hidden="true">●</span>{t('map.legend.kind')}</span>
-          <span><span className="chat-legend-symbol chat-legend-symbol--dataset" aria-hidden="true">⊙</span>{t('map.legend.dataset')}</span>
-          <span className="chat-legend-proposal">{t('map.legend.proposal')}</span>
-        </div>
-        <RoleLegend />
+        <MapLegend datasets={showDatasets} />
       </>
     )
   const sentencesPanel = (
@@ -1158,7 +1170,7 @@ export function ChatApp() {
                 {error}
               </p>
             )}
-            <GraphFilters api={ledger} lang={lang} />
+            <GraphFilters api={ledger} lang={lang} datasets={{ checked: showDatasets, onChange: onToggleDatasets }} />
             <div className="place-map" ref={layout.tabs ? undefined : scrollRef}>
               {skyStatus}
               {mapBlock(onMapSelect)}

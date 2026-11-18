@@ -5,7 +5,8 @@
     "status": "Status",
     "rel": "Relation",
     "all": "All",
-    "aria": "Knowledge graph filters"
+    "aria": "Knowledge graph filters",
+    "datasets": "Show datasets too"
   },
   "status": {
     "all": "All",
@@ -92,8 +93,10 @@
     "property": "Property",
     "method": "Method",
     "concept": "Concept",
-    "confirmed": "Confirmed",
-    "unconfirmed": "Unconfirmed (light)"
+    "confirmed": "Confirmed (dark line)",
+    "unconfirmed": "Unconfirmed (faint dot / line)",
+    "kind": "Data kind",
+    "dataset": "Dataset"
   },
   "skipped": {
     "pair_has_relation": "These two terms already have a relation. Mark that one as wrong first.",

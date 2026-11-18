@@ -14,8 +14,8 @@ import './graphPlace.css'
 type Lang = 'ja' | 'en'
 const STATUSES: StatusFilter[] = ['all', 'unconfirmed', 'confirmed', 'rejected']
 
-/** 役割の 4 色の凡例（図の下）。 */
-export function RoleLegend() {
+/** 図の凡例（1 つ・3 つの場所すべてで同じ）: 用語の 4 色／データの種類／データセット／確認済み（濃い線）／未確認（薄い点・線）。 */
+export function MapLegend({ datasets = true }: { datasets?: boolean }) {
   const { t } = useTranslation('graphPlace')
   return (
     <div className="gp-legend" role="group" aria-label={t('legend.aria')} data-testid="gp-legend">
@@ -23,14 +23,19 @@ export function RoleLegend() {
       <span><i className="gp-dot gp-tone--p" aria-hidden="true" />{t('legend.property')}</span>
       <span><i className="gp-dot gp-tone--t" aria-hidden="true" />{t('legend.method')}</span>
       <span><i className="gp-dot gp-tone--c" aria-hidden="true" />{t('legend.concept')}</span>
+      {datasets && <span><i className="gp-sym gp-sym--kind" aria-hidden="true">●</i>{t('legend.kind')}</span>}
+      {datasets && <span><i className="gp-sym gp-sym--dataset" aria-hidden="true">⊙</i>{t('legend.dataset')}</span>}
       <span><i className="gp-ln" aria-hidden="true" />{t('legend.confirmed')}</span>
       <span><i className="gp-ln gp-ln--u" aria-hidden="true" />{t('legend.unconfirmed')}</span>
     </div>
   )
 }
+/** 以前の名前（役割の凡例）。同じ部品。 */
+export const RoleLegend = MapLegend
 
 /** 中央の図の上: 取り込み元・状態・関係の種類の絞り込みと「候補も出す」。図と右の一覧の両方に効く。 */
-export function GraphFilters({ api, lang }: { api: LedgersApi; lang: Lang }) {
+/** `datasets`: 「データセットも出す」の切り替え（無ければ出さない）。 */
+export function GraphFilters({ api, lang, datasets }: { api: LedgersApi; lang: Lang; datasets?: { checked: boolean; onChange: (on: boolean) => void } }) {
   const { t } = useTranslation('graphPlace')
   const f = api.filter
   const set = (patch: Partial<LedgerFilter>) => api.setFilter({ ...f, ...patch })
@@ -69,10 +74,18 @@ export function GraphFilters({ api, lang }: { api: LedgersApi; lang: Lang }) {
           </select>
         </label>
       </div>
-      <label className="gp-tog">
-        <input type="checkbox" data-testid="gp-filter-candidates" checked={f.candidates} onChange={(e) => set({ candidates: e.target.checked })} />
-        {t('candidates.toggle')} <span className="gp-cnt">{t('candidates.count', { n: nCandidates })}</span>
-      </label>
+      <div className="gp-togs">
+        <label className="gp-tog">
+          <input type="checkbox" data-testid="gp-filter-candidates" checked={f.candidates} onChange={(e) => set({ candidates: e.target.checked })} />
+          {t('candidates.toggle')} <span className="gp-cnt">{t('candidates.count', { n: nCandidates })}</span>
+        </label>
+        {datasets && (
+          <label className="gp-tog">
+            <input type="checkbox" data-testid="gp-filter-datasets" checked={datasets.checked} onChange={(e) => datasets.onChange(e.target.checked)} />
+            {t('filters.datasets')}
+          </label>
+        )}
+      </div>
     </div>
   )
 }

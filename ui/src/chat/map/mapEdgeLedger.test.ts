@@ -12,10 +12,11 @@ describe('台帳の線の描画', () => {
     expect(ok.size).toBeGreaterThan(un.size)
     expect(un.color).toBe(pal.edgeProposed)
   })
-  it('線が多い図（quiet）では、未確認の名前は選んだ点のまわりだけに出す', () => {
+  it('未確認の名前も出す（薄い字＝muted）。置き場の判定は MapView 側。触れている・選んだ周りは濃く、先に置く', () => {
     const un = { label: '下げる', ledger: true, thin: true, unconfirmed: true }
-    expect(mapEdgeAppearance(un, pal, { ...idle, quiet: true }).label).toBe('')
-    expect(mapEdgeAppearance(un, pal, { ...idle, quiet: true, on: true }).label).toBe('下げる')
-    expect(mapEdgeAppearance({ label: '下げる', ledger: true }, pal, { ...idle, quiet: true }).label).toBe('下げる')
+    expect(mapEdgeAppearance(un, pal, idle)).toMatchObject({ label: '下げる', muted: true, rank: 2 })
+    expect(mapEdgeAppearance(un, pal, { ...idle, on: true })).toMatchObject({ label: '下げる', muted: false, rank: 0 })
+    expect(mapEdgeAppearance({ label: '下げる', ledger: true }, pal, idle)).toMatchObject({ muted: false, rank: 1 })
+    expect(mapEdgeAppearance(un, pal, { ...idle, faded: true }).label).toBe('')
   })
 })

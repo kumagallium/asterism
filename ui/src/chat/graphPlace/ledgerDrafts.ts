@@ -32,7 +32,7 @@ export function ledgerDrafts(ledgers: readonly Ledger[], filter: LedgerFilter): 
     for (const r of rels) {
       touch(r.from, r.confirmed)
       touch(r.to, r.confirmed)
-      relations.push({ from: r.from.id, to: r.to.id, rel: r.rel as string, state: r.confirmed ? 'solid' : 'thin', confirmed: r.confirmed })
+      relations.push({ from: r.from.id, to: r.to.id, rel: r.rel as string, state: r.confirmed ? 'solid' : 'thin', confirmed: r.confirmed, evidence: r.evidence.length })
     }
     for (const r of cs) {
       touch(r.from, false)

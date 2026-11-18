@@ -10,6 +10,7 @@ import { bindMapEvents, buildMapGraph, layoutMap, mapNeighborhood, mapSignature,
 import type { MapNodeAttrs, Tone } from './mapModel'
 import { mapNodePrograms } from './mapNodePrograms'
 import { mapEdgeAppearance } from './mapEdgeAppearance'
+import { placeEdgeLabels, type EdgeLabelCandidate, type Rect } from './edgeLabelPlacement'
 import { makeGraphLabelDrawer } from '../../graphLabels'
 
 /** 全体を見るときのカメラの引き（1 より大きいと余白が出て、端の名前が切れない）。 */
@@ -70,19 +71,24 @@ interface Palette {
   paper: string
   /** 役割の 4 色（材料・物性・手法・概念）。 */
   tone: Record<Tone, string>
+  /** 未確認の線の名前（薄い字）。 */
+  muted: string
 }
 
 type EdgeLabelCtx = CanvasRenderingContext2D
-type EdgeLabelData = { label?: string | null; size?: number }
+type EdgeLabelData = { label?: string | null; size?: number; key?: string; muted?: boolean }
 type EdgeLabelEnd = { x: number; y: number; size: number }
 type EdgeLabelSettings = { edgeLabelSize: number; edgeLabelFont: string; edgeLabelWeight: string }
 
 /** 線の名前を、線の長さに関わらず中点に横書きで出す（小さな札つき）。sigma の既定（線に沿って回し、線より長ければ「…」）は、
  * 短い線で名前が出ないので使わない。hover 中の 1 本にだけ label が残るので、重なりは考えない。 */
-function makeEdgeLabelDrawer(pal: Palette) {
+function makeEdgeLabelDrawer(pal: Palette, allowed: () => ReadonlySet<string> | null) {
   return (context: EdgeLabelCtx, edge: EdgeLabelData, source: EdgeLabelEnd, target: EdgeLabelEnd, settings: EdgeLabelSettings): void => {
     const label = edge.label
     if (!label) return
+    // 置き場の判定（語の名前・先に置いた線の名前と重なるものは出さない）。無ければ全部出す
+    const ok = allowed()
+    if (ok && edge.key !== undefined && !ok.has(edge.key)) return
     const px = settings.edgeLabelSize
     context.font = `${settings.edgeLabelWeight} ${px}px ${settings.edgeLabelFont}`
     const w = context.measureText(label).width + 10
@@ -105,16 +111,50 @@ function makeEdgeLabelDrawer(pal: Palette) {
     context.closePath()
     context.fillStyle = pal.surface
     context.fill()
-    context.strokeStyle = pal.border
+    context.strokeStyle = edge.muted ? withAlpha(pal.border, 0.6) : pal.border
     context.lineWidth = 1
     context.stroke()
-    context.fillStyle = pal.label
+    context.fillStyle = edge.muted ? pal.muted : pal.label
     context.textBaseline = 'middle'
     context.textAlign = 'center'
     context.fillText(label, cx, cy + 0.5)
     context.textAlign = 'start'
     context.textBaseline = 'alphabetic'
   }
+}
+
+/** いま描く線の名前のうち、語の名前・先に置いた線の名前と重ならずに置けるものの id（画面の座標で判定）。 */
+function placeEdgeNames(sigma: Sigma, ctx: CanvasRenderingContext2D, font: string): ReadonlySet<string> {
+  const graph = sigma.getGraph()
+  const { width, height } = sigma.getDimensions()
+  const shown = (sigma as unknown as { displayedNodeLabels?: Set<string> }).displayedNodeLabels
+  const blockers: Rect[] = []
+  ctx.font = `400 12px ${font}`
+  const nodeLabelW = (label: string): number => ctx.measureText(label).width
+  graph.forEachNode((id) => {
+    const d = sigma.getNodeDisplayData(id)
+    if (!d || d.hidden || !d.label || (shown && !shown.has(id))) return
+    const p = sigma.framedGraphToViewport(d)
+    const r = sigma.scaleSize(d.size)
+    blockers.push({ x: p.x + r + 1, y: p.y - 9, w: nodeLabelW(d.label) + 6, h: 18 })
+  })
+  const cands: EdgeLabelCandidate[] = []
+  graph.forEachEdge((edge, _a, s, t) => {
+    const d = sigma.getEdgeDisplayData(edge) as (ReturnType<Sigma['getEdgeDisplayData']> & { rank?: number; evidence?: number }) | undefined
+    if (!d || d.hidden || !d.label) return
+    const ds = sigma.getNodeDisplayData(s)
+    const dt = sigma.getNodeDisplayData(t)
+    if (!ds || !dt || ds.hidden || dt.hidden) return
+    const ps = sigma.framedGraphToViewport(ds)
+    const pt = sigma.framedGraphToViewport(dt)
+    ctx.font = `400 12px ${font}`
+    const w = ctx.measureText(d.label).width + 10
+    const h = 18
+    cands.push({ id: edge, rect: { x: (ps.x + pt.x) / 2 - w / 2, y: (ps.y + pt.y) / 2 - h / 2, w, h }, rank: d.rank ?? 1, evidence: d.evidence ?? 0 })
+  })
+  const ok = new Set(placeEdgeLabels(cands, blockers, { width, height }))
+  for (const c of cands) if (c.rank === 0) ok.add(c.id) // 触れている線の名前は、重なっても必ず出す
+  return ok
 }
 
 function readPalette(): Palette {
@@ -134,6 +174,7 @@ function readPalette(): Palette {
     edgeOn: cssColor('--fg', '#16243b'),
     faded: withAlpha(cssColor('--border-strong', '#c1cdde'), 0.9),
     label: cssColor('--fg', '#16243b'),
+    muted: cssColor('--muted', '#6b7a90'),
     surface: cssColor('--surface', '#ffffff'),
     border,
     paper: cssColor('--graph-paper', '#fbfcfe'),
@@ -226,6 +267,8 @@ export function MapView({
     }
     const drawNodeLabel = makeGraphLabelDrawer(() => pal.paper)
     const labelFont = getComputedStyle(document.documentElement).fontFamily
+    // 線の名前の置き場（大きい図）: 毎フレームの線の名前の前に、語の名前と先に置いた線の名前を避けて置ける線を決める
+    let placedEdges: ReadonlySet<string> | null = null
     let sigma: Sigma
     try {
       sigma = new Sigma(graph, host, {
@@ -239,7 +282,7 @@ export function MapView({
         nodeHoverProgramClasses: mapNodePrograms(() => pal.paper, drawNodeLabel),
         edgeLabelColor: { color: pal.label },
         edgeLabelFont: labelFont,
-        defaultDrawEdgeLabel: makeEdgeLabelDrawer(pal),
+        defaultDrawEdgeLabel: makeEdgeLabelDrawer(pal, () => placedEdges),
         zIndex: true,
         labelSize: 12,
         labelFont,
@@ -302,7 +345,7 @@ export function MapView({
             (p.highlightIds !== null && (p.highlightIds.has(s) || p.highlightIds.has(t)))
           )
           // hover 中だけ名前を出す。提案の印も描画時だけ足す。
-          return mapEdgeAppearance(data, pal, { hovered, on, faded: !!em && !on, lang: p.lang, names: p.showEdgeNames, quiet: true })
+          return mapEdgeAppearance(data, pal, { hovered, on, faded: !!em && !on, lang: p.lang, names: p.showEdgeNames })
         },
       })
     } catch {
@@ -312,6 +355,16 @@ export function MapView({
       return
     }
     refreshRef.current = refresh
+    if (propsRef.current.showEdgeNames) {
+      const measure = document.createElement('canvas').getContext('2d')
+      const priv = sigma as unknown as { renderEdgeLabels: () => Sigma }
+      const renderEdgeLabels = priv.renderEdgeLabels.bind(sigma)
+      priv.renderEdgeLabels = () => {
+        placedEdges = measure ? placeEdgeNames(sigma, measure, labelFont) : null
+        ;(host as HTMLDivElement & { placedEdges?: ReadonlySet<string> | null }).placedEdges = placedEdges // 検証の道具用
+        return renderEdgeLabels()
+      }
+    }
     themeUnsubscribeRef.current = subscribeAppearance(() => {
       Object.assign(pal, readPalette())
       sigma.setSettings({

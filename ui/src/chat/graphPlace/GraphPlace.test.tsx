@@ -9,7 +9,7 @@ vi.mock('react-i18next', async (importOriginal) => ({
 }))
 
 import { A, B, C, D, ev, ledger, row } from './fixtures'
-import { GraphFilters, GraphPlaceSide, RoleLegend } from './GraphPlace'
+import { GraphFilters, GraphPlaceSide, MapLegend, RoleLegend } from './GraphPlace'
 import { CandidateRow, RelationRow, TermRow } from './LedgerRows'
 import { summarizeTerms } from './ledgerView'
 import type { LedgersApi } from './useLedgers'
@@ -191,5 +191,24 @@ describe('絞り込み', () => {
   it('凡例に 4 色', () => {
     const html = renderToStaticMarkup(<RoleLegend />)
     for (const k of ['m', 'p', 't', 'c']) expect(html).toContain(`gp-tone--${k}`)
+  })
+})
+
+describe('データセットも出す（切り替えと凡例）', () => {
+  it('切り替えは datasets を渡したときだけ出て、押すと onChange に反映する', () => {
+    const api = apiOf({})
+    expect(byTestId(GraphFilters({ api, lang: 'ja' }), 'gp-filter-datasets')).toHaveLength(0)
+    const got: boolean[] = []
+    const el = byTestId(GraphFilters({ api, lang: 'ja', datasets: { checked: false, onChange: (b) => got.push(b) } }), 'gp-filter-datasets')[0]
+    expect(el.props.checked).toBe(false)
+    ;(el.props.onChange as (e: { target: { checked: boolean } }) => void)({ target: { checked: true } })
+    expect(got).toEqual([true])
+  })
+  it('凡例は、データセットを隠している間は「データの種類」「データセット」を載せない', () => {
+    expect(renderToStaticMarkup(<MapLegend />)).toContain('legend.kind')
+    const hidden = renderToStaticMarkup(<MapLegend datasets={false} />)
+    expect(hidden).not.toContain('legend.kind')
+    expect(hidden).not.toContain('legend.dataset')
+    expect(hidden).toContain('legend.confirmed')
   })
 })

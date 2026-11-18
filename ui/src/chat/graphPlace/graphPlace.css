@@ -285,3 +285,25 @@
   display: block;
   margin-top: 2px;
 }
+
+.gp-sym {
+  font-style: normal;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.gp-sym--kind {
+  color: var(--graph-kind);
+}
+.gp-sym--dataset {
+  color: var(--graph-dataset);
+}
+.gp-legend > span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.gp-togs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+}

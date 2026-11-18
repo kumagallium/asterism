@@ -62,6 +62,8 @@ export interface LedgerRelationExtra {
   confirmed?: boolean
   /** 関係の無い候補（名前の無い薄い線）。 */
   candidate?: boolean
+  /** 根拠の数。 */
+  evidence?: number
 }
 
 export interface MapEdgeAttrs {
@@ -78,6 +80,8 @@ export interface MapEdgeAttrs {
   /** 台帳の候補（関係が無い組）。 */
   candidate?: boolean
   ledger?: boolean
+  /** 台帳の線の根拠の数（線の名前を置く順に使う）。 */
+  evidence?: number
 }
 
 /** 件数の固定の対数の半径（1 件 5・10 件 7・100 件 9・1,000 件 12・1 万件以上 13）。11f の札の図から引き継いだ式。 */
@@ -269,7 +273,7 @@ export function buildMapGraph(
       addEdge(
         a,
         b,
-        { kind: 'draft', relation: r.rel, label, ledger: true, ...(x.confirmed ? {} : { thin: true, unconfirmed: true }) },
+        { kind: 'draft', relation: r.rel, label, ledger: true, evidence: x.evidence ?? 0, ...(x.confirmed ? {} : { thin: true, unconfirmed: true }) },
         r.rel !== 'competes' && r.rel !== 'eq',
       )
     }
@@ -435,6 +439,8 @@ export function layoutMap(g: Graph, aspect = 1.4): void {
   const rest = g.filterNodes((_id, a) => (a as unknown as MapNodeAttrs).ledger !== true)
   if (ledger.length === 0) {
     layoutNetwork(g)
+    // データセット側の点が無い図（語と関係だけ）は枠いっぱいに伸ばす。あるときは従来のまま
+    if (!g.someNode((_id, a) => a.type === 'dataset' || a.type === 'kind')) stretchToAspect(g, aspect)
     return
   }
   if (rest.length === 0) {
