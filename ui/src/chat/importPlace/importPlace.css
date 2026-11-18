@@ -67,6 +67,12 @@
   align-items: flex-start;
   gap: var(--space-2);
 }
+.imp-prog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
 .imp-steps {
   display: flex;
   flex-wrap: wrap;

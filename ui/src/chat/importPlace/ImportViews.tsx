@@ -2,8 +2,9 @@
 // renderToStaticMarkup でも、関数として呼んで onClick を直に押す形でも検査できる。
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { barPercent, lostCount, questionRows, skipKey, stepsOf, type ImportJobState } from './importJob'
+import { barPercent, lostCount, questionRows, reasonKey, skipKey, stepsOf, type ImportJobState } from './importJob'
 import type { ImportRow } from '../importRows'
+import type { ImportNotice as ListNotice } from './importStore'
 import type { ImportResult, ImportSource } from './knowledgeImportApi'
 
 type Running = Extract<ImportJobState, { phase: 'running' }>
@@ -59,26 +60,30 @@ export function GraphiumCard(p: GraphiumCardProps) {
 
 // ── 進み ──
 
-export function ImportProgress({ job, canCancel, onCancel }: { job: Running; canCancel: boolean; onCancel: () => void }) {
+export function ImportProgress({ job, canCancel, aiSet = true, onCancel }: { job: Running; canCancel: boolean; aiSet?: boolean; onCancel: () => void }) {
   const { t } = useTranslation('importPlace')
   const steps = stepsOf(job.stage)
   const pct = barPercent(job)
+  // 組が 0 のときは「0 / 0 組」も「AI を使います」も出さない（AI 未設定のときも）
+  const noPairs = job.total === 0
   return (
-    <div className="imp-prog" role="status" data-testid="import-progress">
-      <ol className="imp-steps">
-        {steps.map((s) => (
-          <li key={s.id} className={s.state === 'cur' ? 'is-cur' : ''} data-step={s.id} data-state={s.state} aria-current={s.state === 'cur' ? 'step' : undefined}>
-            {s.state === 'done' && <b className="imp-mark">{t('steps.mark')}</b>}
-            {s.id === 'pairs' && s.state === 'cur' && job.done !== null && job.total !== null
-              ? t('progress.pairsCount', { done: job.done.toLocaleString(), total: job.total.toLocaleString() })
-              : t(`steps.${s.id}`)}
-          </li>
-        ))}
-      </ol>
-      <div className={`imp-bar${pct === null ? ' is-flow' : ''}`} aria-hidden="true">
-        <i style={pct === null ? undefined : { width: `${pct}%` }} data-testid="import-bar" />
+    <div className="imp-prog">
+      <div role="status" className="imp-prog-body" data-testid="import-progress">
+        <ol className="imp-steps">
+          {steps.map((s) => (
+            <li key={s.id} className={s.state === 'cur' ? 'is-cur' : ''} data-step={s.id} data-state={s.state} aria-current={s.state === 'cur' ? 'step' : undefined}>
+              {s.state === 'done' && <b className="imp-mark">{t('steps.mark')}</b>}
+              {s.id === 'pairs' && s.state === 'cur' && job.done !== null && job.total !== null && !noPairs
+                ? t('progress.pairsCount', { done: job.done.toLocaleString(), total: job.total.toLocaleString() })
+                : t(`steps.${s.id}`)}
+            </li>
+          ))}
+        </ol>
+        <div className={`imp-bar${pct === null ? ' is-flow' : ''}`} aria-hidden="true">
+          <i style={pct === null ? undefined : { width: `${pct}%` }} data-testid="import-bar" />
+        </div>
+        {aiSet && !noPairs && <p className="imp-note">{t('progress.note')}</p>}
       </div>
-      <p className="imp-note">{t('progress.note')}</p>
       <button type="button" className="btn btn--sm btn--ghost" data-testid="import-cancel" disabled={!canCancel} onClick={onCancel}>
         {t('progress.cancel')}
       </button>
@@ -90,7 +95,7 @@ export function ImportNotice({ job, onDismiss }: { job: Extract<ImportJobState, 
   const { t } = useTranslation('importPlace')
   return job.phase === 'failed' ? (
     <p className="promote-err" role="alert" data-testid="import-failed">
-      {t('progress.failed', { reason: job.error })}{' '}
+      {t('progress.failed', { reason: reasonText(t, job.error) })}{' '}
       <button type="button" className="imp-link" onClick={onDismiss}>
         {t('result.close')}
       </button>
@@ -98,6 +103,25 @@ export function ImportNotice({ job, onDismiss }: { job: Extract<ImportJobState, 
   ) : (
     <p className="imp-note" role="status" data-testid="import-cancelled">
       {t('progress.cancelled')}{' '}
+      <button type="button" className="imp-link" onClick={onDismiss}>
+        {t('result.close')}
+      </button>
+    </p>
+  )
+}
+
+/** 知っている英語の理由は文にする（知らなければそのまま）。 */
+function reasonText(t: TFunction, reason: string): string {
+  const k = reasonKey(reason)
+  return k ? t(`reason.${k}`) : reason
+}
+
+/** 一覧の上の失敗（外す・取り消し・一覧を読めない）。「設定を開く」は付けない。 */
+export function ImportListNotice({ notice, onDismiss }: { notice: ListNotice; onDismiss: () => void }) {
+  const { t } = useTranslation('importPlace')
+  return (
+    <p className="promote-err" role="alert" data-testid="import-list-notice" data-kind={notice.kind}>
+      {t(`notice.${notice.kind}`, { reason: reasonText(t, notice.detail) })}{' '}
       <button type="button" className="imp-link" onClick={onDismiss}>
         {t('result.close')}
       </button>
@@ -126,7 +150,7 @@ export function ImportResultCard(p: ImportResultProps) {
   const lost = lostCount(r)
   const { shown, more } = questionRows(r)
   return (
-    <div className="imp-res" data-testid="import-result">
+    <div className="imp-res" role="status" aria-label={t('result.label')} data-testid="import-result">
       <p className="imp-big">{t('result.read', { name: p.name, claims: n(r.copied.claims), topics: n(r.copied.topics) })}</p>
       <p>{t('result.added', { terms: n(r.relations.terms), relations: n(r.relations.shown) })}</p>
       {r.relations.candidates > 0 && <p>{t('result.candidates', { n: n(r.relations.candidates) })}</p>}
@@ -272,11 +296,11 @@ function sourceRow(s: ImportSource, p: SourcesProps, t: TFunction, n: (v: number
         {!confirming && (
           <>
             {p.rerunnable.includes(s.source) && (
-              <button type="button" className="btn btn--sm btn--ghost" data-testid="import-rerun" disabled={p.busy || s.running !== null} onClick={() => p.onRerun(s.source)}>
+              <button type="button" className="btn btn--sm btn--ghost" data-testid="import-rerun" aria-label={t('sources.rerunNamed', { name: s.title || s.source })} disabled={p.busy || s.running !== null} onClick={() => p.onRerun(s.source)}>
                 {t('sources.rerun')}
               </button>
             )}{' '}
-            <button type="button" className="btn btn--sm btn--ghost" data-testid="import-remove" disabled={p.busy || s.running !== null} onClick={() => p.onAskRemove(s.source)}>
+            <button type="button" className="btn btn--sm btn--ghost" data-testid="import-remove" aria-label={t('sources.removeNamed', { name: s.title || s.source })} disabled={p.busy || s.running !== null} onClick={() => p.onAskRemove(s.source)}>
               {t('sources.remove')}
             </button>
           </>
@@ -289,7 +313,7 @@ function sourceRow(s: ImportSource, p: SourcesProps, t: TFunction, n: (v: number
     row,
     <tr key={`${s.source}-confirm`} className="imp-confirm-row">
       <td colSpan={6}>
-        <div className="imp-confirm" role="group" data-testid="import-confirm">
+        <div className="imp-confirm" role="group" aria-label={t('sources.confirmLabel', { name: s.title || s.source })} data-testid="import-confirm">
           <p>{t('sources.confirmRemove')}</p>
           <button type="button" className="btn btn--sm btn--ghost" data-testid="import-confirm-remove" disabled={p.busy} onClick={() => p.onRemove(s.source)}>
             {t('sources.remove')}

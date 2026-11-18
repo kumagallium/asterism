@@ -183,31 +183,92 @@ describe('取り込んだものの一覧', () => {
 })
 
 describe('つなぐ手順（prepareGraphium）', () => {
-  const deps = (over: Partial<ConnectDeps> = {}): ConnectDeps => ({
-    locate: vi.fn(async () => ({ found: '/usr/bin/node', user_home: '/u' })),
-    apply: vi.fn(() => ({ servers: {}, provider: { list: '', get: '', add: '' } })),
-    verify: vi.fn(async () => ({ ok: true, tool: 'list_media' })),
-    ensure: vi.fn(async () => {}),
-    ...over,
+  const tool = (name: string) => ({ name })
+  const ALL = ['list_media', 'get_media_file', 'add_material', 'export_asterism_knowledge'].map(tool)
+  const reg = { transport: 'stdio' as const, command: '/n', args: ['/old.mjs'], env: { GRAPHIUM_ROOT: '/oldv' }, enabled: true }
+  /** メモリの設定。apply は本物と同じ全部当てを真似る。 */
+  function mk(init: Record<string, unknown>, over: Partial<ConnectDeps> = {}) {
+    const mem: Record<string, unknown> = { ...init }
+    const puts: string[] = []
+    const deps: ConnectDeps = {
+      locate: vi.fn(async () => ({ found: '/usr/bin/node', user_home: '/u' })),
+      apply: vi.fn((_p, input) => {
+        mem.mcpServers = { ...((mem.mcpServers as object) ?? {}), graphium: { transport: 'stdio', command: input.nodePath, args: [input.scriptPath], env: { GRAPHIUM_ROOT: input.root }, enabled: true } }
+        mem.sourceHome = { server: 'graphium' }
+        mem.sourceProvider = { list: 'list_media', get: 'get_media_file', add: 'add_material', knowledge: 'export_asterism_knowledge' }
+        mem.sendOriginalsToHome = true
+        return { servers: {}, provider: { list: '', get: '', add: '' } }
+      }) as unknown as ConnectDeps['apply'],
+      tools: vi.fn(async () => ALL),
+      io: {
+        get: <T,>(k: string) => mem[k] as T | undefined,
+        put: (k, v) => {
+          puts.push(k)
+          mem[k] = v
+        },
+        flush: async () => {},
+      },
+      ...over,
+    }
+    return { mem, puts, deps }
+  }
+  const form = { script: '/g.mjs', root: '/v' }
+
+  it('登録があれば設定は書き換えない（apply も呼ばない・knowledge があれば何も書かない）', async () => {
+    const { mem, puts, deps } = mk({ mcpServers: { graphium: reg }, sourceHome: { server: 'other' }, sourceProvider: { list: 'a', get: 'b', add: 'c', knowledge: 'my_export' } })
+    deps.tools = vi.fn(async () => [tool('my_export')])
+    expect(await prepareGraphium(form, '/u', deps)).toBeNull()
+    expect(deps.apply).not.toHaveBeenCalled()
+    expect(puts).toEqual([])
+    expect((mem.sourceProvider as { knowledge: string }).knowledge).toBe('my_export')
   })
-  it('つながっていれば knowledge の道具名を足すだけ', async () => {
-    const d = deps()
-    expect(await prepareGraphium('on', { script: '', root: '' }, d)).toBeNull()
-    expect(d.ensure).toHaveBeenCalled()
-    expect(d.apply).not.toHaveBeenCalled()
+  it('登録があって knowledge の名前が無いときは、それだけを足す（list/get/add・sourceHome はそのまま）', async () => {
+    const { mem, puts, deps } = mk({ mcpServers: { graphium: reg }, sourceHome: { server: 'other' }, sourceProvider: { list: 'a', get: 'b', add: 'c' } })
+    expect(await prepareGraphium(form, '/u', deps)).toBeNull()
+    expect(puts).toEqual(['sourceProvider'])
+    expect(mem.sourceProvider).toEqual({ list: 'a', get: 'b', add: 'c', knowledge: 'export_asterism_knowledge' })
+    expect(mem.sourceHome).toEqual({ server: 'other' })
+    expect(mem.mcpServers).toEqual({ graphium: reg })
   })
-  it('入力が無ければ form・node が無ければ node・道具が無ければ tool', async () => {
-    expect(await prepareGraphium('off', { script: '', root: '' }, deps())).toEqual({ code: 'form' })
-    const noNode = deps({ locate: vi.fn(async () => ({ found: null, user_home: '/u' })) })
-    expect(await prepareGraphium('off', { script: '/g.mjs', root: '/v' }, noNode)).toEqual({ code: 'node' })
-    const noTool = deps({ verify: vi.fn(async () => ({ ok: false, tool: 'list_media' })) })
-    expect(await prepareGraphium('off', { script: '/g.mjs', root: '/v' }, noTool)).toEqual({ code: 'tool', tool: 'list_media' })
+  it('登録が無く、取り込み元が別のサーバなら、登録と knowledge だけ足す', async () => {
+    const { mem, deps } = mk({ mcpServers: { lab: reg }, sourceHome: { server: 'lab' }, sourceProvider: { list: 'a', get: 'b', add: 'c' } })
+    expect(await prepareGraphium(form, '/u', deps)).toBeNull()
+    expect(deps.apply).not.toHaveBeenCalled()
+    expect(Object.keys(mem.mcpServers as object).sort()).toEqual(['graphium', 'lab'])
+    expect(mem.sourceHome).toEqual({ server: 'lab' })
+    expect(mem.sourceProvider).toEqual({ list: 'a', get: 'b', add: 'c', knowledge: 'export_asterism_knowledge' })
   })
-  it('入力があれば設定に書いて確かめ、成功なら null・例外は http', async () => {
-    const d = deps()
-    expect(await prepareGraphium('off', { script: '/g.mjs', root: '/v' }, d)).toBeNull()
-    expect(d.apply).toHaveBeenCalledWith(expect.objectContaining({ serverName: 'graphium' }), { nodePath: '/usr/bin/node', scriptPath: '/g.mjs', root: '/v' })
-    const boom = deps({ verify: vi.fn(async () => { throw new Error('MCP が落ちました') }) })
-    expect(await prepareGraphium('off', { script: '/g.mjs', root: '/v' }, boom)).toEqual({ code: 'http', detail: 'MCP が落ちました' })
+  it('登録が無く、取り込み元も空なら、今までどおりプリセットを全部当てる・~/ はフルパスに', async () => {
+    const { mem, deps } = mk({})
+    expect(await prepareGraphium({ script: '~/G/x.mjs', root: '~/V' }, '/Users/me', deps)).toBeNull()
+    expect(deps.apply).toHaveBeenCalledWith(expect.objectContaining({ serverName: 'graphium' }), { nodePath: '/usr/bin/node', scriptPath: '/Users/me/G/x.mjs', root: '/Users/me/V' })
+    expect(mem.sourceHome).toEqual({ server: 'graphium' })
+  })
+  it('入力が無ければ form・node が無ければ node', async () => {
+    expect(await prepareGraphium({ script: '', root: '' }, '/u', mk({}).deps)).toEqual({ code: 'form' })
+    const noNode = mk({}, { locate: vi.fn(async () => ({ found: null, user_home: '/u' })) })
+    expect(await prepareGraphium(form, '/u', noNode.deps)).toEqual({ code: 'node' })
+  })
+  it('古い Graphium（knowledge の道具が無い）はジョブを始めずに止め、書いたものは全部（sendOriginalsToHome も）戻す', async () => {
+    const { mem, deps } = mk({})
+    deps.tools = vi.fn(async () => ALL.slice(0, 3))
+    expect(await prepareGraphium(form, '/u', deps)).toEqual({ code: 'old', tool: 'export_asterism_knowledge' })
+    expect(mem.mcpServers).toBeUndefined()
+    expect(mem.sourceHome).toBeUndefined()
+    expect(mem.sourceProvider).toBeUndefined()
+    expect(mem.sendOriginalsToHome).toBeUndefined()
+  })
+  it('新しく繋いだのに list の道具が無ければ tool・例外は http で、どちらも元に戻す', async () => {
+    const a = mk({})
+    a.deps.tools = vi.fn(async () => [tool('export_asterism_knowledge')])
+    expect(await prepareGraphium(form, '/u', a.deps)).toEqual({ code: 'tool', tool: 'list_media' })
+    expect(a.mem.mcpServers).toBeUndefined()
+    const b = mk({ mcpServers: { graphium: { ...reg, enabled: false } }, sourceProvider: { list: 'a', get: 'b', add: 'c' } })
+    b.deps.tools = vi.fn(async () => {
+      throw new Error('graphium は無効です')
+    })
+    expect(await prepareGraphium(form, '/u', b.deps)).toEqual({ code: 'http', detail: 'graphium は無効です' })
+    expect(b.mem.sourceProvider).toEqual({ list: 'a', get: 'b', add: 'c' }) // 足した knowledge も戻る
+    expect((b.mem.mcpServers as { graphium: { enabled: boolean } }).graphium.enabled).toBe(false)
   })
 })

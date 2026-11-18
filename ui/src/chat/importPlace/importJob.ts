@@ -6,12 +6,15 @@ const ORDER: ImportStage[] = ['fetch', 'copy', 'pairs', 'done']
 
 export type ImportJobState =
   | { phase: 'idle' }
+  | { phase: 'preparing'; source: string }
   | { phase: 'running'; source: string; stage: ImportStage | null; done: number | null; total: number | null }
   | { phase: 'done'; result: ImportResult }
   | { phase: 'cancelled'; source: string }
   | { phase: 'failed'; source: string; error: string }
 
 export type ImportJobAction =
+  | { type: 'prepare'; source: string }
+  | { type: 'abort' }
   | { type: 'start'; source: string }
   | { type: 'progress'; stage?: unknown; done?: unknown; total?: unknown }
   | { type: 'finished'; result: ImportResult }
@@ -26,8 +29,13 @@ const count = (v: unknown): number | null => (typeof v === 'number' && Number.is
 
 export function importJobReducer(state: ImportJobState, a: ImportJobAction): ImportJobState {
   switch (a.type) {
+    case 'prepare':
+      // 走っている・準備中は 2 本目を受けない（1 本目の進みと結果を消さない）
+      return state.phase === 'running' || state.phase === 'preparing' ? state : { phase: 'preparing', source: a.source }
+    case 'abort':
+      return state.phase === 'preparing' ? idle : state
     case 'start':
-      return { phase: 'running', source: a.source, stage: null, done: null, total: null }
+      return state.phase === 'running' ? state : { phase: 'running', source: a.source, stage: null, done: null, total: null }
     case 'progress': {
       if (state.phase !== 'running') return state
       // 段は戻らない（遅れて届いた古い枠で巻き戻さない）
@@ -41,9 +49,10 @@ export function importJobReducer(state: ImportJobState, a: ImportJobAction): Imp
     case 'cancelled':
       return state.phase === 'running' ? { phase: 'cancelled', source: state.source } : state
     case 'failed':
-      return { phase: 'failed', source: state.phase === 'running' ? state.source : '', error: a.error }
+      return { phase: 'failed', source: state.phase === 'running' || state.phase === 'preparing' ? state.source : '', error: a.error }
     case 'dismiss':
-      return idle
+      // 走行中・準備中は閉じない（結果・失敗・取り消しの札だけ閉じる）
+      return state.phase === 'running' || state.phase === 'preparing' ? state : idle
   }
 }
 
@@ -63,6 +72,16 @@ export function stepsOf(stage: ImportStage | null): Step[] {
 export function barPercent(s: Extract<ImportJobState, { phase: 'running' }>): number | null {
   if (s.stage !== 'pairs' || s.total === null || s.done === null || s.total === 0) return null
   return Math.min(100, Math.round((s.done / s.total) * 100))
+}
+
+/** 知っている英語の理由（api.ts の SSE・自前の失敗）を文の鍵にする。知らなければ null（そのまま出す）。 */
+export function reasonKey(reason: string): 'badResult' | 'connectionLost' | 'cancelled' | 'unknown' | null {
+  const r = reason.trim().toLowerCase()
+  if (r === 'bad result') return 'badResult'
+  if (r === 'connection lost') return 'connectionLost'
+  if (r === 'cancelled') return 'cancelled'
+  if (r === 'unknown error') return 'unknown'
+  return null
 }
 
 /** 結果の 1 枚の「関係を選んでいない」理由の鍵（無ければ null）。 */

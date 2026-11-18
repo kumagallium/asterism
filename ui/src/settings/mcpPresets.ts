@@ -49,6 +49,11 @@ export function presetEntry(preset: McpPreset, input: PresetInput): Extract<McpS
   }
 }
 
+/** 入力の `~/` をフルパスに直す（起動時に ~ は展開されない。設定タブと取り込みの窓口が共有）。 */
+export function expandHome(p: string, userHome: string): string {
+  return userHome && p.startsWith('~/') ? userHome + p.slice(1) : p
+}
+
 export type PresetState = 'off' | 'on' | 'partial'
 
 export function presetState(
@@ -76,7 +81,9 @@ export function applyPreset(
   input: PresetInput,
 ): { servers: Record<string, McpServerEntry>; provider: SourceProviderNames } {
   const servers = { ...(getServerSetting<Record<string, McpServerEntry>>('mcpServers') ?? {}), [preset.serverName]: presetEntry(preset, input) }
-  const provider = { ...preset.sourceProvider }
+  // 利用者が自分で入れた knowledge の道具名は上書きしない
+  const cur = getServerSetting<Partial<SourceProviderNames>>('sourceProvider') ?? {}
+  const provider = { ...preset.sourceProvider, knowledge: cur.knowledge || preset.sourceProvider.knowledge }
   putAppSetting('mcpServers', servers)
   putAppSetting('sourceHome', { server: preset.serverName })
   putAppSetting('sourceProvider', provider)

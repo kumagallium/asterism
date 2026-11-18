@@ -1,6 +1,6 @@
 // 「取り込み」の場所の中央（PR 14d-1・14d-2b）。窓口 2 枚（Graphium とつなぐ・ファイルを置く）→ 進み →
 // 結果の 1 枚 → 取り込んだものの一覧。状態の動きは importPlace/importJob.ts、部品は importPlace/ImportViews.tsx。
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isAppSettingsServerMode } from '../appSettings'
 import type { LlmCredentials } from '../settings/store'
@@ -8,12 +8,16 @@ import type { SkyDataset } from '../sky/skyApi'
 import { SourcePicker } from './SourcePicker'
 import { ATTACH_EXTS } from './sourcePickerUtil'
 import { importRows, type ImportRow } from './importRows'
-import { graphiumState, prepareGraphium, registeredServers, savedGraphiumInput, type ConnectFailure } from './importPlace/graphiumConnect'
-import { GraphiumCard, ImportNotice, ImportProgress, ImportResultCard, ImportSources } from './importPlace/ImportViews'
+import { isRegistered, prepareGraphium, rerunnableServers, type ConnectFailure } from './importPlace/graphiumConnect'
+import { GraphiumCard, ImportListNotice, ImportNotice, ImportProgress, ImportResultCard, ImportSources } from './importPlace/ImportViews'
+import { importStore, isBusy, useImportStore } from './importPlace/importStore'
 import { startMcpImport } from './importPlace/knowledgeImportApi'
-import { useKnowledgeImport } from './importPlace/useKnowledgeImport'
 import { GRAPHIUM_PRESET } from '../settings/mcpPresets'
+import { locateMcpCommand } from '../settings/mcpServersApi'
 import './importPlace/importPlace.css'
+
+/** 走っている作業が一覧にあるとき、読み直す間隔（ms）。 */
+export const POLL_MS = 4000
 
 export interface ImportPlaceProps {
   /** 公開済み。 */
@@ -51,51 +55,63 @@ export function ImportPlace(p: ImportPlaceProps) {
   const { t: tc } = useTranslation('chat')
   const fileInput = useRef<HTMLInputElement>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [, setSettingsTick] = useState(0)
-  const [form, setForm] = useState({ script: '', root: '' })
-  const [failure, setFailure] = useState<ConnectFailure | null>(null)
+  const [form, setForm] = useState<{ script: string; root: string | null }>({ script: '', root: null })
+  const [userHome, setUserHome] = useState('')
   const [confirming, setConfirming] = useState<string | null>(null)
-  const imp = useKnowledgeImport(p.onChanged ?? noop)
+  const st = useImportStore()
   const onOpenSettings = p.onOpenSettings ?? noop
+  const registered = isRegistered()
 
-  const sources = imp.sources ?? []
+  // 取り込みの置き場は部品の外にある。ここでは「最後に渡された関数」を渡し、一覧を読み、走っている間は読み直すだけ。
+  useEffect(() => {
+    importStore.setChanged(p.onChanged ?? noop)
+  }, [p.onChanged])
+  useEffect(() => {
+    void importStore.reload()
+  }, [])
+  const sources = st.sources ?? []
+  const anyRunning = sources.some((s) => s.running !== null)
+  const jobLive = st.job.phase === 'running' || st.job.phase === 'preparing'
+  useEffect(() => {
+    if (!anyRunning || jobLive) return
+    const id = setInterval(() => void importStore.poll(), POLL_MS)
+    return () => clearInterval(id)
+  }, [anyRunning, jobLive])
+  // 入力欄の `~/` と vault の既定値のためにホームを知る（設定に登録が無いときだけ）
+  useEffect(() => {
+    if (registered || !isAppSettingsServerMode()) return
+    let live = true
+    locateMcpCommand(GRAPHIUM_PRESET.command, GRAPHIUM_PRESET.nodeCandidates)
+      .then((r) => live && setUserHome(r.user_home))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [registered])
+
   const copied = new Set(sources.map((s) => s.dataset_id).filter((x): x is string => !!x))
   const rows = importRows(
     p.datasets.filter((d) => !copied.has(d.id)),
     p.proposed.filter((d) => !copied.has(d.id)),
   )
-  const running = imp.job.phase === 'running' || imp.working
-  const state = graphiumState()
-  const connected = state === 'on'
+  const busy = isBusy(st)
+  const rootShown = form.root ?? (userHome ? GRAPHIUM_PRESET.defaultRoot(userHome) : '')
 
-  const begin = (server: string) => async () => startMcpImport(server, p.lang, p.getCreds?.() ?? null)
-
-  async function goGraphium() {
-    setFailure(null)
-    const fail = await prepareGraphium(state, form)
-    setSettingsTick((n) => n + 1) // 「つなぐ」で設定が変わった
-    if (fail) {
-      setFailure(fail)
-      return
-    }
-    await imp.start(GRAPHIUM_PRESET.serverName, begin(GRAPHIUM_PRESET.serverName))
+  /** 準備（設定・道具の確認）→ POST。失敗は理由（画面が文にする）。 */
+  const begin = (server: string) => async () => {
+    const fail = await prepareGraphium({ script: form.script, root: rootShown }, userHome)
+    if (fail) return { ok: false as const, failure: fail }
+    return { ok: true as const, jobId: await startMcpImport(server, p.lang, p.getCreds?.() ?? null) }
   }
+  const startGraphium = (server: string) => void importStore.start(server, begin(server))
 
-  async function rerun(server: string) {
-    setFailure(null)
-    const fail = await prepareGraphium('on', form)
-    if (fail) {
-      setFailure(fail)
-      return
-    }
-    await imp.start(server, begin(server))
-  }
+  const failureText = (f: ConnectFailure): string => (f.code === 'http' ? f.detail : t(`graphium.fail.${f.code}`, { tool: f.tool ?? '' }))
+  const errorLine = st.startError ? failureText(st.startError) : null
+  const job = st.job
+  const shownJob =
+    job.phase === 'preparing' ? ({ phase: 'running', source: job.source, stage: null, done: null, total: null } as const) : job.phase === 'running' ? job : null
 
-  const failureText = (f: ConnectFailure): string =>
-    f.code === 'http' ? f.detail : t(`graphium.fail.${f.code}`, { tool: f.tool ?? '' })
-  const errorLine = failure ? failureText(failure) : imp.startError
-
-  const result = imp.job.phase === 'done' ? imp.job.result : null
+  const result = job.phase === 'done' ? job.result : null
   const empty = sources.length === 0 && rows.length === 0
 
   return (
@@ -106,12 +122,12 @@ export function ImportPlace(p: ImportPlaceProps) {
       <div className="imp-cards">
         {isAppSettingsServerMode() && (
           <GraphiumCard
-            connected={connected}
-            busy={running}
+            connected={registered}
+            busy={busy}
             error={errorLine}
-            form={!connected && savedGraphiumInput() === null ? form : null}
+            form={registered ? null : { script: form.script, root: rootShown }}
             onForm={(patch) => setForm((f) => ({ ...f, ...patch }))}
-            onGo={() => void goGraphium()}
+            onGo={() => startGraphium(GRAPHIUM_PRESET.serverName)}
             onOpenSettings={onOpenSettings}
           />
         )}
@@ -160,8 +176,8 @@ export function ImportPlace(p: ImportPlaceProps) {
         </section>
       </div>
 
-      {imp.job.phase === 'running' && <ImportProgress job={imp.job} canCancel={imp.jobId !== null} onCancel={imp.cancel} />}
-      {(imp.job.phase === 'failed' || imp.job.phase === 'cancelled') && <ImportNotice job={imp.job} onDismiss={imp.dismiss} />}
+      {shownJob && <ImportProgress job={shownJob} canCancel={st.jobId !== null} aiSet={!!p.getCreds?.()} onCancel={importStore.cancel} />}
+      {(job.phase === 'failed' || job.phase === 'cancelled') && <ImportNotice job={job} onDismiss={importStore.dismiss} />}
       {result && (
         <ImportResultCard
           result={result}
@@ -169,34 +185,30 @@ export function ImportPlace(p: ImportPlaceProps) {
           lang={p.lang}
           onAsk={p.onAsk ?? noop}
           onGraph={p.onGraph ?? noop}
-          onClose={imp.dismiss}
+          onClose={importStore.dismiss}
           onOpenSettings={onOpenSettings}
         />
       )}
 
       <h2 className="import-datasets-title">{t('sources.title')}</h2>
+      {st.notice && <ImportListNotice notice={st.notice} onDismiss={importStore.dismissNotice} />}
       {(sources.length > 0 || (p.status === 'ok' && rows.length > 0)) && (
         <ImportSources
           sources={sources}
           lang={p.lang}
-          jobSource={imp.job.phase === 'running' ? imp.job.source : null}
-          rerunnable={registeredServers()}
+          jobSource={job.phase === 'running' || job.phase === 'preparing' ? job.source : null}
+          rerunnable={rerunnableServers()}
           confirming={confirming}
-          busy={running}
+          busy={busy}
           rows={p.status === 'ok' ? rows : []}
           onOpen={p.onOpenDataset}
-          onRerun={(s) => void rerun(s)}
+          onRerun={startGraphium}
           onAskRemove={setConfirming}
           onRemove={(s) => {
             setConfirming(null)
-            void imp.remove(s)
+            void importStore.remove(s)
           }}
         />
-      )}
-      {imp.listError && (
-        <p className="promote-err" role="alert" data-testid="import-list-error">
-          {imp.listError}
-        </p>
       )}
       {p.status === 'loading' ? (
         <p className="chat-note-line">{tc('first.loading')}</p>

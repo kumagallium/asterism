@@ -16,7 +16,8 @@
     "fail": {
       "form": "つなげませんでした。起動ファイルと vault のフォルダを入れるか、設定の MCP サーバでつないでください。",
       "node": "node が見つかりませんでした。設定の MCP サーバで場所を入れてつないでください。",
-      "tool": "つないだ先に {{tool}} の道具がありません。起動ファイルと vault を確かめてください。"
+      "tool": "つないだ先に {{tool}} の道具がありません。起動ファイルと vault を確かめてください。",
+      "old": "この Graphium には知識を出す道具（{{tool}}）がありません。Graphium を新しくしてください。"
     }
   },
   "steps": {
@@ -47,7 +48,8 @@
     "questions": "答えられる問い {{n}}",
     "more": "ほか {{n}}",
     "seeGraph": "知識グラフを見る",
-    "close": "閉じる"
+    "close": "閉じる",
+    "label": "取り込みの結果"
   },
   "sources": {
     "title": "取り込んだもの",
@@ -67,6 +69,20 @@
     "empty": "まだ何も取り込んでいません。",
     "paper": "論文",
     "unpublished": "まだ公開していません",
-    "kinds": "種類 {{kinds}}・{{rows}} 件"
+    "kinds": "種類 {{kinds}}・{{rows}} 件",
+    "rerunNamed": "{{name}} を写し直す",
+    "removeNamed": "{{name}} を外す",
+    "confirmLabel": "{{name}} を外す確認"
+  },
+  "reason": {
+    "badResult": "結果の形が読めませんでした。写し直してください。",
+    "connectionLost": "進みを受け取る通信が切れました。一覧で結果を確かめてください。",
+    "cancelled": "取り消しました。",
+    "unknown": "原因が分からない失敗でした。"
+  },
+  "notice": {
+    "remove": "外せませんでした: {{reason}}",
+    "cancel": "取り消せませんでした: {{reason}}",
+    "list": "取り込んだものの一覧を読めませんでした: {{reason}}"
   }
 }

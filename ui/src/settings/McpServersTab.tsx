@@ -8,7 +8,7 @@ import {
   type McpFormIssue,
   type McpServerEntry,
 } from './mcpServerForm'
-import { applyPreset, GRAPHIUM_PRESET, presetEntry, presetState, verifyPresetTools } from './mcpPresets'
+import { applyPreset, expandHome, GRAPHIUM_PRESET, presetEntry, presetState, verifyPresetTools } from './mcpPresets'
 import {
   fetchMcpServers,
   fetchMcpServerTools,
@@ -211,7 +211,7 @@ export function McpServersTab() {
   const userHome = located?.userHome ?? ''
   const tilde = (p: string) => (userHome && (p === userHome || p.startsWith(userHome + '/')) ? '~' + p.slice(userHome.length) : p)
   // 入力に ~/ が来たらフルパスに戻す（起動時に ~ は展開されない）
-  const expand = (p: string) => (userHome && p.startsWith('~/') ? userHome + p.slice(1) : p)
+  const expand = (p: string) => expandHome(p, userHome)
   const formInput = { nodePath: expand(nodeValue.trim()), scriptPath: expand(scriptValue.trim()), root: expand(rootValue.trim()) }
   const formReady = nodeValue.trim() !== '' && scriptValue.trim() !== '' && rootValue.trim() !== ''
   const showPresetForm = pState !== 'on' && (openForm || pState === 'partial')
@@ -481,10 +481,10 @@ export function McpServersTab() {
         </select>
         <p className="field-help">{t('mcp.providerHelp')}</p>
         <div className="mcp-form">
-          {(['list', 'get', 'add'] as const).map((k) => (
+          {(['list', 'get', 'add', 'knowledge'] as const).map((k) => (
             <div className="mcp-provider-field" key={k}>
               <label className="about-label">{t(`mcp.provider.${k}`)}</label>
-              <input value={provider[k]} onChange={(e) => changeProvider({ [k]: e.target.value })} />
+              <input value={provider[k] ?? ''} onChange={(e) => changeProvider({ [k]: e.target.value })} />
             </div>
           ))}
         </div>
@@ -492,7 +492,7 @@ export function McpServersTab() {
           <button
             type="button"
             className="btn btn--ghost btn--sm"
-            onClick={() => changeProvider(GRAPHIUM_PRESET.sourceProvider)}
+            onClick={() => changeProvider({ ...GRAPHIUM_PRESET.sourceProvider, knowledge: provider.knowledge || GRAPHIUM_PRESET.sourceProvider.knowledge })}
           >
             {t('mcp.fillExample')}
           </button>
