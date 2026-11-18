@@ -8,7 +8,7 @@ import type { DraftSky, SkyData, SkyDataset } from '../../sky/skyApi'
 import type { PointSel } from '../chatState'
 import { bindMapEvents, buildMapGraph, layoutMap, mapNeighborhood, mapSignature, safeResize, syncMapAttributes } from './mapModel'
 import type { MapNodeAttrs, Tone } from './mapModel'
-import { mapNodePrograms } from './mapNodePrograms'
+import { mapEdgePrograms, mapNodePrograms } from './mapNodePrograms'
 import { mapEdgeAppearance } from './mapEdgeAppearance'
 import { placeEdgeLabels, type EdgeLabelCandidate, type Rect } from './edgeLabelPlacement'
 import { makeGraphLabelDrawer } from '../../graphLabels'
@@ -269,6 +269,12 @@ export function MapView({
     const labelFont = getComputedStyle(document.documentElement).fontFamily
     // 線の名前の置き場（大きい図）: 毎フレームの線の名前の前に、語の名前と先に置いた線の名前を避けて置ける線を決める
     let placedEdges: ReadonlySet<string> | null = null
+    let edgePrograms: ReturnType<typeof mapEdgePrograms> | Record<string, never> = {}
+    try {
+      edgePrograms = mapEdgePrograms()
+    } catch {
+      // 矢じりの部品が作れないときは、矢じり無しの線で描く
+    }
     let sigma: Sigma
     try {
       sigma = new Sigma(graph, host, {
@@ -278,6 +284,8 @@ export function MapView({
         // 線の名前は hover 中の 1 本だけ出す（edgeReducer で他は ''）
         renderEdgeLabels: true,
         edgeLabelSize: 12,
+        // 向きのある関係の線: 行き先の点の手前で止まる小さな矢じり（線の太さに比例。未確認は薄い線と同じ薄さ）
+        edgeProgramClasses: edgePrograms,
         nodeProgramClasses: mapNodePrograms(() => pal.paper, drawNodeLabel),
         nodeHoverProgramClasses: mapNodePrograms(() => pal.paper, drawNodeLabel),
         edgeLabelColor: { color: pal.label },

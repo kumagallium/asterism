@@ -64,6 +64,8 @@ export interface LedgerRelationExtra {
   candidate?: boolean
   /** 根拠の数。 */
   evidence?: number
+  /** 向きのある関係の線（from → to の矢じりを付ける）。向きの無い関係・候補・関係でない線には付けない。 */
+  directed?: boolean
 }
 
 export interface MapEdgeAttrs {
@@ -151,7 +153,9 @@ export function buildMapGraph(
     const key = `${attrs.kind}|${p}|${q}|${attrs.relation ?? ''}|${attrs.thin ? 1 : 0}`
     if (edgeKeys.has(key)) return
     edgeKeys.add(key)
-    g.addEdge(a, b, attrs)
+    // 矢じり: 向きのある関係の線（用語どうしの確定した線・台帳・提案）だけ。a → b が関係の向き（主語 → 目的語）
+    const arrow = directed && (attrs.kind === 'concept' || attrs.kind === 'draft') && !attrs.candidate && attrs.relation !== 'eq' && attrs.relation !== 'competes'
+    g.addEdge(a, b, arrow ? { ...attrs, directed: true } : attrs)
   }
 
   // 外す提案の用語

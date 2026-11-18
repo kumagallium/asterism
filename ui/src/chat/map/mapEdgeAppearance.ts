@@ -7,6 +7,8 @@ interface EdgeInput {
   unconfirmed?: boolean
   /** 台帳の線（確認済みは濃く太く描く）。 */
   ledger?: boolean
+  /** 向きのある関係の線（矢じりを付ける）。 */
+  directed?: boolean
   size?: number
   label?: string | null
 }
@@ -31,5 +33,5 @@ export function mapEdgeAppearance<T extends EdgeInput>(
   const label = named && data.label
     ? `${data.label}${state.hovered && data.proposed ? ` (${state.lang === 'ja' ? '提案' : 'proposed'})` : ''}`
     : ''
-  return { ...data, size: state.hovered ? size + 1 : size, color, label, muted: !!data.unconfirmed && !state.hovered && !state.on, rank: state.hovered || state.on ? 0 : data.unconfirmed || data.proposed ? 2 : 1, zIndex: state.hovered ? 2 : state.on ? 1 : 0, forceLabel: state.hovered }
+  return { ...data, type: data.directed ? 'arrow' : 'line', size: state.hovered ? size + 1 : size, color, label, muted: !!data.unconfirmed && !state.hovered && !state.on, rank: state.hovered || state.on ? 0 : data.unconfirmed || data.proposed ? 2 : 1, zIndex: state.hovered ? 2 : state.on ? 1 : 0, forceLabel: state.hovered }
 }

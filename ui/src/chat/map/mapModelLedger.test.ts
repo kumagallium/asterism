@@ -106,3 +106,48 @@ describe('layoutMap と stretchToAspect', () => {
     expect(sameXY(withDs, same)).toBe(true)
   })
 })
+
+describe('矢じり（向きのある関係の線）', () => {
+  const dir = (g: Graph) => g.mapEdges((e, a) => ({ rel: (a.relation ?? a.kind) as string, directed: a.directed === true, src: g.source(e), tgt: g.target(e) }))
+  const ledgerDraft = (): DraftSky => ({
+    draft_id: 'ledger:s',
+    theme_label: '台帳',
+    concepts: ['a', 'b', 'c', 'd', 'e'].map((k) => ({ key: k, label: k, kind: 'class' as const, use: 'new', state: 'solid' as const })),
+    relations: [
+      { from: 'a', to: 'b', rel: 'lowers', state: 'solid' },
+      { from: 'b', to: 'c', rel: 'sub', state: 'thin' },
+      { from: 'c', to: 'd', rel: 'competes', state: 'thin' },
+      { from: 'd', to: 'e', rel: 'eq', state: 'thin' },
+      { from: 'a', to: 'e', rel: 'candidate', state: 'thin', candidate: true } as DraftSky['relations'][number],
+    ],
+    questions: [],
+  })
+  it('台帳: 向きのある関係（下げる・一種）だけに付き、from → to の向きで張る。競合する・同じ・候補には付けない', () => {
+    const g = buildMapGraph(EMPTY_SKY, [ledgerDraft()], [], 'ja')
+    const by = Object.fromEntries(dir(g).map((e) => [e.rel, e]))
+    expect(by.lowers).toMatchObject({ directed: true, src: draftNodeId('ledger:s', 'a'), tgt: draftNodeId('ledger:s', 'b') })
+    expect(by.sub).toMatchObject({ directed: true, src: draftNodeId('ledger:s', 'b'), tgt: draftNodeId('ledger:s', 'c') })
+    expect(by.competes.directed).toBe(false)
+    expect(by.eq.directed).toBe(false)
+    expect(by.candidate.directed).toBe(false)
+  })
+  it('ストアの確定した関係の線: 向きのある関係（一種）は from → to で矢じり。競合する・データセットと種類を結ぶ線・用語と種類の線には付けない', () => {
+    const mk = (slug: string, members: SkyData['terms'][number]['members'] = []) => ({ iri: `urn:t:${slug}`, slug, label: slug, label_en: slug, kind: 'class' as const, members, standard: null, answering: 0, questions: [] })
+    const s: SkyData = {
+      ...sky,
+      terms: [mk('x', [{ iri: 'urn:k:a', dataset_id: 'ds1', relation: 'subClassOf' }]), mk('y'), mk('z')],
+      edges: [
+        { from: 'urn:t:x', to: 'urn:t:y', relation: 'subClassOf' },
+        { from: 'urn:t:y', to: 'urn:t:z', relation: 'competesWith' },
+      ] as unknown as SkyData['edges'],
+      datasets: [{ id: 'ds1', label: 'データ1', created_at: '2026-01-01', kinds: [{ iri: 'urn:k:a', label: '材料', count: 3, links: [], standard: null }] }],
+    }
+    const g = buildMapGraph(s, [], [], 'ja')
+    const e = g.mapEdges((id, a) => ({ kind: a.kind as string, rel: a.relation as string | undefined, directed: a.directed === true, src: g.source(id), tgt: g.target(id) }))
+    const sub = e.find((x) => x.kind === 'concept' && x.rel === 'subClassOf')!
+    expect(sub).toMatchObject({ directed: true, src: 't|urn:t:x', tgt: 't|urn:t:y' })
+    expect(e.find((x) => x.rel === 'competesWith')!.directed).toBe(false)
+    expect(e.filter((x) => x.kind === 'dataset' || x.kind === 'member').every((x) => !x.directed)).toBe(true)
+  })
+})
+

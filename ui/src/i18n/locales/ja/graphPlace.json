@@ -96,7 +96,8 @@
     "confirmed": "確認済み（濃い線）",
     "unconfirmed": "未確認（薄い点・線）",
     "kind": "データの種類",
-    "dataset": "データセット"
+    "dataset": "データセット",
+    "arrow": "矢じり＝関係の向き"
   },
   "skipped": {
     "pair_has_relation": "この 2 語には既に関係があります。先にそちらを「違う」にしてください。",

@@ -27,6 +27,7 @@ export function MapLegend({ datasets = true }: { datasets?: boolean }) {
       {datasets && <span><i className="gp-sym gp-sym--dataset" aria-hidden="true">⊙</i>{t('legend.dataset')}</span>}
       <span><i className="gp-ln" aria-hidden="true" />{t('legend.confirmed')}</span>
       <span><i className="gp-ln gp-ln--u" aria-hidden="true" />{t('legend.unconfirmed')}</span>
+      <span><i className="gp-sym" aria-hidden="true">→</i>{t('legend.arrow')}</span>
     </div>
   )
 }

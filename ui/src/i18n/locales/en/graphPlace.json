@@ -96,7 +96,8 @@
     "confirmed": "Confirmed (dark line)",
     "unconfirmed": "Unconfirmed (faint dot / line)",
     "kind": "Data kind",
-    "dataset": "Dataset"
+    "dataset": "Dataset",
+    "arrow": "Arrowhead = direction of the relation"
   },
   "skipped": {
     "pair_has_relation": "These two terms already have a relation. Mark that one as wrong first.",
