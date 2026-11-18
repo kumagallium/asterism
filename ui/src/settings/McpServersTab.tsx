@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { flushAppSettingsAndWait, getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
+import { getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
 import {
   buildEntryFromForm,
   envToLines,
@@ -8,7 +8,7 @@ import {
   type McpFormIssue,
   type McpServerEntry,
 } from './mcpServerForm'
-import { GRAPHIUM_PRESET, presetEntry, presetState } from './mcpPresets'
+import { applyPreset, GRAPHIUM_PRESET, presetEntry, presetState, verifyPresetTools } from './mcpPresets'
 import {
   fetchMcpServers,
   fetchMcpServerTools,
@@ -221,9 +221,7 @@ export function McpServersTab() {
   async function verifyPreset() {
     setBusy(true)
     try {
-      await flushAppSettingsAndWait() // 遅延書き込みより先に確かめに行かない
-      const list = await fetchMcpServerTools(GRAPHIUM_PRESET.serverName)
-      const has = list.some((x) => x.name === GRAPHIUM_PRESET.sourceProvider.list)
+      const { ok: has } = await verifyPresetTools(GRAPHIUM_PRESET)
       setConnectMsg({
         ok: has,
         text: has
@@ -239,15 +237,11 @@ export function McpServersTab() {
 
   async function connectPreset() {
     if (!formReady) return
-    const entry = presetEntry(GRAPHIUM_PRESET, formInput)
-    saveServers({ ...servers, [GRAPHIUM_PRESET.serverName]: entry })
-    changeHome(GRAPHIUM_PRESET.serverName)
-    setProvider({ ...GRAPHIUM_PRESET.sourceProvider })
-    putAppSetting('sourceProvider', GRAPHIUM_PRESET.sourceProvider)
-    if (getServerSetting<boolean>('sendOriginalsToHome') === undefined || getServerSetting<boolean>('sendOriginalsToHome') === null) {
-      setSendOriginals(true)
-      putAppSetting('sendOriginalsToHome', true)
-    }
+    const applied = applyPreset(GRAPHIUM_PRESET, formInput)
+    setServers(applied.servers)
+    setHome(GRAPHIUM_PRESET.serverName)
+    setProvider(applied.provider)
+    setSendOriginals(getServerSetting<boolean>('sendOriginalsToHome') ?? true)
     setOpenForm(false)
     await verifyPreset()
   }

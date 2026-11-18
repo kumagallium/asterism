@@ -59,7 +59,7 @@ describe('ImportPlace', () => {
   it('見出し・入口の札・「この PC のファイル」と隠した input・Graphium は出ない', () => {
     const html = place()
     expect(html).toContain('<h1')
-    expect(text(html)).toContain('ファイルを添える')
+    expect(text(html)).toContain('ファイルを置く')
     expect(html).toContain('data-testid="import-attach-local"')
     expect(html).toContain('data-testid="import-attach-input"')
     expect(text(html)).toContain('この PC のファイル')
@@ -74,9 +74,9 @@ describe('ImportPlace', () => {
   it('busy で入口のボタンを止める', () => {
     expect(place({ busy: true })).toMatch(/disabled=""[^>]*data-testid="import-attach-local"|data-testid="import-attach-local"[^>]*disabled=""/)
   })
-  it('空: データセットはまだありません', () => {
+  it('空: まだ何も取り込んでいません', () => {
     const html = place({ datasets: [] })
-    expect(text(html)).toContain('データセットはまだありません。')
+    expect(text(html)).toContain('まだ何も取り込んでいません。')
     expect(html).not.toContain('import-dataset-row')
   })
   it('公開済みの行: 名前・種類の数と件数（3 桁区切り）・日付・札は出ない', () => {
@@ -100,7 +100,7 @@ describe('ImportPlace', () => {
     expect(t.match(/種類 \d/g)).toHaveLength(1)
     expect(t.indexOf('熱電の論文')).toBeLessThan(t.indexOf('下書き表'))
     expect(html.match(/<button[^>]*data-testid="import-dataset-row"/g)).toHaveLength(2)
-    const rows = html.slice(html.indexOf('import-rows'))
+    const rows = html.slice(html.indexOf('imp-ds'))
     expect(rows.match(/<button/g)).toHaveLength(2)
   })
   it('鍵が無いときは入口の代わりに 1 行', () => {

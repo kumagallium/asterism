@@ -200,14 +200,14 @@ async def run_relations(
             st["done"] += 1
             st["since_save"] += 1
             st["inflight"] -= 1
-            emit(stage="pairs", message=f"{st['done']}/{total}")
+            emit(stage="pairs", message=f"{st['done']}/{total}", done=st["done"], total=total)
             if not st["halt"] and st["ok"] == 0 and st["done"] >= ABORT_AFTER_FAILURES:
                 st["halt"] = True  # 成功 0 のまま失敗がたまった → 飛行中の分を待ってから判定する
             settle()
             if st["since_save"] >= SAVE_EVERY:
                 save()
 
-    emit(stage="pairs", message=f"0/{total}")
+    emit(stage="pairs", message=f"0/{total}", done=0, total=total)
     running = [asyncio.create_task(ask(t)) for t in todo]
     completed = False
     try:

@@ -21,6 +21,8 @@ export interface SourceProviderNames {
   list: string
   get: string
   add: string
+  /** 知識の束を出す道具（取り込みの画面が使う）。無くても「つながっている」と見る。 */
+  knowledge?: string
 }
 
 export interface McpRecentCall {

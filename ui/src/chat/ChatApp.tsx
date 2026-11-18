@@ -1099,6 +1099,11 @@ export function ChatApp() {
                 onAttachFromSource={(ids, names) => onAttachFromSource(sourceHome ?? '', ids, names, true)}
                 onOpenDataset={openDataset}
                 lang={lang}
+                getCreds={getActiveCredentials}
+                onChanged={() => setChartTick((n) => n + 1)}
+                onAsk={onAskQuestion}
+                onGraph={() => goPlace('graph')}
+                onOpenSettings={() => openSettings()}
               />
               {layout.tabs && <div className="place-stack">{mapBlock(onImportMapSelect)}</div>}
             </div>
