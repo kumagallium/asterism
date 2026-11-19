@@ -45,6 +45,7 @@
   "result": {
     "read": "Read {{claims}} findings and {{topics}} topics from {{name}}.",
     "added": "Added {{terms}} terms and {{relations}} relations to the knowledge graph (unconfirmed).",
+    "addedOf": "Of {{total}} term candidates, added the {{terms}} terms that have relations and {{relations}} relations to the knowledge graph (unconfirmed).",
     "candidates": "{{n}} pairs without a stated relation (kept as candidates).",
     "lost": "{{n}} dropped or failed.",
     "skip": {
@@ -70,6 +71,7 @@
     "actions": "Actions",
     "counts": "{{claims}} findings, {{topics}} topics",
     "unconfirmed": "({{n}} unconfirmed)",
+    "termTotal": "({{n}} candidates)",
     "running": "Running",
     "rerun": "Copy again",
     "remove": "Remove",
