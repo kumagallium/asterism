@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.71.3](https://github.com/kumagallium/asterism/compare/v0.71.2...v0.71.3) - 2026-11-19
+
+- fix(ui): ダークの配色を組み直す — 設定を開いたと分かる明るさと奥行きにする by @kumagallium in https://github.com/kumagallium/asterism/pull/830
+- fix(deps): bump rustls to 0.23.46 in desktop Cargo.lock by @kumagallium in https://github.com/kumagallium/asterism/pull/832
+- chore(ci): group Dependabot PRs and add CodeQL by @kumagallium in https://github.com/kumagallium/asterism/pull/833
+- fix(deps): bump ui dependencies to resolve Dependabot alerts by @kumagallium in https://github.com/kumagallium/asterism/pull/834
+- fix(deps): bump certifi, filelock, opentelemetry-api in desktop PDF runtime lock by @kumagallium in https://github.com/kumagallium/asterism/pull/835
+
 ## [v0.71.2](https://github.com/kumagallium/asterism/compare/v0.71.1...v0.71.2) - 2026-11-19
 
 - fix(ui): 取り込みの進みをステップと分かる形にする by @kumagallium in https://github.com/kumagallium/asterism/pull/827
