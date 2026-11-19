@@ -28,7 +28,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from asterism import knowledge_bundle
+from asterism import knowledge_bundle, relation_catalog
 from asterism.graph_diff import PRED_TO_REL
 from asterism.knowledge import LINE_OPS, MISSING_MIN_OTHERS
 from asterism.knowledge_bundle import KnowledgeCopy
@@ -79,7 +79,7 @@ __all__ = [
 #: 語の組で選べる関係（``quantity`` の相手は標準の量の種類で、語の組にならない）。
 PAIR_RELATIONS = tuple(r for r in RELATION_KINDS if r != "quantity")
 #: 向きの無い関係（語の id の順に並べる）。
-SYMMETRIC_PAIR_RELATIONS = ("eq", "competes")
+SYMMETRIC_PAIR_RELATIONS = relation_catalog.symmetric_pair_relations()
 #: 「見込み」の語彙（束の約束）。根拠の知見が全部これに当たるときだけ ``tentative``。
 TENTATIVE: dict[str, set[str]] = {
     "epistemic_status": {"speculation"},
