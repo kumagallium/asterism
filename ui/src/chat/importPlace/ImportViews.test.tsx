@@ -132,6 +132,30 @@ describe('進み', () => {
   })
 })
 
+describe('用語の候補の総数', () => {
+  it('結果の 1 枚: 候補の総数があれば、そのうち関係が付いた数として出す', () => {
+    const base = result()
+    const props = { showQuestions: false, name: 'x', lang: 'ja' as const, onAsk: noop, onGraph: noop, onClose: noop, onOpenSettings: noop }
+    const withTotal = { ...base, copied: { ...base.copied, terms: base.relations.terms + 10 } }
+    expect(renderToStaticMarkup(<ImportResultCard {...props} result={withTotal} />)).toContain('result.addedOf')
+    const noTotal = { ...base, copied: { ...base.copied, terms: 0 } }
+    const html = renderToStaticMarkup(<ImportResultCard {...props} result={noTotal} />)
+    expect(html).toContain('result.added')
+    expect(html).not.toContain('result.addedOf')
+  })
+  it('一覧: 関係が付いた数に候補の総数を添える', () => {
+    const html = renderToStaticMarkup(<ImportSources {...srcProps({ sources: [src({ counts: { claims: 10, topics: 5, sources: 0, terms: 403 }, relations: { shown: 181, terms: 93, candidates: 0, unconfirmed: 181, confirmed: 0 } })] })} />)
+    expect(html).toContain('data-testid="import-term-total"')
+    expect(html).toContain('sources.termTotal')
+  })
+  it('一覧: 総数が無い・関係の数より少ない古い写しには添えない', () => {
+    for (const terms of [0, 50]) {
+      const html = renderToStaticMarkup(<ImportSources {...srcProps({ sources: [src({ counts: { claims: 10, topics: 5, sources: 0, terms }, relations: { shown: 181, terms: 93, candidates: 0, unconfirmed: 181, confirmed: 0 } })] })} />)
+      expect(html).not.toContain('import-term-total')
+    }
+  })
+})
+
 describe('結果の 1 枚', () => {
   const props = (r = result(), over = {}) => ({ showQuestions: true, result: r, name: '実験ノート', lang: 'ja' as const, onAsk: noop, onGraph: noop, onClose: noop, onOpenSettings: noop, ...over })
   const qs = Array.from({ length: 20 }, (_, i) => ({ name: `lq_o_t${i}`, source: 'graphium', op: 'o', term: { id: `t${i}`, name: `語${i}` }, text: `問い${i}`, count: 1 }))
