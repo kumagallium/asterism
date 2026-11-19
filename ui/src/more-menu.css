@@ -17,8 +17,8 @@
   min-width: 11rem;
   flex-direction: column;
   padding: var(--space-1);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-raised);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }

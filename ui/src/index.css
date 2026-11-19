@@ -9,6 +9,7 @@
   --surface: #ffffff; /* cards / panels */
   --surface-alt: #f7f9fc; /* faint fill: inputs, code blocks, soft panels */
   --surface-sink: #edf1f6; /* sunken fill: tab tracks, table headers */
+  --surface-raised: #ffffff; /* 浮いている面: ダイアログ・メニュー */
   --paper: #fbfcfe; /* グラフも白に近い一つの作業面 */
   --fg: #16243b; /* headings / strong text */
   --body: #34445e; /* paragraph copy — much darker than the old muted */
@@ -17,6 +18,11 @@
   --faint: #60728a;
   --border: #dce4ef; /* standard soft border */
   --border-strong: #c1cdde; /* stronger border for inputs */
+  --border-raised: #dce4ef; /* 浮いている面の枠 */
+  /* ダイアログの後ろの幕。下の画面を沈めて、開いたことを分からせる。 */
+  --overlay: rgba(15, 35, 66, 0.32);
+  --overlay-strong: rgba(15, 35, 66, 0.45);
+  --overlay-soft: rgba(22, 36, 59, 0.12);
 
   /* Brand */
   --primary: #002869; /* ロゴと共通の紺色 */
