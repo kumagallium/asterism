@@ -1,8 +1,8 @@
 """``GET /api/relations``（関係の目録）と、api・step0 の写しの見張り。
 
-目録（``asterism.relation_catalog``）が正。api の写し（``chat_paper._CLASS_BOTH`` など）と
-step0 の写し（step0 は ingest を import しない）がずれたら落ちる。R0b で api の写しを
-目録の導出に置き換えたら、対応する検査は消す。
+目録（``asterism.relation_catalog``）が正。step0 の写し（step0 は ingest を import しない）が
+ずれたら落ちる。api の写し（``chat_paper._CLASS_BOTH`` など）は R0b で目録の導出にした
+（結果は ``test_relation_copies_snapshot.py`` が固定している）。
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import pytest
 from asterism import relation_catalog as rc
 from fastapi.testclient import TestClient
 
-from asterism_api import chat_paper, consult_graph_routes
 from asterism_api.main import build_app
 from tests.test_main import _settings, healthy_client  # noqa: F401 (fixture)
 
@@ -51,34 +50,6 @@ def test_the_route_is_read_only(tmp_path: Path, healthy_client) -> None:
         assert client.put("/api/relations", json={}).status_code in (404, 405)
 
 
-# --- api の写し ---------------------------------------------------------------
-
-
-def test_api_copies_match_the_catalog() -> None:
-    both_class = tuple(
-        r.name
-        for r in rc.RELATIONS
-        if all(rc.predicate(p.name).shapes == (frozenset({"class"}), frozenset({"class"}))
-               for p in r.predicates)
-    )  # fmt: skip
-    assert both_class == ("makes", "becomes", "competes")  # 導き方が空振りしていない
-    assert both_class == chat_paper._CLASS_BOTH
-
-    symmetric = frozenset(p.name for r in rc.RELATIONS if r.symmetric_pair for p in r.predicates)
-    assert symmetric == {"equivalentClass", "equivalentProperty", "competesWith"}
-    assert symmetric == consult_graph_routes._SYMMETRIC
-
-    into_term = frozenset(
-        p.name
-        for r in rc.RELATIONS
-        if r.name in ("sub", "eq")
-        for p in r.predicates
-        if p.when == ("from_kind", "class")
-    )
-    assert into_term == {"subClassOf", "equivalentClass"}
-    assert into_term == consult_graph_routes._SUBSUMPTION_RELATIONS
-
-
 # --- step0 の写し（step0 は ingest を import しない。api の環境は両方を入れている） ---------
 
 
@@ -91,9 +62,10 @@ def test_step0_copies_match_the_catalog() -> None:
     assert tuple(theme_propose.RELATIONS) == rc.relation_kinds()
     assert tuple(pair_propose.PAIR_RELS) == without_quantity
     assert tuple(pair_propose.SYMMETRIC_RELS) == rc.symmetric_pair_relations()
-    # PAPER_RELS は並びが違う（part が先頭）。値の集合で見る
+    # PAPER_RELS は並びが違う（part が先頭）。値の集合で見る。目録の ``paper`` が正
     assert len(paper_propose.PAPER_RELS) == 10
-    assert set(paper_propose.PAPER_RELS) == set(without_eq)
+    assert set(paper_propose.PAPER_RELS) == set(rc.paper_relations())
+    assert set(rc.paper_relations()) == set(without_eq)
 
 
 @pytest.mark.parametrize("name", ["sub", "measures", "competes"])

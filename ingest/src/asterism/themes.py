@@ -125,7 +125,11 @@ def _knowledge_target_kind_message(q: str, op: str) -> str:
         f"{_TARGET_KIND_WORDS[str(want)]}を対象にします。"
         f"今は{_TARGET_KIND_WORDS[other]}が選ばれています）"
     )
-KNOWLEDGE_DIRECTIONS = ("lowers", "raises", "affects")
+KNOWLEDGE_DIRECTIONS = relation_catalog.factor_relations()
+_TO_PROPERTY_ONLY = relation_catalog.to_property_only_relations()
+_TO_PROPERTY_ONLY_PREDICATES = relation_catalog.to_property_only_predicates()
+_SAME_KIND_RELATIONS = relation_catalog.same_kind_relations()
+_ACYCLIC_RELATIONS = relation_catalog.acyclic_relations()
 #: 下書きの関係の名前（``theme_propose.RELATIONS`` と同じ）。ストアの述語には
 #: :func:`relation_predicate` で写す。
 RELATION_KINDS = relation_catalog.relation_kinds()
@@ -1048,7 +1052,7 @@ def postprocess_draft(
     rels: list[dict] = []
     def rel_trip(frm: str, to: str, rel: str) -> tuple[str, str, str]:
         # 向きの無い関係（競合する）は、両端の順を問わず 1 本
-        if rel == "competes" and to < frm:
+        if rel in SYMMETRIC_DRAFT_RELATIONS and to < frm:
             frm, to = to, frm
         return (frm, to, rel)
 
@@ -1064,7 +1068,7 @@ def postprocess_draft(
         r = row.get("role")
         return r if r in ROLES else None
 
-    edges: dict[str, set[tuple[str, str]]] = {"sub": set(), "part": set()}
+    edges: dict[str, set[tuple[str, str]]] = {r: set() for r in _ACYCLIC_RELATIONS}
     for r in base_rels:
         if r.get("rel") in edges and not r.get("problem"):
             edges[r["rel"]].add((str(r["from"]), str(r["to"])))
@@ -1096,7 +1100,7 @@ def postprocess_draft(
         elif rel == "quantity":
             if subj["kind"] != "property" or std is None or std.kind != "quantity":
                 problem = "quantity_target"
-        elif rel in ("lowers", "raises", "affects"):
+        elif rel in _TO_PROPERTY_ONLY:
             if obj_kind != "property":
                 problem = "target_not_property"
         elif rel in EXPERIMENT_RELATIONS:
@@ -1451,7 +1455,7 @@ def _check_line_shapes(lines: list[_Line], shapes: dict[str, set[str]]) -> None:
         try:  # 述語ごとの種別表（crosswalk_runtime.RELATION_SHAPES）
             _check_same_shape(ln.relation, ln.source, ln.target, shapes)
         except ValueError as e:
-            if ln.relation in ("lowers", "raises", "affects"):
+            if ln.relation in _TO_PROPERTY_ONLY_PREDICATES:
                 raise ThemeError("下げる・上げる・変えるの相手は、項目だけです") from e
             if ln.relation in ROLE_RULES:
                 raise ThemeError("この関係の両端は、種類と項目の組が合いません") from e
@@ -1683,7 +1687,7 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
                 f"「{subj.label_ja}」から標準の量の種類へは「量」の関係でしか結べません"
                 f"（{rel} は使えません）"
             )
-        elif obj_row is not None and rel in ("sub", "eq", "part") and obj_row.kind != subj.kind:
+        elif obj_row is not None and rel in _SAME_KIND_RELATIONS and obj_row.kind != subj.kind:
             raise ThemeError(
                 f"「{subj.label_ja}」と相手は、種類と項目が合いません（種類と項目は結べません）"
             )

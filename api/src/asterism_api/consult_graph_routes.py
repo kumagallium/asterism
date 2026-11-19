@@ -48,6 +48,7 @@ from asterism import (
     graph_diff,
     paper_sections,
     question_suggest,
+    relation_catalog,
     shared_vocab,
     sky_view,
     themes,
@@ -92,7 +93,7 @@ _PROPOSAL_ID_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,60}\Z")
 #: 当てはめ（``upper.json``）に置ける関係 — 項目の列だけ（種類は図で扱う）
 _BIND_TO_UPPER = {"eq": "equivalentProperty", "sub": "subPropertyOf"}
 #: 種類が用語に「入る」線（種類 ⊂ 用語・種類 ≡ 用語）の述語
-_SUBSUMPTION_RELATIONS = frozenset({"subClassOf", "equivalentClass"})
+_SUBSUMPTION_RELATIONS = relation_catalog.from_class_predicates()
 _MAX_COLUMNS = 200
 #: 図の穴（``screen: "term"``）で出す提案の上限
 _TERM_HOLE_LIMIT = 3
@@ -101,7 +102,7 @@ _MAX_KIND_ROWS = 150
 _MAX_BATCH = 100
 #: 向きなしで結ぶ述語（``a eq b`` があれば ``b eq a`` も同じ線）。competesWith も向きが無い。
 #: 使い道は ``found()`` だけ（重複・取り外しの照合）。
-_SYMMETRIC = frozenset({"equivalentClass", "equivalentProperty", "competesWith"})
+_SYMMETRIC = relation_catalog.symmetric_pair_predicates()
 
 
 class ConsultMessage(BaseModel):
@@ -380,13 +381,14 @@ def register_consult_graph(
 
     def _dataset_graph(record: dict, view: MappingIRView, terms: list) -> dict:
         slug_of = {t.iri: t.slug for t in terms}
+        pred_to_rel = relation_catalog.pred_to_rel()
         columns = {c["name"] for c in _ir_columns(view)}
         bound = []
         for item in load_upper(record.get("artifacts") or {}):
             subject = item["subject"]
             col = subject.split("/", 1)[-1] if subject.startswith("property:") else ""
             if col in columns and item["term"] in slug_of:
-                rel = "eq" if item["relation"].startswith("equivalent") else "sub"
+                rel = "eq" if pred_to_rel.get(item["relation"]) == "eq" else "sub"
                 bound.append({"from": col, "rel": rel, "to": slug_of[item["term"]]})
         return {"concepts": [], "relations": bound, "questions": []}
 

@@ -34,7 +34,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asterism import crosswalk_runtime, evidence, knowledge, knowledge_sources, substrate, themes
+from asterism import (
+    crosswalk_runtime,
+    evidence,
+    knowledge,
+    knowledge_sources,
+    relation_catalog,
+    substrate,
+    themes,
+)
 from asterism.class_schema import class_labels
 from asterism.crosswalk import XW as _XW_NS
 from asterism.grounding import term_display_name, vocabularies
@@ -82,19 +90,24 @@ _RDFS = "http://www.w3.org/2000/01/rdf-schema#"
 _QUDT_QK = "http://qudt.org/vocab/quantitykind/"
 _QK_PREFIX = "quantitykind"
 _XW_LINK_CLASS = _XW_NS + "CrosswalkLink"
-_LINE_RELATIONS = ("subClassOf", "equivalentClass", "subPropertyOf", "equivalentProperty")
-_SUBSUMPTION = ("subClassOf", "subPropertyOf")
+#: 線の述語は目録から導く。種類の側（``subClassOf``・``equivalentClass``）→ 項目の側の並び。
+_LINE_RELATIONS = tuple(
+    sorted(
+        relation_catalog.predicates_of("sub", "eq"),
+        key=lambda n: sorted(relation_catalog.predicate(n).shapes[0]),
+    )
+)
+#: 「一種」の述語だけ（``isPartOf`` は含まない・``shared_vocab._SUBSUMPTION_RELS`` とは別の意味）。
+_SUBSUMPTION = relation_catalog.predicates_of("sub")
 #: 語どうしの「知識の線」として ``edges[]`` に返す関係（一部・下げる・上げる・変える・作る・測る・
 #: 変わる・競合する・物性）。
 _EDGE_RELATIONS = frozenset(crosswalk_runtime.KNOWLEDGE_RELATIONS)
 #: 「標準用語に一致」と数える線。lowers / isPartOf など、同じものを言わない線は含めない
-_STANDARD_MATCH_RELATIONS = frozenset({"equivalentClass", "equivalentProperty", "hasQuantityKind"})
+_STANDARD_MATCH_RELATIONS = frozenset(relation_catalog.predicates_of("eq", "quantity"))
 _UNPUBLISHED_STATUS = ("retracted", "deleted")
 
 #: 「決めたこと」として出す関係。文は画面（UI）が言語に合わせて組む。
-_DECISION_RELATIONS = frozenset(
-    {"equivalentClass", "equivalentProperty", "subClassOf", "subPropertyOf", "hasQuantityKind"}
-)
+_DECISION_RELATIONS = frozenset(relation_catalog.predicates_of("sub", "eq", "quantity"))
 
 
 def _facts(**over: int) -> dict[str, int]:

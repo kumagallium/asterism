@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from asterism import relation_catalog
 from asterism.crosswalk import XW
 from asterism.crosswalk_runtime import ALIGN_RELATIONS, ALIGNMENT_GRAPH, _check_iri
 from asterism.shared_vocab import SHARED_VOCAB_GRAPH, _bindings, _local
@@ -64,12 +65,9 @@ MISSING_MIN_OTHERS = 2
 #: ``missing`` の行に添える「ほかの語」の最大件数（全数は ``others_count``）。
 MISSING_OTHERS_MAX = 5
 #: ``factors`` の向き。``affects`` は 3 述語すべて（「変える」は「下げる」「上げる」を含む）。
-DIRECTIONS = ("lowers", "raises", "affects")
-_DIRECTION_RELATIONS: dict[str, tuple[str, ...]] = {
-    "lowers": ("lowers",),
-    "raises": ("raises",),
-    "affects": ("lowers", "raises", "affects"),
-}
+DIRECTIONS = relation_catalog.factor_relations()
+#: 向き → 数える述語（確定側の名前は下書きの名前と同じ・``factor_directions`` の逆引き）。
+_DIRECTION_RELATIONS: dict[str, tuple[str, ...]] = relation_catalog.direction_relations()
 
 
 def _label_rank(lang: str) -> int:
