@@ -14,10 +14,13 @@
 
 ```
 cd api/src/asterism_api/pdf_runtime
-uv pip compile --generate-hashes --python-platform aarch64-apple-darwin --python-version 3.11 \
+uv pip compile --generate-hashes --python-platform aarch64-apple-darwin --python-version 3.11.5 \
   --no-header -o requirements-macos-arm64.txt requirements.in
 ```
 
+- `--python-version 3.11.5` は「3.11.5 以上の 3.11」として解決する指定。同梱の Python は
+  `uv python install 3.11` が入れる 3.11 系の最新なので、必ずこれを満たす。`3.11`（= 3.11.0）だと
+  `requires-python >=3.11.5` の包み（soupsieve 4 など）が選ばれず、古い版に留まる（2026-11-19）。
 - `requirements.in` の `docling==` は **`infra/docling-sidecar/requirements.txt` と同じ版**にする
   （ずれると `api/tests/test_pdf_runtime.py` が落ちる）。
 - docling の版を上げたら、モデルの取得先（参照名）も変わりうる。実際に入れて `models.json` の
