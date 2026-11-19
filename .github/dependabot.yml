@@ -1,6 +1,12 @@
 # SHA 固定した GitHub Actions の更新を PR で提案させる（github-flow §5/§6）。
 # タグ参照と違い SHA 固定は上書き攻撃に強い代わりに手動更新が要る — その手間を
 # Dependabot に肩代わりさせる。提案 PR はレビューして通常どおりマージする。
+#
+# PR が溜まらないように（2026-11-19）:
+# - Actions の版上げは 1 週 1 本にまとめる（groups）。以前は action ごとに 1 本ずつ立っていた
+# - npm / pip / cargo は定期の版上げを止め（open-pull-requests-limit: 0）、
+#   セキュリティ修正だけを場所ごとに 1 本へまとめる（applies-to: security-updates）。
+#   残りの仕分けは Claude の週次タスク（asterism-security-triage）が拾う
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -14,3 +20,44 @@ updates:
     # 恒久対策は .tagpr 側の名前空間分離（majorLabels = bump:major）— 2026-09-02。
     # ここの labels: は dependencies / github_actions を安定して付けるために残す。
     labels: [dependencies, github_actions]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /ui
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    labels: [dependencies, javascript]
+    groups:
+      ui-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /desktop/src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    labels: [dependencies]
+    groups:
+      desktop-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # PDF 部品の固定一覧はハッシュ付きで、antlr4 だけ同梱 wheel のハッシュに差し替える
+  # 決まりがある（pdf_runtime/README.md）。Dependabot の PR はこの差し替えを知らないので、
+  # 中身は参考にとどめ、作り直しは README の手順で行う。
+  - package-ecosystem: pip
+    directories:
+      - /api/src/asterism_api/pdf_runtime
+      - /infra/docling-sidecar
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    labels: [dependencies, python]
+    groups:
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
