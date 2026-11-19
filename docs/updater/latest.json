@@ -1,11 +1,11 @@
 {
-  "version": "0.71.2",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a890e1edfa4ab99ccfbaf7ce3c3b57488d3b20f4 -->\n\n## What's Changed\n* fix(ui): 取り込みの進みをステップと分かる形にする by @kumagallium in https://github.com/kumagallium/asterism/pull/827\n* fix(ui): 取り込みの結果に用語の候補の総数を出す by @kumagallium in https://github.com/kumagallium/asterism/pull/828\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.71.1...v0.71.2",
-  "pub_date": "2026-11-19T04:40:53Z",
+  "version": "0.71.3",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at e7fbb1ba28aab4d650369d85dadb5ceba624028a -->\n\n## What's Changed\n* fix(ui): ダークの配色を組み直す — 設定を開いたと分かる明るさと奥行きにする by @kumagallium in https://github.com/kumagallium/asterism/pull/830\n* fix(deps): bump rustls to 0.23.46 in desktop Cargo.lock by @kumagallium in https://github.com/kumagallium/asterism/pull/832\n* chore(ci): group Dependabot PRs and add CodeQL by @kumagallium in https://github.com/kumagallium/asterism/pull/833\n* fix(deps): bump ui dependencies to resolve Dependabot alerts by @kumagallium in https://github.com/kumagallium/asterism/pull/834\n* fix(deps): bump certifi, filelock, opentelemetry-api in desktop PDF runtime lock by @kumagallium in https://github.com/kumagallium/asterism/pull/835\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.71.2...v0.71.3",
+  "pub_date": "2026-11-19T05:58:53Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVIyeWVXcVg3eUFIc3RwYXVBYnU2QTNLdDhtMzhjSGlHanNwV2dVa3Qzc25SaldNcHBiZWJBQ1lCeGJnSHhuOHhqd0lPazBUb1gxV3ZFRFRrMyt4V1F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDYzMjUyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmVNeXAxOWp4OEdYWklrMlhyZ2Y2TlNBY2tqaDhNeEJLbXVPNVF0R2tiUkVsVHVBM1JUQXVqNmhDM1QxeE5rSFF5N1AvRFl4UTYrRjdBYlpGVmdUZkR3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.71.2/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZlZ2h0TjZZZUV4Nzk2cXh5MUlHc3d5RFBtcHgrWnQ3ckJyU202eUNDd3ZtQm5rMnVBdzZoYVRKbml4ZXpJWGpiNzUrN2c3Lys0bHRRdHJoMTVTSmdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDY3OTMzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnEzV05JMDlKTDBWVExxak5XdE1UY01ieG1Kd1FwNStPQ25PMTVMRDF1MEFQTFJVdEpOUGIvajEvamcrSHZ4bHgyU1Nac0VJTDR6NmVVZmh6ckFvMEJ3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.71.3/Asterism_aarch64.app.tar.gz"
     }
   }
 }
