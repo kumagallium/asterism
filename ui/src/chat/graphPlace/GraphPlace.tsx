@@ -3,6 +3,7 @@
 // 確認の意味: 台帳に「人が確認した」と書くだけ（ストアに置くのは 14e-1b）。「全部まとめて確認」は置かない（語ごとの確認だけ）。
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useCatalog } from '../../relations/catalog'
 import { draftRelationLabel } from '../map/mapModel'
 import { KnowledgeApiError, type ReviewAction, type ReviewResult, type StoreReport } from './knowledgeRelationsApi'
 import { useStoreText } from './storeText'
@@ -109,6 +110,7 @@ export interface GraphPlaceSideProps {
 /** 右の一覧（知識グラフの場所だけ）。「関係」「用語」「候補」の 3 タブ。 */
 export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onClosePoint }: GraphPlaceSideProps) {
   const { t } = useTranslation('graphPlace')
+  useCatalog() // API の目録が重なったら、関係の表示名・選択肢を引き直す
   const storeText = useStoreText()
   const [tab, setTab] = useState<Tab>('relations')
   const [open, setOpen] = useState<string | null>(null)

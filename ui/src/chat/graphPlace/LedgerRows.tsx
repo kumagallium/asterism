@@ -5,7 +5,7 @@ import { relSentence } from '../sentenceRows'
 import type { LedgerRow, ReviewAction } from './knowledgeRelationsApi'
 import { useStoreText } from './storeText'
 import type { TermSummary } from './ledgerView'
-import { isSymmetricRel, rowId, rowText, ASSIGN_RELS, type AssignForm } from './rowFns'
+import { isSymmetricRel, rowId, rowText, assignRels, type AssignForm } from './rowFns'
 
 type Lang = 'ja' | 'en'
 
@@ -170,7 +170,7 @@ export function CandidateRow({
             {t('assign.rel')}
             <select data-testid="gp-assign-rel" value={form.rel} onChange={(e) => onForm({ ...form, rel: e.target.value })}>
               <option value="">{t('assign.pick')}</option>
-              {ASSIGN_RELS.map((r) => (
+              {assignRels().map((r) => (
                 <option key={r} value={r}>{draftRelationLabel(r, lang)}</option>
               ))}
             </select>

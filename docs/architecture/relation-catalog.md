@@ -33,7 +33,8 @@
 |---|---|
 | step0 `theme_propose.RELATIONS`・`pair_propose.PAIR_RELS`／`SYMMETRIC_RELS`・`paper_propose.PAPER_RELS` | `step0/tests/test_relation_catalog_sync.py`・`api/tests/test_relations_api.py` |
 | api `chat_paper._CLASS_BOTH`・`consult_graph_routes._SYMMETRIC`／`_SUBSUMPTION_RELATIONS` | `api/tests/test_relations_api.py` |
-| ui `sentenceRows.ts`・`mapModel.ts`・`lineChoice.ts`・`themeDraft.ts`・i18n `themes.json`／`decide.json` | `ingest/tests/test_relation_catalog_sync.py`（ファイルを読んで突き合わせる） |
+| i18n `themes.json`／`decide.json`（R0c で ui のコードの写しは目録から導く形になった。文言の json は残す） | `ingest/tests/test_relation_catalog_sync.py`（ファイルを読んで突き合わせる） |
+| ui の組み込みの目録 `ui/src/relations/builtinCatalog.ts`（生成物 1 か所） | `python scripts/gen_relation_catalog_ts.py --check` と同じ一致を ingest のテストが見る（ずれたら落ちる）。作り直しは `python scripts/gen_relation_catalog_ts.py` |
 
 置き換え前の値は `ingest/tests/test_relation_catalog_snapshot.py` が固定している（同じ値・型・並び。
 `relation_predicate` は 12 関係 + 未知 × 種別 4 × 相手の種別 4 の全組み合わせ）。
@@ -63,6 +64,25 @@
   （`to_kind`）で決まる。目録は `PredicateRule.when` で持ち、`resolve_predicate` が引く。相手の種別が
   無ければ決まらない（`themes.relation_predicate` が `ThemeError`）。`sub`・`eq` は主語の種別（`from_kind`）で割れる。
 - `factors` の閉包・`missing` の定義などの問いの型（13 の op）は目録に入れない（`knowledge.OPS`・`LINE_OPS`）。
+
+## R0c 後の ui（実装メモ）
+
+- 実行時は `GET /api/relations` を起動後に読み（失敗したら 1 回だけ読み直す）、組み込み（生成物）に重ねる
+  （`ui/src/relations/catalog.ts`）。形の検査を通らない返り・重ねた後に主な関数が例外を出す返りは捨てて組み込みのまま。
+- 判定（「関係か」「知識の関係か」「向き」）は目録の読み関数（`relationFns.ts`）。`RELATION_ORDER`・`KNOWLEDGE_RELATIONS`・
+  `REL_KINDS` の定数は型の元と既存の呼び手のための組み込みの並び。
+- **R3 の課題**: `getCatalog()` を直に呼ぶ所は、目録が変わっても次の再描画まで古い結果を持つ（`useCatalog()` を呼ぶのは
+  `HandForm`・`GraphPlaceSide` の 2 部品だけ）。API にだけある関係が来るときは、使う部品を広げる。i18n json に無い関係の文言も同時に要る。
+
+### コードに残した物（ui）
+
+目録に欄が無い・画面ごとの見せ方なので、直書きのまま残した。
+
+- `lineChoice.ts` `relationSymbol` の記号（↓ ↑ ↕ ⇒ ↔ など）
+- `sky/skyLayout.ts` の `isEq`（約 308 行）・札の幅 `PILL_W_PART` と `'isPartOf'` の判定（約 969 行）
+- `themes/themeDraft.ts` の `'competes'`・`'has_property'` を見る数え方（約 761-767 行）・`lineEstimate`・`knowledgeEstimate`・`MISSING_MIN_OTHERS`
+- `chat/handWays.ts` の `need`
+- `decide/decide.ts` の `CHOICE_ORDER`（ひとこと決めるの並び）
 
 ## ストアでの表し方（R0d）
 

@@ -1,0 +1,2342 @@
+{
+ "RELATION_ORDER": [
+  "equivalentClass",
+  "subClassOf",
+  "equivalentProperty",
+  "subPropertyOf",
+  "hasQuantityKind",
+  "isPartOf",
+  "lowers",
+  "raises",
+  "affects",
+  "makes",
+  "measuresProperty",
+  "measuresMaterial",
+  "becomes",
+  "competesWith",
+  "hasProperty"
+ ],
+ "KNOWLEDGE_RELATIONS": [
+  "isPartOf",
+  "lowers",
+  "raises",
+  "affects",
+  "makes",
+  "measuresProperty",
+  "measuresMaterial",
+  "becomes",
+  "competesWith",
+  "hasProperty"
+ ],
+ "REL_KINDS": [
+  "sub",
+  "eq",
+  "quantity",
+  "part",
+  "lowers",
+  "raises",
+  "affects",
+  "makes",
+  "measures",
+  "becomes",
+  "competes",
+  "has_property"
+ ],
+ "ASSIGN_RELS": [
+  "sub",
+  "part",
+  "lowers",
+  "raises",
+  "affects",
+  "makes",
+  "measures",
+  "becomes",
+  "competes",
+  "has_property",
+  "eq"
+ ],
+ "predicateFns": [
+  {
+   "p": "equivalentClass",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "subClassOf",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": false,
+   "symbol": "⊂"
+  },
+  {
+   "p": "equivalentProperty",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "subPropertyOf",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": false,
+   "symbol": "⊂"
+  },
+  {
+   "p": "hasQuantityKind",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": false,
+   "symbol": "→"
+  },
+  {
+   "p": "isPartOf",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "⊂"
+  },
+  {
+   "p": "lowers",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "↓"
+  },
+  {
+   "p": "raises",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "↑"
+  },
+  {
+   "p": "affects",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "↕"
+  },
+  {
+   "p": "makes",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "→"
+  },
+  {
+   "p": "measuresProperty",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "→"
+  },
+  {
+   "p": "measuresMaterial",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "→"
+  },
+  {
+   "p": "becomes",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "⇒"
+  },
+  {
+   "p": "competesWith",
+   "directed": false,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "↔"
+  },
+  {
+   "p": "hasProperty",
+   "directed": true,
+   "equivalence": false,
+   "knowledge": true,
+   "symbol": "→"
+  },
+  {
+   "p": "",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "unknown",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "competes_with",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "isA",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "measures",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "http://purl.obolibrary.org/obo/RO_0002212",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "obo:RO_0002213",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "null",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  },
+  {
+   "p": "undefined",
+   "directed": false,
+   "equivalence": true,
+   "knowledge": false,
+   "symbol": "≡"
+  }
+ ],
+ "knowledgeRelationsFor": [
+  {
+   "s": "class",
+   "t": "class",
+   "r": [
+    "isPartOf",
+    "makes",
+    "measuresMaterial",
+    "becomes",
+    "competesWith"
+   ]
+  },
+  {
+   "s": "class",
+   "t": "property",
+   "r": [
+    "lowers",
+    "raises",
+    "affects",
+    "measuresProperty",
+    "hasProperty"
+   ]
+  },
+  {
+   "s": "class",
+   "t": "quantity",
+   "r": [
+    "isPartOf"
+   ]
+  },
+  {
+   "s": "class",
+   "t": "unknown",
+   "r": [
+    "isPartOf",
+    "lowers",
+    "raises",
+    "affects",
+    "makes",
+    "measuresMaterial",
+    "becomes",
+    "competesWith",
+    "measuresProperty",
+    "hasProperty"
+   ]
+  },
+  {
+   "s": "property",
+   "t": "class",
+   "r": []
+  },
+  {
+   "s": "property",
+   "t": "property",
+   "r": [
+    "isPartOf",
+    "lowers",
+    "raises",
+    "affects"
+   ]
+  },
+  {
+   "s": "property",
+   "t": "quantity",
+   "r": []
+  },
+  {
+   "s": "property",
+   "t": "unknown",
+   "r": [
+    "isPartOf",
+    "lowers",
+    "raises",
+    "affects"
+   ]
+  },
+  {
+   "s": "quantity",
+   "t": "class",
+   "r": [
+    "isPartOf"
+   ]
+  },
+  {
+   "s": "quantity",
+   "t": "property",
+   "r": []
+  },
+  {
+   "s": "quantity",
+   "t": "quantity",
+   "r": [
+    "isPartOf"
+   ]
+  },
+  {
+   "s": "quantity",
+   "t": "unknown",
+   "r": [
+    "isPartOf"
+   ]
+  },
+  {
+   "s": "unknown",
+   "t": "class",
+   "r": [
+    "isPartOf",
+    "makes",
+    "measuresMaterial",
+    "becomes",
+    "competesWith"
+   ]
+  },
+  {
+   "s": "unknown",
+   "t": "property",
+   "r": [
+    "isPartOf",
+    "lowers",
+    "raises",
+    "affects",
+    "measuresProperty",
+    "hasProperty"
+   ]
+  },
+  {
+   "s": "unknown",
+   "t": "quantity",
+   "r": [
+    "isPartOf"
+   ]
+  },
+  {
+   "s": "unknown",
+   "t": "unknown",
+   "r": [
+    "lowers",
+    "raises",
+    "affects",
+    "makes",
+    "measuresMaterial",
+    "becomes",
+    "competesWith",
+    "measuresProperty",
+    "hasProperty"
+   ]
+  }
+ ],
+ "relationsFor": [
+  {
+   "s": "class",
+   "t": "class",
+   "r": [
+    "equivalentClass",
+    "subClassOf"
+   ]
+  },
+  {
+   "s": "class",
+   "t": "property",
+   "r": []
+  },
+  {
+   "s": "class",
+   "t": "quantity",
+   "r": [
+    "equivalentClass",
+    "subClassOf"
+   ]
+  },
+  {
+   "s": "class",
+   "t": "unknown",
+   "r": [
+    "equivalentClass",
+    "subClassOf"
+   ]
+  },
+  {
+   "s": "property",
+   "t": "class",
+   "r": []
+  },
+  {
+   "s": "property",
+   "t": "property",
+   "r": [
+    "equivalentProperty",
+    "subPropertyOf"
+   ]
+  },
+  {
+   "s": "property",
+   "t": "quantity",
+   "r": [
+    "hasQuantityKind"
+   ]
+  },
+  {
+   "s": "property",
+   "t": "unknown",
+   "r": [
+    "equivalentProperty",
+    "subPropertyOf",
+    "hasQuantityKind"
+   ]
+  },
+  {
+   "s": "quantity",
+   "t": "class",
+   "r": [
+    "equivalentClass",
+    "subClassOf"
+   ]
+  },
+  {
+   "s": "quantity",
+   "t": "property",
+   "r": []
+  },
+  {
+   "s": "quantity",
+   "t": "quantity",
+   "r": [
+    "equivalentClass",
+    "subClassOf"
+   ]
+  },
+  {
+   "s": "quantity",
+   "t": "unknown",
+   "r": [
+    "equivalentClass",
+    "subClassOf"
+   ]
+  },
+  {
+   "s": "unknown",
+   "t": "class",
+   "r": [
+    "equivalentClass",
+    "subClassOf"
+   ]
+  },
+  {
+   "s": "unknown",
+   "t": "property",
+   "r": [
+    "equivalentProperty",
+    "subPropertyOf"
+   ]
+  },
+  {
+   "s": "unknown",
+   "t": "quantity",
+   "r": [
+    "equivalentClass",
+    "subClassOf"
+   ]
+  },
+  {
+   "s": "unknown",
+   "t": "unknown",
+   "r": [
+    "equivalentClass",
+    "subClassOf",
+    "equivalentProperty",
+    "subPropertyOf"
+   ]
+  }
+ ],
+ "realRelationOf": [
+  {
+   "r": "sub",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "sub",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "sub",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "eq",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "eq",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "eq",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "quantity",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "quantity",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "quantity",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "part",
+   "k": "class",
+   "v": "isPartOf"
+  },
+  {
+   "r": "part",
+   "k": "property",
+   "v": "isPartOf"
+  },
+  {
+   "r": "part",
+   "k": "undef",
+   "v": "isPartOf"
+  },
+  {
+   "r": "lowers",
+   "k": "class",
+   "v": "lowers"
+  },
+  {
+   "r": "lowers",
+   "k": "property",
+   "v": "lowers"
+  },
+  {
+   "r": "lowers",
+   "k": "undef",
+   "v": "lowers"
+  },
+  {
+   "r": "raises",
+   "k": "class",
+   "v": "raises"
+  },
+  {
+   "r": "raises",
+   "k": "property",
+   "v": "raises"
+  },
+  {
+   "r": "raises",
+   "k": "undef",
+   "v": "raises"
+  },
+  {
+   "r": "affects",
+   "k": "class",
+   "v": "affects"
+  },
+  {
+   "r": "affects",
+   "k": "property",
+   "v": "affects"
+  },
+  {
+   "r": "affects",
+   "k": "undef",
+   "v": "affects"
+  },
+  {
+   "r": "makes",
+   "k": "class",
+   "v": "makes"
+  },
+  {
+   "r": "makes",
+   "k": "property",
+   "v": "makes"
+  },
+  {
+   "r": "makes",
+   "k": "undef",
+   "v": "makes"
+  },
+  {
+   "r": "measures",
+   "k": "class",
+   "v": "measuresMaterial"
+  },
+  {
+   "r": "measures",
+   "k": "property",
+   "v": "measuresProperty"
+  },
+  {
+   "r": "measures",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "becomes",
+   "k": "class",
+   "v": "becomes"
+  },
+  {
+   "r": "becomes",
+   "k": "property",
+   "v": "becomes"
+  },
+  {
+   "r": "becomes",
+   "k": "undef",
+   "v": "becomes"
+  },
+  {
+   "r": "competes",
+   "k": "class",
+   "v": "competesWith"
+  },
+  {
+   "r": "competes",
+   "k": "property",
+   "v": "competesWith"
+  },
+  {
+   "r": "competes",
+   "k": "undef",
+   "v": "competesWith"
+  },
+  {
+   "r": "has_property",
+   "k": "class",
+   "v": "hasProperty"
+  },
+  {
+   "r": "has_property",
+   "k": "property",
+   "v": "hasProperty"
+  },
+  {
+   "r": "has_property",
+   "k": "undef",
+   "v": "hasProperty"
+  },
+  {
+   "r": "",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "unknown",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "unknown",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "unknown",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "competes_with",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "competes_with",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "competes_with",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "isA",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "isA",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "isA",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "measures",
+   "k": "class",
+   "v": "measuresMaterial"
+  },
+  {
+   "r": "measures",
+   "k": "property",
+   "v": "measuresProperty"
+  },
+  {
+   "r": "measures",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "k": "undef",
+   "v": null
+  },
+  {
+   "r": "obo:RO_0002213",
+   "k": "class",
+   "v": null
+  },
+  {
+   "r": "obo:RO_0002213",
+   "k": "property",
+   "v": null
+  },
+  {
+   "r": "obo:RO_0002213",
+   "k": "undef",
+   "v": null
+  }
+ ],
+ "relSentence": [
+  {
+   "l": "ja",
+   "r": "sub",
+   "v": "S は O の一種"
+  },
+  {
+   "l": "ja",
+   "r": "eq",
+   "v": "S と O は同じもの"
+  },
+  {
+   "l": "ja",
+   "r": "quantity",
+   "v": "S の量は O"
+  },
+  {
+   "l": "ja",
+   "r": "part",
+   "v": "S は O の一部"
+  },
+  {
+   "l": "ja",
+   "r": "lowers",
+   "v": "S は O を下げる"
+  },
+  {
+   "l": "ja",
+   "r": "raises",
+   "v": "S は O を上げる"
+  },
+  {
+   "l": "ja",
+   "r": "affects",
+   "v": "S は O を変える"
+  },
+  {
+   "l": "ja",
+   "r": "makes",
+   "v": "S で O を作る"
+  },
+  {
+   "l": "ja",
+   "r": "measures",
+   "v": "S で O を測る"
+  },
+  {
+   "l": "ja",
+   "r": "becomes",
+   "v": "S が O に変わる"
+  },
+  {
+   "l": "ja",
+   "r": "competes",
+   "v": "S と O は競合する"
+  },
+  {
+   "l": "ja",
+   "r": "has_property",
+   "v": "S の O"
+  },
+  {
+   "l": "ja",
+   "r": "",
+   "v": "S - O"
+  },
+  {
+   "l": "ja",
+   "r": "unknown",
+   "v": "S - O"
+  },
+  {
+   "l": "ja",
+   "r": "competes_with",
+   "v": "S - O"
+  },
+  {
+   "l": "ja",
+   "r": "isA",
+   "v": "S - O"
+  },
+  {
+   "l": "ja",
+   "r": "measures",
+   "v": "S で O を測る"
+  },
+  {
+   "l": "ja",
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": "S - O"
+  },
+  {
+   "l": "ja",
+   "r": "obo:RO_0002213",
+   "v": "S - O"
+  },
+  {
+   "l": "en",
+   "r": "sub",
+   "v": "S is a kind of O"
+  },
+  {
+   "l": "en",
+   "r": "eq",
+   "v": "S is the same as O"
+  },
+  {
+   "l": "en",
+   "r": "quantity",
+   "v": "The quantity of S is O"
+  },
+  {
+   "l": "en",
+   "r": "part",
+   "v": "S is a part of O"
+  },
+  {
+   "l": "en",
+   "r": "lowers",
+   "v": "S lowers O"
+  },
+  {
+   "l": "en",
+   "r": "raises",
+   "v": "S raises O"
+  },
+  {
+   "l": "en",
+   "r": "affects",
+   "v": "S changes O"
+  },
+  {
+   "l": "en",
+   "r": "makes",
+   "v": "S makes O"
+  },
+  {
+   "l": "en",
+   "r": "measures",
+   "v": "S measures O"
+  },
+  {
+   "l": "en",
+   "r": "becomes",
+   "v": "S turns into O"
+  },
+  {
+   "l": "en",
+   "r": "competes",
+   "v": "S competes with O"
+  },
+  {
+   "l": "en",
+   "r": "has_property",
+   "v": "S has the property O"
+  },
+  {
+   "l": "en",
+   "r": "",
+   "v": "S - O"
+  },
+  {
+   "l": "en",
+   "r": "unknown",
+   "v": "S - O"
+  },
+  {
+   "l": "en",
+   "r": "competes_with",
+   "v": "S - O"
+  },
+  {
+   "l": "en",
+   "r": "isA",
+   "v": "S - O"
+  },
+  {
+   "l": "en",
+   "r": "measures",
+   "v": "S measures O"
+  },
+  {
+   "l": "en",
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": "S - O"
+  },
+  {
+   "l": "en",
+   "r": "obo:RO_0002213",
+   "v": "S - O"
+  }
+ ],
+ "draftRelationLabel": [
+  {
+   "l": "ja",
+   "r": "sub",
+   "v": "一種"
+  },
+  {
+   "l": "ja",
+   "r": "eq",
+   "v": "同じ"
+  },
+  {
+   "l": "ja",
+   "r": "quantity",
+   "v": "量"
+  },
+  {
+   "l": "ja",
+   "r": "part",
+   "v": "一部"
+  },
+  {
+   "l": "ja",
+   "r": "lowers",
+   "v": "下げる"
+  },
+  {
+   "l": "ja",
+   "r": "raises",
+   "v": "上げる"
+  },
+  {
+   "l": "ja",
+   "r": "affects",
+   "v": "変える"
+  },
+  {
+   "l": "ja",
+   "r": "makes",
+   "v": "作る"
+  },
+  {
+   "l": "ja",
+   "r": "measures",
+   "v": "測る"
+  },
+  {
+   "l": "ja",
+   "r": "becomes",
+   "v": "変わる"
+  },
+  {
+   "l": "ja",
+   "r": "competes",
+   "v": "競合する"
+  },
+  {
+   "l": "ja",
+   "r": "has_property",
+   "v": "物性"
+  },
+  {
+   "l": "ja",
+   "r": "",
+   "v": ""
+  },
+  {
+   "l": "ja",
+   "r": "unknown",
+   "v": "unknown"
+  },
+  {
+   "l": "ja",
+   "r": "competes_with",
+   "v": "competes_with"
+  },
+  {
+   "l": "ja",
+   "r": "isA",
+   "v": "isA"
+  },
+  {
+   "l": "ja",
+   "r": "measures",
+   "v": "測る"
+  },
+  {
+   "l": "ja",
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": "http://purl.obolibrary.org/obo/RO_0002212"
+  },
+  {
+   "l": "ja",
+   "r": "obo:RO_0002213",
+   "v": "obo:RO_0002213"
+  },
+  {
+   "l": "en",
+   "r": "sub",
+   "v": "kind of"
+  },
+  {
+   "l": "en",
+   "r": "eq",
+   "v": "same as"
+  },
+  {
+   "l": "en",
+   "r": "quantity",
+   "v": "quantity"
+  },
+  {
+   "l": "en",
+   "r": "part",
+   "v": "part of"
+  },
+  {
+   "l": "en",
+   "r": "lowers",
+   "v": "lowers"
+  },
+  {
+   "l": "en",
+   "r": "raises",
+   "v": "raises"
+  },
+  {
+   "l": "en",
+   "r": "affects",
+   "v": "changes"
+  },
+  {
+   "l": "en",
+   "r": "makes",
+   "v": "makes"
+  },
+  {
+   "l": "en",
+   "r": "measures",
+   "v": "measures"
+  },
+  {
+   "l": "en",
+   "r": "becomes",
+   "v": "turns into"
+  },
+  {
+   "l": "en",
+   "r": "competes",
+   "v": "competes with"
+  },
+  {
+   "l": "en",
+   "r": "has_property",
+   "v": "has property"
+  },
+  {
+   "l": "en",
+   "r": "",
+   "v": ""
+  },
+  {
+   "l": "en",
+   "r": "unknown",
+   "v": "unknown"
+  },
+  {
+   "l": "en",
+   "r": "competes_with",
+   "v": "competes_with"
+  },
+  {
+   "l": "en",
+   "r": "isA",
+   "v": "isA"
+  },
+  {
+   "l": "en",
+   "r": "measures",
+   "v": "measures"
+  },
+  {
+   "l": "en",
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": "http://purl.obolibrary.org/obo/RO_0002212"
+  },
+  {
+   "l": "en",
+   "r": "obo:RO_0002213",
+   "v": "obo:RO_0002213"
+  }
+ ],
+ "relationLabel": [
+  {
+   "l": "ja",
+   "r": "equivalentClass",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "subClassOf",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "equivalentProperty",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "subPropertyOf",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "hasQuantityKind",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "isPartOf",
+   "v": "一部"
+  },
+  {
+   "l": "ja",
+   "r": "lowers",
+   "v": "下げる"
+  },
+  {
+   "l": "ja",
+   "r": "raises",
+   "v": "上げる"
+  },
+  {
+   "l": "ja",
+   "r": "affects",
+   "v": "変える"
+  },
+  {
+   "l": "ja",
+   "r": "makes",
+   "v": "作る"
+  },
+  {
+   "l": "ja",
+   "r": "measuresProperty",
+   "v": "測る"
+  },
+  {
+   "l": "ja",
+   "r": "measuresMaterial",
+   "v": "測る"
+  },
+  {
+   "l": "ja",
+   "r": "becomes",
+   "v": "変わる"
+  },
+  {
+   "l": "ja",
+   "r": "competesWith",
+   "v": "競合する"
+  },
+  {
+   "l": "ja",
+   "r": "hasProperty",
+   "v": "物性"
+  },
+  {
+   "l": "ja",
+   "r": "",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "unknown",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "competes_with",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "isA",
+   "v": "一種"
+  },
+  {
+   "l": "ja",
+   "r": "measures",
+   "v": "測る"
+  },
+  {
+   "l": "ja",
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": null
+  },
+  {
+   "l": "ja",
+   "r": "obo:RO_0002213",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "equivalentClass",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "subClassOf",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "equivalentProperty",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "subPropertyOf",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "hasQuantityKind",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "isPartOf",
+   "v": "part of"
+  },
+  {
+   "l": "en",
+   "r": "lowers",
+   "v": "lowers"
+  },
+  {
+   "l": "en",
+   "r": "raises",
+   "v": "raises"
+  },
+  {
+   "l": "en",
+   "r": "affects",
+   "v": "changes"
+  },
+  {
+   "l": "en",
+   "r": "makes",
+   "v": "makes"
+  },
+  {
+   "l": "en",
+   "r": "measuresProperty",
+   "v": "measures"
+  },
+  {
+   "l": "en",
+   "r": "measuresMaterial",
+   "v": "measures"
+  },
+  {
+   "l": "en",
+   "r": "becomes",
+   "v": "turns into"
+  },
+  {
+   "l": "en",
+   "r": "competesWith",
+   "v": "competes with"
+  },
+  {
+   "l": "en",
+   "r": "hasProperty",
+   "v": "has property"
+  },
+  {
+   "l": "en",
+   "r": "",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "unknown",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "competes_with",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "isA",
+   "v": "kind of"
+  },
+  {
+   "l": "en",
+   "r": "measures",
+   "v": "measures"
+  },
+  {
+   "l": "en",
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": null
+  },
+  {
+   "l": "en",
+   "r": "obo:RO_0002213",
+   "v": null
+  }
+ ],
+ "symmetricRel": [
+  {
+   "r": "sub",
+   "v": false
+  },
+  {
+   "r": "eq",
+   "v": true
+  },
+  {
+   "r": "quantity",
+   "v": false
+  },
+  {
+   "r": "part",
+   "v": false
+  },
+  {
+   "r": "lowers",
+   "v": false
+  },
+  {
+   "r": "raises",
+   "v": false
+  },
+  {
+   "r": "affects",
+   "v": false
+  },
+  {
+   "r": "makes",
+   "v": false
+  },
+  {
+   "r": "measures",
+   "v": false
+  },
+  {
+   "r": "becomes",
+   "v": false
+  },
+  {
+   "r": "competes",
+   "v": true
+  },
+  {
+   "r": "has_property",
+   "v": false
+  },
+  {
+   "r": "",
+   "v": false
+  },
+  {
+   "r": "unknown",
+   "v": false
+  },
+  {
+   "r": "competes_with",
+   "v": false
+  },
+  {
+   "r": "isA",
+   "v": false
+  },
+  {
+   "r": "measures",
+   "v": false
+  },
+  {
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": false
+  },
+  {
+   "r": "obo:RO_0002213",
+   "v": false
+  }
+ ],
+ "relationPredicate": [
+  {
+   "r": "sub",
+   "s": "class",
+   "o": "undef",
+   "v": "subClassOf"
+  },
+  {
+   "r": "sub",
+   "s": "class",
+   "o": "class",
+   "v": "subClassOf"
+  },
+  {
+   "r": "sub",
+   "s": "class",
+   "o": "property",
+   "v": "subClassOf"
+  },
+  {
+   "r": "sub",
+   "s": "property",
+   "o": "undef",
+   "v": "subPropertyOf"
+  },
+  {
+   "r": "sub",
+   "s": "property",
+   "o": "class",
+   "v": "subPropertyOf"
+  },
+  {
+   "r": "sub",
+   "s": "property",
+   "o": "property",
+   "v": "subPropertyOf"
+  },
+  {
+   "r": "eq",
+   "s": "class",
+   "o": "undef",
+   "v": "equivalentClass"
+  },
+  {
+   "r": "eq",
+   "s": "class",
+   "o": "class",
+   "v": "equivalentClass"
+  },
+  {
+   "r": "eq",
+   "s": "class",
+   "o": "property",
+   "v": "equivalentClass"
+  },
+  {
+   "r": "eq",
+   "s": "property",
+   "o": "undef",
+   "v": "equivalentProperty"
+  },
+  {
+   "r": "eq",
+   "s": "property",
+   "o": "class",
+   "v": "equivalentProperty"
+  },
+  {
+   "r": "eq",
+   "s": "property",
+   "o": "property",
+   "v": "equivalentProperty"
+  },
+  {
+   "r": "quantity",
+   "s": "class",
+   "o": "undef",
+   "v": "hasQuantityKind"
+  },
+  {
+   "r": "quantity",
+   "s": "class",
+   "o": "class",
+   "v": "hasQuantityKind"
+  },
+  {
+   "r": "quantity",
+   "s": "class",
+   "o": "property",
+   "v": "hasQuantityKind"
+  },
+  {
+   "r": "quantity",
+   "s": "property",
+   "o": "undef",
+   "v": "hasQuantityKind"
+  },
+  {
+   "r": "quantity",
+   "s": "property",
+   "o": "class",
+   "v": "hasQuantityKind"
+  },
+  {
+   "r": "quantity",
+   "s": "property",
+   "o": "property",
+   "v": "hasQuantityKind"
+  },
+  {
+   "r": "part",
+   "s": "class",
+   "o": "undef",
+   "v": "isPartOf"
+  },
+  {
+   "r": "part",
+   "s": "class",
+   "o": "class",
+   "v": "isPartOf"
+  },
+  {
+   "r": "part",
+   "s": "class",
+   "o": "property",
+   "v": "isPartOf"
+  },
+  {
+   "r": "part",
+   "s": "property",
+   "o": "undef",
+   "v": "isPartOf"
+  },
+  {
+   "r": "part",
+   "s": "property",
+   "o": "class",
+   "v": "isPartOf"
+  },
+  {
+   "r": "part",
+   "s": "property",
+   "o": "property",
+   "v": "isPartOf"
+  },
+  {
+   "r": "lowers",
+   "s": "class",
+   "o": "undef",
+   "v": "lowers"
+  },
+  {
+   "r": "lowers",
+   "s": "class",
+   "o": "class",
+   "v": "lowers"
+  },
+  {
+   "r": "lowers",
+   "s": "class",
+   "o": "property",
+   "v": "lowers"
+  },
+  {
+   "r": "lowers",
+   "s": "property",
+   "o": "undef",
+   "v": "lowers"
+  },
+  {
+   "r": "lowers",
+   "s": "property",
+   "o": "class",
+   "v": "lowers"
+  },
+  {
+   "r": "lowers",
+   "s": "property",
+   "o": "property",
+   "v": "lowers"
+  },
+  {
+   "r": "raises",
+   "s": "class",
+   "o": "undef",
+   "v": "raises"
+  },
+  {
+   "r": "raises",
+   "s": "class",
+   "o": "class",
+   "v": "raises"
+  },
+  {
+   "r": "raises",
+   "s": "class",
+   "o": "property",
+   "v": "raises"
+  },
+  {
+   "r": "raises",
+   "s": "property",
+   "o": "undef",
+   "v": "raises"
+  },
+  {
+   "r": "raises",
+   "s": "property",
+   "o": "class",
+   "v": "raises"
+  },
+  {
+   "r": "raises",
+   "s": "property",
+   "o": "property",
+   "v": "raises"
+  },
+  {
+   "r": "affects",
+   "s": "class",
+   "o": "undef",
+   "v": "affects"
+  },
+  {
+   "r": "affects",
+   "s": "class",
+   "o": "class",
+   "v": "affects"
+  },
+  {
+   "r": "affects",
+   "s": "class",
+   "o": "property",
+   "v": "affects"
+  },
+  {
+   "r": "affects",
+   "s": "property",
+   "o": "undef",
+   "v": "affects"
+  },
+  {
+   "r": "affects",
+   "s": "property",
+   "o": "class",
+   "v": "affects"
+  },
+  {
+   "r": "affects",
+   "s": "property",
+   "o": "property",
+   "v": "affects"
+  },
+  {
+   "r": "makes",
+   "s": "class",
+   "o": "undef",
+   "v": "makes"
+  },
+  {
+   "r": "makes",
+   "s": "class",
+   "o": "class",
+   "v": "makes"
+  },
+  {
+   "r": "makes",
+   "s": "class",
+   "o": "property",
+   "v": "makes"
+  },
+  {
+   "r": "makes",
+   "s": "property",
+   "o": "undef",
+   "v": "makes"
+  },
+  {
+   "r": "makes",
+   "s": "property",
+   "o": "class",
+   "v": "makes"
+  },
+  {
+   "r": "makes",
+   "s": "property",
+   "o": "property",
+   "v": "makes"
+  },
+  {
+   "r": "measures",
+   "s": "class",
+   "o": "undef",
+   "v": "measuresMaterial"
+  },
+  {
+   "r": "measures",
+   "s": "class",
+   "o": "class",
+   "v": "measuresMaterial"
+  },
+  {
+   "r": "measures",
+   "s": "class",
+   "o": "property",
+   "v": "measuresProperty"
+  },
+  {
+   "r": "measures",
+   "s": "property",
+   "o": "undef",
+   "v": "measuresMaterial"
+  },
+  {
+   "r": "measures",
+   "s": "property",
+   "o": "class",
+   "v": "measuresMaterial"
+  },
+  {
+   "r": "measures",
+   "s": "property",
+   "o": "property",
+   "v": "measuresProperty"
+  },
+  {
+   "r": "becomes",
+   "s": "class",
+   "o": "undef",
+   "v": "becomes"
+  },
+  {
+   "r": "becomes",
+   "s": "class",
+   "o": "class",
+   "v": "becomes"
+  },
+  {
+   "r": "becomes",
+   "s": "class",
+   "o": "property",
+   "v": "becomes"
+  },
+  {
+   "r": "becomes",
+   "s": "property",
+   "o": "undef",
+   "v": "becomes"
+  },
+  {
+   "r": "becomes",
+   "s": "property",
+   "o": "class",
+   "v": "becomes"
+  },
+  {
+   "r": "becomes",
+   "s": "property",
+   "o": "property",
+   "v": "becomes"
+  },
+  {
+   "r": "competes",
+   "s": "class",
+   "o": "undef",
+   "v": "competesWith"
+  },
+  {
+   "r": "competes",
+   "s": "class",
+   "o": "class",
+   "v": "competesWith"
+  },
+  {
+   "r": "competes",
+   "s": "class",
+   "o": "property",
+   "v": "competesWith"
+  },
+  {
+   "r": "competes",
+   "s": "property",
+   "o": "undef",
+   "v": "competesWith"
+  },
+  {
+   "r": "competes",
+   "s": "property",
+   "o": "class",
+   "v": "competesWith"
+  },
+  {
+   "r": "competes",
+   "s": "property",
+   "o": "property",
+   "v": "competesWith"
+  },
+  {
+   "r": "has_property",
+   "s": "class",
+   "o": "undef",
+   "v": "hasProperty"
+  },
+  {
+   "r": "has_property",
+   "s": "class",
+   "o": "class",
+   "v": "hasProperty"
+  },
+  {
+   "r": "has_property",
+   "s": "class",
+   "o": "property",
+   "v": "hasProperty"
+  },
+  {
+   "r": "has_property",
+   "s": "property",
+   "o": "undef",
+   "v": "hasProperty"
+  },
+  {
+   "r": "has_property",
+   "s": "property",
+   "o": "class",
+   "v": "hasProperty"
+  },
+  {
+   "r": "has_property",
+   "s": "property",
+   "o": "property",
+   "v": "hasProperty"
+  }
+ ],
+ "isHierarchy": [
+  {
+   "r": "sub",
+   "v": true
+  },
+  {
+   "r": "eq",
+   "v": false
+  },
+  {
+   "r": "quantity",
+   "v": false
+  },
+  {
+   "r": "part",
+   "v": true
+  },
+  {
+   "r": "lowers",
+   "v": false
+  },
+  {
+   "r": "raises",
+   "v": false
+  },
+  {
+   "r": "affects",
+   "v": false
+  },
+  {
+   "r": "makes",
+   "v": false
+  },
+  {
+   "r": "measures",
+   "v": false
+  },
+  {
+   "r": "becomes",
+   "v": false
+  },
+  {
+   "r": "competes",
+   "v": false
+  },
+  {
+   "r": "has_property",
+   "v": false
+  }
+ ],
+ "matchesFilter": [
+  {
+   "r": "equivalentClass",
+   "v": [
+    true,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "subClassOf",
+   "v": [
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "equivalentProperty",
+   "v": [
+    true,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "subPropertyOf",
+   "v": [
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "hasQuantityKind",
+   "v": [
+    true,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "isPartOf",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "lowers",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "raises",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "affects",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "makes",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "measuresProperty",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "measuresMaterial",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "becomes",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "competesWith",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "hasProperty",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "unknown",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "competes_with",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "isA",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "measures",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "r": "obo:RO_0002213",
+   "v": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  }
+ ],
+ "filterCounts": {
+  "all": 22,
+  "sub": 2,
+  "same": 2,
+  "quantity": 1,
+  "knowledge": 10,
+  "standard": 0,
+  "perspective": 0,
+  "broken": 0
+ },
+ "decisionSentence": [
+  {
+   "r": "equivalentClass",
+   "v": "decide:sentence.equivalentClass|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "subClassOf",
+   "v": "decide:sentence.subClassOf|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "equivalentProperty",
+   "v": "decide:sentence.equivalentProperty|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "subPropertyOf",
+   "v": "decide:sentence.subPropertyOf|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "hasQuantityKind",
+   "v": "decide:sentence.hasQuantityKind|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "isPartOf",
+   "v": "decide:sentence.isPartOf|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "lowers",
+   "v": "decide:sentence.lowers|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "raises",
+   "v": "decide:sentence.raises|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "affects",
+   "v": "decide:sentence.affects|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "makes",
+   "v": "decide:sentence.makes|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "measuresProperty",
+   "v": "decide:sentence.measuresProperty|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "measuresMaterial",
+   "v": "decide:sentence.measuresMaterial|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "becomes",
+   "v": "decide:sentence.becomes|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "competesWith",
+   "v": "decide:sentence.competesWith|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "hasProperty",
+   "v": "decide:sentence.hasProperty|{\"subject\":\"a\",\"target\":\"b\"}"
+  },
+  {
+   "r": "",
+   "v": "decisions:sentence.other|{\"subject\":\"a\",\"target\":\"b\",\"relation\":\"\"}"
+  },
+  {
+   "r": "unknown",
+   "v": "decisions:sentence.other|{\"subject\":\"a\",\"target\":\"b\",\"relation\":\"unknown\"}"
+  },
+  {
+   "r": "competes_with",
+   "v": "decisions:sentence.other|{\"subject\":\"a\",\"target\":\"b\",\"relation\":\"competes_with\"}"
+  },
+  {
+   "r": "isA",
+   "v": "decisions:sentence.other|{\"subject\":\"a\",\"target\":\"b\",\"relation\":\"isA\"}"
+  },
+  {
+   "r": "measures",
+   "v": "decisions:sentence.other|{\"subject\":\"a\",\"target\":\"b\",\"relation\":\"measures\"}"
+  },
+  {
+   "r": "http://purl.obolibrary.org/obo/RO_0002212",
+   "v": "decisions:sentence.other|{\"subject\":\"a\",\"target\":\"b\",\"relation\":\"RO_0002212\"}"
+  },
+  {
+   "r": "obo:RO_0002213",
+   "v": "decisions:sentence.other|{\"subject\":\"a\",\"target\":\"b\",\"relation\":\"RO_0002213\"}"
+  }
+ ]
+}
