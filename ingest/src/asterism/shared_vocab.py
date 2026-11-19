@@ -34,7 +34,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asterism import substrate
+from asterism import relation_catalog, substrate
 from asterism.crosswalk import XW
 from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
@@ -102,20 +102,10 @@ PART_OF_PATH = f"(<{ALIGN_RELATIONS['isPartOf']}>)*"
 
 #: ``sv:`` の slug に使えない予約語。知識の関係の名前（述語は ``sv:`` に置かない）と
 #: 取り違えないため。``mint_term`` と ``themes`` の slug 検査が拒む。
-RESERVED_SLUGS = frozenset(
-    {
-        "part_of",
-        "lowers",
-        "raises",
-        "affects",
-        "regulates",
-        "makes",
-        "measures",
-        "becomes",
-        "competes",
-        "competes_with",
-        "has_property",
-    }
+#: 関係の名前は目録（:mod:`asterism.relation_catalog`）から導く。目録に無い書き方（英語の名前や
+#: 述語の別の綴り）だけをここに置く。
+RESERVED_SLUGS = relation_catalog.reserved_slugs() | frozenset(
+    {"part_of", "regulates", "competes_with"}
 )
 
 #: 役割の札を付けた主体（``xw:roleBy``）の閉じた値。
@@ -152,9 +142,6 @@ _KNOWLEDGE_FILE = "knowledge.json"
 _DISMISSED_FILE = "dismissed.json"
 _SHARED_NAME = "用語"
 
-_CLASS_RELS = ("subClassOf", "equivalentClass")
-_PROP_RELS = ("subPropertyOf", "equivalentProperty")
-_PART_RELS = ("isPartOf",)
 
 
 # ---------------------------------------------------------------------------
@@ -1252,7 +1239,10 @@ async def recompute_wired(
 # 「ひとこと決める」の帰結の試算（store には書かない）と、外した提案
 # ---------------------------------------------------------------------------
 
-_SUBSUMPTION_RELS = ("subClassOf", "subPropertyOf", "isPartOf")
+_SUBSUMPTION_RELS = relation_catalog.subsumption_predicates()
+# 輪を調べる辺（上へ辿る線と、同じものを言う線）。目録の述語の ``cycle_rels``
+_CLASS_RELS = relation_catalog.predicate("subClassOf").cycle_rels
+_PROP_RELS = relation_catalog.predicate("subPropertyOf").cycle_rels
 _Edge = tuple[str, str, str]
 
 
@@ -1260,13 +1250,7 @@ def cycle_rels(relation: str) -> tuple[str, ...] | None:
     """``relation`` の線を足したとき循環を調べる辺の種類（:func:`_down_set` の ``rels``）。
     循環を拒まない述語（``lowers`` / ``raises`` / ``affects`` ほか）は ``None``。
     ``assert_alignment`` の検査（:data:`~asterism.crosswalk_runtime._SUBSUMPTION`）と同じ表。"""
-    if relation == "subClassOf":
-        return _CLASS_RELS
-    if relation == "subPropertyOf":
-        return _PROP_RELS
-    if relation == "isPartOf":
-        return _PART_RELS
-    return None
+    return relation_catalog.cycle_rels(relation)
 
 
 def _down_set(term: str, edges: Iterable[_Edge], rels: tuple[str, ...]) -> set[str]:

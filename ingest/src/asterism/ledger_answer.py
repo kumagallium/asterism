@@ -21,7 +21,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from asterism import knowledge_bundle
+from asterism import knowledge_bundle, relation_catalog
 from asterism import pair_relations as pr
 from asterism.graph_diff import PRED_TO_REL, REL_SENTENCE
 from asterism.knowledge import LINE_OPS, MISSING_MIN_OTHERS, item_sentence
@@ -50,11 +50,11 @@ EVIDENCE_MAX = 3
 REPLY_ITEMS_MAX = 50
 #: ``missing`` の行に添える「ほかの語」の最大件数（``knowledge.MISSING_OTHERS_MAX`` と同じ）。
 _OTHERS_MAX = 5
-_FACTOR_DIRECTIONS = {
-    "lowers": ("lowers", "affects"),
-    "raises": ("raises", "affects"),
-    "affects": ("affects",),
-}
+_FACTOR_DIRECTIONS = relation_catalog.factor_directions()
+#: 関係 → 数える問いの型（``kinds``・``parts``・``bearers``・``factors`` …）。目録から導く。
+_QUESTION_OP = relation_catalog.question_ops()
+#: ``missing`` の「持つ」の関係（``bearers`` を数える関係）。記録が無い行の ``relation``。
+_OWNER_RELATION = relation_catalog.relation_for_op("bearers")
 _GONE = ("retracted", "deleted")
 _SAFE_ID = re.compile(r"[a-z0-9-]{1,128}")
 
@@ -104,11 +104,12 @@ def _collect(ledger: Mapping[str, Any], copy: KnowledgeCopy) -> dict[tuple, list
         rec = _record(ledger, r)
         every.append(rec)
         ends.update((frm, to))
-        if rel == "has_property":
+        op_of_rel = _QUESTION_OP.get(rel)
+        if op_of_rel == "bearers":
             owners.setdefault(to, {})[frm] = rec
-        if rel == "sub":
+        if op_of_rel == "kinds":
             add("kinds", to, None, {"other": frm, "via": to, "recs": [rec], "primary": rec})
-        elif rel == "part":
+        elif op_of_rel == "parts":
             add("parts", to, None, {"other": frm, "via": to, "recs": [rec], "primary": rec})
             parents.setdefault(frm, {})[to] = rec
         elif rel in _FACTOR_DIRECTIONS:
@@ -292,7 +293,7 @@ def answer(
         items.append(
             {
                 "label": names.get(h["other"], h["other"]),
-                "relation": rec["rel"] if rec else "has_property",
+                "relation": rec["rel"] if rec else _OWNER_RELATION,
                 "via_label": names.get(h["via"], h["via"]),
                 "sentence": _sentence(op, h, names, lang),
                 "confirmed": all(u["confirmed"] for u in uses),

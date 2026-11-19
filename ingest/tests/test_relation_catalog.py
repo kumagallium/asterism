@@ -76,11 +76,14 @@ def test_catalog_json_shape() -> None:
     assert set(rel0) == {
         "name", "label", "sentence", "predicates",
         "symmetric_draft", "symmetric_pair", "experiment", "builtin",
+        # R0b で足した欄（既存の欄は変えていない）
+        "to_property_only", "same_kind", "acyclic", "factor_directions", "question_op",
+        "reserve_slug", "paper",
     }  # fmt: skip
     pred = {p["name"]: p for p in body["predicates"]}
     assert set(pred["becomes"]) == {
         "name", "iri", "shapes", "same_shape", "roles",
-        "no_self", "subsumption", "symmetric", "knowledge", "own",
+        "no_self", "subsumption", "symmetric", "knowledge", "own", "cycle_rels",
     }  # fmt: skip
     assert pred["becomes"]["roles"] == {"from": ["material"], "to": ["material"]}
     assert pred["hasQuantityKind"]["roles"] is None

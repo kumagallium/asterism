@@ -35,7 +35,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": false,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": true,
+      "acyclic": true,
+      "factor_directions": [],
+      "question_op": "kinds",
+      "reserve_slug": false,
+      "paper": true
     },
     {
       "name": "eq",
@@ -68,7 +75,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": true,
       "experiment": false,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": true,
+      "acyclic": false,
+      "factor_directions": [],
+      "question_op": null,
+      "reserve_slug": false,
+      "paper": false
     },
     {
       "name": "quantity",
@@ -90,7 +104,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": false,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [],
+      "question_op": null,
+      "reserve_slug": false,
+      "paper": false
     },
     {
       "name": "part",
@@ -112,7 +133,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": false,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": true,
+      "acyclic": true,
+      "factor_directions": [],
+      "question_op": "parts",
+      "reserve_slug": false,
+      "paper": true
     },
     {
       "name": "lowers",
@@ -134,7 +162,17 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": false,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": true,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [
+        "lowers",
+        "affects"
+      ],
+      "question_op": "factors",
+      "reserve_slug": true,
+      "paper": true
     },
     {
       "name": "raises",
@@ -156,7 +194,17 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": false,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": true,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [
+        "raises",
+        "affects"
+      ],
+      "question_op": "factors",
+      "reserve_slug": true,
+      "paper": true
     },
     {
       "name": "affects",
@@ -178,7 +226,16 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": false,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": true,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [
+        "affects"
+      ],
+      "question_op": "factors",
+      "reserve_slug": true,
+      "paper": true
     },
     {
       "name": "makes",
@@ -200,7 +257,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": true,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [],
+      "question_op": "makers",
+      "reserve_slug": true,
+      "paper": true
     },
     {
       "name": "measures",
@@ -233,7 +297,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": true,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [],
+      "question_op": "measurers",
+      "reserve_slug": true,
+      "paper": true
     },
     {
       "name": "becomes",
@@ -255,7 +326,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": true,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [],
+      "question_op": "sources",
+      "reserve_slug": true,
+      "paper": true
     },
     {
       "name": "competes",
@@ -277,7 +355,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": true,
       "symmetric_pair": true,
       "experiment": true,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [],
+      "question_op": "competitors",
+      "reserve_slug": true,
+      "paper": true
     },
     {
       "name": "has_property",
@@ -299,7 +384,14 @@ export const BUILTIN_CATALOG = {
       "symmetric_draft": false,
       "symmetric_pair": false,
       "experiment": true,
-      "builtin": true
+      "builtin": true,
+      "to_property_only": false,
+      "same_kind": false,
+      "acyclic": false,
+      "factor_directions": [],
+      "question_op": "bearers",
+      "reserve_slug": true,
+      "paper": true
     }
   ],
   "predicates": [
@@ -320,7 +412,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": false,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "subClassOf",
@@ -339,7 +432,11 @@ export const BUILTIN_CATALOG = {
       "subsumption": true,
       "symmetric": false,
       "knowledge": false,
-      "own": null
+      "own": null,
+      "cycle_rels": [
+        "subClassOf",
+        "equivalentClass"
+      ]
     },
     {
       "name": "equivalentProperty",
@@ -358,7 +455,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": false,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "subPropertyOf",
@@ -377,7 +475,11 @@ export const BUILTIN_CATALOG = {
       "subsumption": true,
       "symmetric": false,
       "knowledge": false,
-      "own": null
+      "own": null,
+      "cycle_rels": [
+        "subPropertyOf",
+        "equivalentProperty"
+      ]
     },
     {
       "name": "hasQuantityKind",
@@ -394,7 +496,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": false,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "isPartOf",
@@ -415,7 +518,10 @@ export const BUILTIN_CATALOG = {
       "subsumption": true,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": [
+        "isPartOf"
+      ]
     },
     {
       "name": "lowers",
@@ -435,7 +541,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "raises",
@@ -455,7 +562,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "affects",
@@ -475,7 +583,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "makes",
@@ -503,7 +612,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "measuresProperty",
@@ -529,7 +639,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "measuresMaterial",
@@ -557,7 +668,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "becomes",
@@ -583,7 +695,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     },
     {
       "name": "competesWith",
@@ -628,7 +741,8 @@ export const BUILTIN_CATALOG = {
           "OLS4 (all ontologies; only schema.org competitor, a sports term)"
         ],
         "date": "2026-11-17"
-      }
+      },
+      "cycle_rels": []
     },
     {
       "name": "hasProperty",
@@ -652,7 +766,8 @@ export const BUILTIN_CATALOG = {
       "subsumption": false,
       "symmetric": false,
       "knowledge": true,
-      "own": null
+      "own": null,
+      "cycle_rels": []
     }
   ]
 } as const

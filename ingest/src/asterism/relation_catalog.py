@@ -9,8 +9,10 @@ design.md §23.13・ADR ``docs/architecture/relation-catalog.md``。
 - :data:`PREDICATES` — 確定側の述語（``subClassOf`` ``competesWith`` …）1 つにつき 1 件。
   端の許す種別・役割・自分自身への線・循環・向き・自前の記録（:class:`Predicate`）。
 
-``themes`` / ``graph_diff`` / ``crosswalk_runtime`` / ``pair_relations`` の正の定義は、
-ここから導く（公開名は各モジュールに残す）。
+``themes`` / ``graph_diff`` / ``crosswalk_runtime`` / ``pair_relations`` / ``ledger_answer`` /
+``shared_vocab`` / ``sky_view`` / ``knowledge`` と api の ``chat_paper`` / ``chat_turns`` /
+``consult_graph_routes`` が持っていた関係の定義と写しは、ここから導く
+（公開名は各モジュールに残す）。
 
 このモジュールは**葉**: ``asterism`` のほかのモジュールを import しない（循環を作らない）。
 例外（``ThemeError`` など）は呼び出し側が作る。向きの有無は 3 層で中身が違い
@@ -60,6 +62,8 @@ class Predicate:
     roles: tuple[frozenset[str], frozenset[str]] | None = None
     no_self: bool = False  # 自分自身に結ぶのを拒む
     subsumption: bool = False  # 循環を拒む（上へ辿って自分に戻る線）
+    # 循環を調べるとき辿る辺の述語（自分と、同じものを言う述語）。``subsumption`` の述語だけが持つ
+    cycle_rels: tuple[str, ...] = ()
     symmetric: bool = False  # 向きが無い（確定側）
     knowledge: bool = False  # 人が確定する「知識の関係」
     own: OwnRecord | None = None  # 自前の述語の記録（標準が無かったものだけ）
@@ -90,6 +94,14 @@ class Relation:
     symmetric_pair: bool = False  # 台帳・提案で向きが無い
     experiment: bool = False  # 実験の記録の関係
     builtin: bool = True
+    # --- R0b: 検査と問いの規則（写しを目録の導出にするための欄。JSON では足すだけ）
+    to_property_only: bool = False  # 相手は項目だけ（下げる・上げる・変える）
+    same_kind: bool = False  # 両端が同じ種別（一種・同じ・一部）
+    acyclic: bool = False  # 下書き・台帳の上で輪を拒む（一種・一部）
+    factor_directions: tuple[str, ...] = ()  # 数える ``factors`` の向き（下げる等の問い）
+    question_op: str | None = None  # この関係を数える問いの型（``knowledge.OPS`` の名前）
+    reserve_slug: bool = False  # 関係の名前を ``sv:`` の slug に使わせない
+    paper: bool = True  # 論文から読む関係の対象（``paper_propose.PAPER_RELS``）
 
 
 # ---------------------------------------------------------------------------
@@ -119,9 +131,15 @@ _COMPETES_OWN = OwnRecord(
 
 PREDICATES: tuple[Predicate, ...] = (
     Predicate("equivalentClass", f"{_OWL}equivalentClass", (_CLASS, _CLASS)),
-    Predicate("subClassOf", f"{_RDFS}subClassOf", (_CLASS, _CLASS), subsumption=True),
+    Predicate(
+        "subClassOf", f"{_RDFS}subClassOf", (_CLASS, _CLASS),
+        subsumption=True, cycle_rels=("subClassOf", "equivalentClass"),
+    ),
     Predicate("equivalentProperty", f"{_OWL}equivalentProperty", (_PROPERTY, _PROPERTY)),
-    Predicate("subPropertyOf", f"{_RDFS}subPropertyOf", (_PROPERTY, _PROPERTY), subsumption=True),
+    Predicate(
+        "subPropertyOf", f"{_RDFS}subPropertyOf", (_PROPERTY, _PROPERTY),
+        subsumption=True, cycle_rels=("subPropertyOf", "equivalentProperty"),
+    ),
     Predicate("hasQuantityKind", "http://qudt.org/schema/qudt/hasQuantityKind", (_PROPERTY, _NONE)),
     # 知識の関係（問いから育てる・design.md §15.2）。自前の述語は作らず標準を使う。
     # BFO の part of と RO の regulates 系。
@@ -131,6 +149,7 @@ PREDICATES: tuple[Predicate, ...] = (
         (_EITHER, _EITHER),
         same_shape=True,
         subsumption=True,
+        cycle_rels=("isPartOf",),
         knowledge=True,
     ),
     # negatively regulates
@@ -180,7 +199,7 @@ def _rel(
     s_ja: str,
     s_en: str,
     predicates: tuple[PredicateRule, ...],
-    **flags: bool,
+    **flags: Any,
 ) -> Relation:
     return Relation(
         name=name,
@@ -206,6 +225,7 @@ RELATIONS: tuple[Relation, ...] = (
             _P("subClassOf", _iri("subClassOf"), ("from_kind", "class")),
             _P("subPropertyOf", _iri("subPropertyOf"), ("from_kind", "property")),
         ),
+        same_kind=True, acyclic=True, question_op="kinds",
     ),
     _rel(
         "eq", "同じ", "same as", "{s} と {o} は同じもの", "{s} is the same as {o}",
@@ -213,19 +233,34 @@ RELATIONS: tuple[Relation, ...] = (
             _P("equivalentClass", _iri("equivalentClass"), ("from_kind", "class")),
             _P("equivalentProperty", _iri("equivalentProperty"), ("from_kind", "property")),
         ),
-        symmetric_pair=True,
+        symmetric_pair=True, same_kind=True, paper=False,
     ),
     _rel(
         "quantity", "量", "quantity", "{s} の量は {o}", "The quantity of {s} is {o}",
-        _one("hasQuantityKind"),
+        _one("hasQuantityKind"), paper=False,
     ),
-    _rel("part", "一部", "part of", "{s} は {o} の一部", "{s} is a part of {o}", _one("isPartOf")),
-    _rel("lowers", "下げる", "lowers", "{s} は {o} を下げる", "{s} lowers {o}", _one("lowers")),
-    _rel("raises", "上げる", "raises", "{s} は {o} を上げる", "{s} raises {o}", _one("raises")),
-    _rel("affects", "変える", "changes", "{s} は {o} を変える", "{s} changes {o}", _one("affects")),
+    _rel(
+        "part", "一部", "part of", "{s} は {o} の一部", "{s} is a part of {o}", _one("isPartOf"),
+        same_kind=True, acyclic=True, question_op="parts",
+    ),
+    _rel(
+        "lowers", "下げる", "lowers", "{s} は {o} を下げる", "{s} lowers {o}", _one("lowers"),
+        to_property_only=True, factor_directions=("lowers", "affects"), question_op="factors",
+        reserve_slug=True,
+    ),
+    _rel(
+        "raises", "上げる", "raises", "{s} は {o} を上げる", "{s} raises {o}", _one("raises"),
+        to_property_only=True, factor_directions=("raises", "affects"), question_op="factors",
+        reserve_slug=True,
+    ),
+    _rel(
+        "affects", "変える", "changes", "{s} は {o} を変える", "{s} changes {o}", _one("affects"),
+        to_property_only=True, factor_directions=("affects",), question_op="factors",
+        reserve_slug=True,
+    ),
     _rel(
         "makes", "作る", "makes", "{s} で {o} を作る", "{s} makes {o}", _one("makes"),
-        experiment=True,
+        experiment=True, question_op="makers", reserve_slug=True,
     ),
     _rel(
         "measures", "測る", "measures", "{s} で {o} を測る", "{s} measures {o}",
@@ -233,19 +268,20 @@ RELATIONS: tuple[Relation, ...] = (
             _P("measuresProperty", _iri("measuresProperty"), ("to_kind", "property")),
             _P("measuresMaterial", _iri("measuresMaterial"), ("to_kind", "class")),
         ),
-        experiment=True,
+        experiment=True, question_op="measurers", reserve_slug=True,
     ),
     _rel(
         "becomes", "変わる", "turns into", "{s} が {o} に変わる", "{s} turns into {o}",
-        _one("becomes"), experiment=True,
+        _one("becomes"), experiment=True, question_op="sources", reserve_slug=True,
     ),
     _rel(
         "competes", "競合する", "competes with", "{s} と {o} は競合する", "{s} competes with {o}",
         _one("competesWith"), symmetric_draft=True, symmetric_pair=True, experiment=True,
+        question_op="competitors", reserve_slug=True,
     ),
     _rel(
         "has_property", "物性", "has property", "{s} の {o}", "{s} has the property {o}",
-        _one("hasProperty"), experiment=True,
+        _one("hasProperty"), experiment=True, question_op="bearers", reserve_slug=True,
     ),
 )  # fmt: skip
 
@@ -372,6 +408,114 @@ def own_relations() -> dict[str, dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# 検査と問いの規則（R0b: 各モジュールの写しの元）
+# ---------------------------------------------------------------------------
+
+
+def to_property_only_relations() -> tuple[str, ...]:
+    """相手は項目だけの関係（下書きの名前）。"""
+    return tuple(r.name for r in RELATIONS if r.to_property_only)
+
+
+def to_property_only_predicates() -> frozenset[str]:
+    """相手は項目だけの関係の、確定側の述語の名前。"""
+    return frozenset(
+        rule.name for r in RELATIONS if r.to_property_only for rule in r.predicates
+    )
+
+
+def same_kind_relations() -> tuple[str, ...]:
+    """両端が同じ種別の関係（下書きの名前）。"""
+    return tuple(r.name for r in RELATIONS if r.same_kind)
+
+
+def paper_same_kind_relations() -> tuple[str, ...]:
+    """``same_kind`` のうち論文から読む関係（``paper``）。"""
+    return tuple(r.name for r in RELATIONS if r.same_kind and r.paper)
+
+
+def acyclic_relations() -> tuple[str, ...]:
+    """下書き・台帳の上で輪を拒む関係。"""
+    return tuple(r.name for r in RELATIONS if r.acyclic)
+
+
+def factor_relations() -> tuple[str, ...]:
+    """``factors`` の向きになる関係（``knowledge.DIRECTIONS``・下げる・上げる・変える）。"""
+    return tuple(r.name for r in RELATIONS if r.factor_directions)
+
+
+def factor_directions() -> dict[str, tuple[str, ...]]:
+    """関係 → その線を数える ``factors`` の向き。"""
+    return {r.name: r.factor_directions for r in RELATIONS if r.factor_directions}
+
+
+def direction_relations() -> dict[str, tuple[str, ...]]:
+    """``factors`` の向き → 数える関係（``factor_directions`` の逆引き）。"""
+    return {
+        d: tuple(r.name for r in RELATIONS if d in r.factor_directions) for d in factor_relations()
+    }
+
+
+def question_ops() -> dict[str, str]:
+    """関係 → その線を数える問いの型。"""
+    return {r.name: r.question_op for r in RELATIONS if r.question_op is not None}
+
+
+def relation_for_op(op: str) -> str | None:
+    """問いの型 → その型 1 つだけが数える関係（複数なら先頭）。無ければ ``None``。"""
+    return next((r.name for r in RELATIONS if r.question_op == op), None)
+
+
+def reserved_slugs() -> frozenset[str]:
+    """``sv:`` の slug に使わせない関係の名前（目録の名前の分）。"""
+    return frozenset(r.name for r in RELATIONS if r.reserve_slug)
+
+
+def paper_relations() -> tuple[str, ...]:
+    return tuple(r.name for r in RELATIONS if r.paper)
+
+
+def class_both_relations() -> tuple[str, ...]:
+    """両端とも種類の関係（全部の述語が ``(class, class)``）。"""
+    both = (frozenset({"class"}), frozenset({"class"}))
+    return tuple(
+        r.name for r in RELATIONS if all(_PRED_BY_NAME[p.name].shapes == both for p in r.predicates)
+    )
+
+
+def from_class_relations() -> tuple[str, ...]:
+    """主語が種類の関係（全部の述語の from が ``class`` だけ）。"""
+    return tuple(
+        r.name
+        for r in RELATIONS
+        if all(_PRED_BY_NAME[p.name].shapes[0] == _CLASS for p in r.predicates)
+    )
+
+
+def symmetric_pair_predicates() -> frozenset[str]:
+    """台帳・提案で向きが無い関係の、確定側の述語の名前（``eq`` の 2 つと ``competesWith``）。"""
+    return frozenset(p.name for r in RELATIONS if r.symmetric_pair for p in r.predicates)
+
+
+def from_class_predicates() -> frozenset[str]:
+    """主語が種類のときに選ばれる述語（``when`` が ``from_kind=class`` の物）。"""
+    return frozenset(
+        p.name for r in RELATIONS for p in r.predicates if p.when == ("from_kind", "class")
+    )
+
+
+def predicates_of(*rels: str) -> tuple[str, ...]:
+    """下書きの関係（名前）が選びうる確定側の述語。``rels`` の並び・各関係の述語の並びのまま。"""
+    return tuple(p.name for name in rels for p in _BY_NAME[name].predicates)
+
+
+def cycle_rels(pred: str) -> tuple[str, ...] | None:
+    """述語の線を足したとき輪を調べる辺の述語。輪を拒まない述語・未知の名前は ``None``。"""
+    p = _PRED_BY_NAME.get(pred)
+    return p.cycle_rels if p is not None and p.cycle_rels else None
+
+
+# ---------------------------------------------------------------------------
 # JSON（``GET /api/relations``）
 # ---------------------------------------------------------------------------
 
@@ -393,6 +537,13 @@ def relation_to_json(r: Relation) -> dict[str, Any]:
         "symmetric_pair": r.symmetric_pair,
         "experiment": r.experiment,
         "builtin": r.builtin,
+        "to_property_only": r.to_property_only,
+        "same_kind": r.same_kind,
+        "acyclic": r.acyclic,
+        "factor_directions": list(r.factor_directions),
+        "question_op": r.question_op,
+        "reserve_slug": r.reserve_slug,
+        "paper": r.paper,
     }
 
 
@@ -419,6 +570,7 @@ def predicate_to_json(p: Predicate) -> dict[str, Any]:
                 "date": p.own.date,
             }
         ),
+        "cycle_rels": list(p.cycle_rels),
     }
 
 

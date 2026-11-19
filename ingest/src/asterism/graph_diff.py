@@ -243,7 +243,7 @@ class _Applier:
         if rel == "quantity":
             if subj["kind"] != "property" or std is None or std.kind != "quantity":
                 return "quantity_target"
-        elif rel in ("lowers", "raises", "affects"):
+        elif rel in relation_catalog.to_property_only_relations():
             if obj_kind != "property":
                 return "target_not_property"
         elif rel in themes.EXPERIMENT_RELATIONS:
@@ -348,7 +348,7 @@ class _Applier:
         """同じ関係が下書きにあるか（``eq``・``competes`` は向きを問わない）。"""
         have = {(r.get("from"), r.get("to"), r.get("rel")) for r in self.rels}
         return (frm, to, rel) in have or (
-            rel in ("eq", "competes") and (to, frm, rel) in have
+            rel in relation_catalog.symmetric_pair_relations() and (to, frm, rel) in have
         )
 
     def add_relation(self, i: int, op: dict) -> None:

@@ -32,7 +32,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-from asterism import chat_sessions, crosswalk_runtime, graph_diff, query_tools, shared_vocab, themes
+from asterism import (
+    chat_sessions,
+    crosswalk_runtime,
+    graph_diff,
+    query_tools,
+    relation_catalog,
+    shared_vocab,
+    themes,
+)
 from asterism.shared_vocab import SharedTerm, normalize_label
 from asterism_step0.graph_propose import (
     _QUESTION_LIKE,
@@ -505,9 +513,9 @@ def resolve_scope(
         rel = _rel_short(str(line["rel"]))
         has = any(
             (str(r.get("from")), str(r.get("rel")), str(r.get("to"))) in ((f, rel, t), (t, rel, f))
-            if rel == "eq"  # 「同じ」は向きを問わない
+            if rel in relation_catalog.symmetric_pair_relations()  # 向きを問わない関係
             else themes.draft_rel_key(str(r.get("from")), str(r.get("rel")), str(r.get("to")))
-            == themes.draft_rel_key(str(f), rel, str(t))  # 向きの無い関係（競合する）も両向き
+            == themes.draft_rel_key(str(f), rel, str(t))  # 下書きで向きの無い関係も両向き
             for r in graph.get("relations") or []
         )
         if f is None or t is None or not has:
@@ -594,7 +602,7 @@ def filter_ops_to_scope(
 
     if line:
         f, rel, t = line
-        both = rel == "eq" or rel in themes.SYMMETRIC_DRAFT_RELATIONS  # 向きを問わない関係
+        both = rel in relation_catalog.symmetric_pair_relations()  # 向きを問わない関係
         ends = {(f, t), (t, f)} if both else {(f, t)}
 
         def keep_line(o: dict) -> bool:
@@ -1835,7 +1843,7 @@ def _answer_complete(a: dict) -> bool:
         if not a.get("target"):
             return False
         if op == "factors":
-            return a.get("direction") in ("lowers", "raises", "affects")
+            return a.get("direction") in themes.KNOWLEDGE_DIRECTIONS
         return op in themes.KNOWLEDGE_OPS and op != "factors"
     if mode == "data":
         kind, prop = a.get("kind"), a.get("property")

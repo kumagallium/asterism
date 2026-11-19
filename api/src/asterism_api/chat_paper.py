@@ -27,7 +27,7 @@ import unicodedata
 from typing import TYPE_CHECKING, Any
 
 from asterism import documents as doc
-from asterism import graph_diff, shared_vocab, substrate, themes
+from asterism import graph_diff, relation_catalog, shared_vocab, substrate, themes
 from asterism.paper_sections import _heading_key, _is_abstract, _is_conclusion
 from asterism.shared_vocab import SharedTerm
 from asterism_step0.paper_propose import PaperProposeError, propose_paper_relations
@@ -463,7 +463,8 @@ def prune_unlinked(ops: list[dict], *, include_existing: bool = False) -> tuple[
 
 
 _Q_MAX = 5
-_FACTOR_DIR = {"lowers": "lowers", "raises": "raises", "affects": "affects"}
+#: 関係の名前は目録（``asterism.relation_catalog``）から導く（R0b）。
+_FACTOR_DIR = {r: r for r in relation_catalog.factor_relations()}
 _Q_TEXT = {
     "ja": {
         "part": "{to} の一部は？",
@@ -491,13 +492,16 @@ _Q_TEXT = {
     },
 }
 #: 関係 → 問いの型（op_kind）。lowers 系は ``direction`` つきの ``factors``。
-_OP_KIND = {
-    "part": "parts", "sub": "kinds", "lowers": "factors", "raises": "factors",
-    "affects": "factors", "makes": "makers", "measures": "measurers", "becomes": "sources",
-    "competes": "competitors", "has_property": "bearers",
-}  # fmt: skip
+_OP_KIND = relation_catalog.question_ops()
 #: 両端とも種類の関係（makes・becomes・competes）。
-_CLASS_BOTH = ("makes", "becomes", "competes")
+_CLASS_BOTH = relation_catalog.class_both_relations()
+#: 主語が種類の関係（作る・測る・変わる・競合する・物性）。
+_FROM_CLASS = relation_catalog.from_class_relations()
+#: 両端が同じ種別で、論文から読む関係（part・sub）。
+_SAME_KIND = relation_catalog.paper_same_kind_relations()
+#: 「持つ材料は？」の関係（物性）・「測る手法は？」の関係（測る）。
+_BEARER_REL = relation_catalog.relation_for_op("bearers")
+_MEASURER_REL = relation_catalog.relation_for_op("measurers")
 
 
 def _is_japanese(name: str) -> bool:
@@ -562,17 +566,17 @@ def build_ops(
          end(r["to"], r.get("to_ja"), r.get("to_en")), r)
         for r in relations
     ]  # fmt: skip
-    factor_to = {to for _f, to, r in pairs if r["rel"] in _FACTOR_DIR or r["rel"] == "has_property"}
+    factor_to = {to for _f, to, r in pairs if r["rel"] in _FACTOR_DIR or r["rel"] == _BEARER_REL}
     class_pos = {  # 種類の位置（lowers 系の相手と重なる語は項目が勝つ）
         k
         for f, to, r in pairs
         for k in (
             (f, to) if r["rel"] in _CLASS_BOTH
-            else (f,) if r["rel"] in ("makes", "measures", "has_property")
+            else (f,) if r["rel"] in _FROM_CLASS
             else ()
         )
     } - factor_to  # fmt: skip
-    measure_to = {to for _f, to, r in pairs if r["rel"] == "measures"}
+    measure_to = {to for _f, to, r in pairs if r["rel"] == _MEASURER_REL}
     for k, t in terms.items():  # 既存の用語を選ぶ（1 つに決まらなければ関係の位置の種類で）
         if len(t["cands"]) == 1:
             t["existing"] = t["cands"][0]
@@ -589,7 +593,7 @@ def build_ops(
             if t["cands"] and t["existing"] is None:
                 partner = [
                     terms[b if a == k else a]["kind"] for a, b, r in pairs
-                    if r["rel"] in ("part", "sub") and k in (a, b) and a != b
+                    if r["rel"] in _SAME_KIND and k in (a, b) and a != b
                 ]  # fmt: skip
                 pick = next((c for c in t["cands"] if c.kind in partner), None)
                 if pick is not None:
@@ -609,13 +613,13 @@ def build_ops(
     for f, to, r in pairs:
         kf, kt = terms[f]["kind"], terms[to]["kind"]
         rel = r["rel"]
-        if rel in ("part", "sub"):
+        if rel in _SAME_KIND:
             ok = kf == kt
         elif rel in _FACTOR_DIR:
             ok = kt == "property"
-        elif rel == "has_property":
+        elif rel == _BEARER_REL:
             ok = kf == "class" and kt == "property"
-        elif rel == "measures":
+        elif rel == _MEASURER_REL:
             ok = kf == "class"
         else:  # makes・becomes・competes
             ok = kf == "class" and kt == "class"
