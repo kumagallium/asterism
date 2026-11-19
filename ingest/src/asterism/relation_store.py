@@ -85,6 +85,26 @@ def _is_lang_map(v: Any) -> bool:
     return isinstance(v, dict) and bool(v) and all(isinstance(x, str) for x in v.values())
 
 
+#: 項目の名前の規則。子の節の IRI（``<項目>-…``）や ``predicate-<名前>`` が、別の項目の IRI と
+#: ぶつからないことを構造で保証する（関係の名前に ``-`` が無い・子の節は必ず ``-`` を含む）。
+RELATION_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*\Z")
+PREDICATE_NAME_RE = re.compile(r"^[a-z][A-Za-z0-9]*\Z")
+#: 規則用に使っている性質の欄名（camelCase）。目録の欄がこれと同じ名前になると壊れるので断る。
+#: ``name``・``builtin`` は目録の欄が同じ性質に写るので許す（予約の外）。
+RESERVED_FIELDS = frozenset({"order", "value", "ownerEntry", "addedBy", "rule", "predicate"})
+
+
+def _check_fields(obj: Any, where: str) -> None:
+    if isinstance(obj, dict) and not _is_lang_map(obj):
+        for k, v in obj.items():
+            if _camel(k) in RESERVED_FIELDS:
+                raise ValueError(f"{where}: field name {k!r} is reserved")
+            _check_fields(v, where)
+    elif isinstance(obj, list):
+        for v in obj:
+            _check_fields(v, where)
+
+
 def relation_iri(name: str) -> URIRef:
     return URIRef(f"{CATALOG_NS}{name}")
 
@@ -135,21 +155,30 @@ def _emit(g: rdflib.Graph, node: URIRef, key: str, val: Any, top: URIRef) -> Non
     # それ以外の型は無視
 
 
-def catalog_triples(catalog: dict[str, Any], *, at: str | None = None) -> rdflib.Graph:
+def catalog_triples(
+    catalog: dict[str, Any], *, builtin: bool, at: str | None = None
+) -> rdflib.Graph:
     """目録の JSON（``catalog_to_json``）→ RDF。純関数・決定論。
 
+    ``builtin`` は組み込みかどうかを呼び手が明示する。項目に ``builtin`` の欄があればそれが優先、
+    無ければ（述語）``builtin`` が真のときだけ ``xw:builtin true`` を付ける。
     ``at`` があれば、項目ごとに ``prov:generatedAtTime`` と ``xw:addedBy "machine"`` を付ける。
-    項目に ``builtin`` の欄が無ければ（述語）、``xw:builtin true`` を付ける。"""
+    名前が規則（:data:`RELATION_NAME_RE`・:data:`PREDICATE_NAME_RE`）に合わない項目、欄名が
+    :data:`RESERVED_FIELDS` と同じ項目は ``ValueError``。"""
     g = rdflib.Graph()
-    for section, typ, make in (
-        ("relations", RELATION_ENTRY, relation_iri),
-        ("predicates", PREDICATE_ENTRY, predicate_iri),
+    for section, typ, make, name_re in (
+        ("relations", RELATION_ENTRY, relation_iri, RELATION_NAME_RE),
+        ("predicates", PREDICATE_ENTRY, predicate_iri, PREDICATE_NAME_RE),
     ):
         for i, entry in enumerate(catalog.get(section, [])):
-            top = make(entry["name"])
+            name = entry.get("name")
+            if not isinstance(name, str) or not name_re.match(name):
+                raise ValueError(f"{section}: invalid name {name!r} (must match {name_re.pattern})")
+            _check_fields(entry, f"{section}/{name}")
+            top = make(name)
             g.add((top, RDF.type, typ))
             g.add((top, _ORDER, Literal(i, datatype=XSD.integer)))
-            if "builtin" not in entry:
+            if "builtin" not in entry and builtin:
                 g.add((top, _BUILTIN, Literal(True, datatype=XSD.boolean)))
             if at is not None:
                 g.add((top, _PROV_AT, Literal(at, datatype=XSD.dateTime)))
@@ -315,7 +344,7 @@ async def seed_builtin(client: Any, *, at: str) -> bool:
     target = relation_catalog.catalog_to_json()
     if await read_catalog(client, builtin_only=True) == target:
         return False
-    nt = catalog_triples(target, at=at).serialize(format="nt")
+    nt = catalog_triples(target, builtin=True, at=at).serialize(format="nt")
     if isinstance(nt, bytes):
         nt = nt.decode()
     await client.sparql_update(

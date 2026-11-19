@@ -93,16 +93,16 @@ def _fake(monkeypatch: pytest.MonkeyPatch, mutate: Any) -> dict:
 
 
 def test_triples_are_deterministic() -> None:
-    a = rs.catalog_triples(rc.catalog_to_json(), at=AT)
-    b = rs.catalog_triples(rc.catalog_to_json(), at=AT)
+    a = rs.catalog_triples(rc.catalog_to_json(), builtin=True, at=AT)
+    b = rs.catalog_triples(rc.catalog_to_json(), builtin=True, at=AT)
     assert set(a) == set(b)
-    assert rs.catalog_triples(rc.catalog_to_json()).serialize(
+    assert rs.catalog_triples(rc.catalog_to_json(), builtin=True).serialize(
         format="nt"
-    ) == rs.catalog_triples(rc.catalog_to_json()).serialize(format="nt")
+    ) == rs.catalog_triples(rc.catalog_to_json(), builtin=True).serialize(format="nt")
 
 
 def test_triples_shape() -> None:
-    g = rs.catalog_triples(rc.catalog_to_json(), at=AT)
+    g = rs.catalog_triples(rc.catalog_to_json(), builtin=True, at=AT)
     sub = rdflib.URIRef(rs.CATALOG_NS + "sub")
     assert (sub, rdflib.RDF.type, rs.RELATION_ENTRY) in g
     # 表示名・文の型は言語タグつき
@@ -144,11 +144,66 @@ def test_unknown_field_is_mapped_by_type() -> None:
     cat["relations"][0]["note"] = {"ja": "メモ"}
     cat["relations"][0]["weight"] = 3
     cat["relations"][0]["tags"] = ["x", "y"]
-    g = rs.catalog_triples(cat)
+    g = rs.catalog_triples(cat, builtin=True)
     sub = rdflib.URIRef(rs.CATALOG_NS + "sub")
     assert (sub, rs._X.note, rdflib.Literal("メモ", lang="ja")) in g
     assert (sub, rs._X.weight, rdflib.Literal(3)) in g
     assert len(list(g.objects(sub, rs._X.tags))) == 2
+
+
+def test_names_that_break_the_iri_scheme_are_rejected() -> None:
+    cat = copy.deepcopy(rc.catalog_to_json())
+    # 組み込みの子の節（#sub-rule-1）と同じ IRI になる名前は断る
+    for bad in ("sub-rule-1", "Sub", "1x", "a b", "", "predicate-x"):
+        c = copy.deepcopy(cat)
+        c["relations"][0]["name"] = bad
+        with pytest.raises(ValueError):
+            rs.catalog_triples(c, builtin=False)
+    for bad in ("has-dash", "1x", "a_b", "Upper", ""):
+        c = copy.deepcopy(cat)
+        c["predicates"][0]["name"] = bad
+        with pytest.raises(ValueError):
+            rs.catalog_triples(c, builtin=False)
+    # 今の目録は全部通る
+    rs.catalog_triples(cat, builtin=True)
+
+
+def test_reserved_field_names_are_rejected() -> None:
+    for key in ("order", "value", "owner_entry", "added_by", "rule", "predicate"):
+        c = copy.deepcopy(rc.catalog_to_json())
+        c["relations"][0][key] = "x"
+        with pytest.raises(ValueError):
+            rs.catalog_triples(c, builtin=True)
+    c = copy.deepcopy(rc.catalog_to_json())
+    c["predicates"][0]["own"] = {"order": 1}  # 入れ子の中でも
+    with pytest.raises(ValueError):
+        rs.catalog_triples(c, builtin=True)
+
+
+async def test_human_predicate_is_not_marked_builtin_and_survives_reseed(
+    client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await rs.seed_builtin(client, at=AT)
+    p = copy.deepcopy(rc.catalog_to_json()["predicates"][0])
+    p["name"] = "humanPred"
+    p["iri"] = "http://example.org/humanPred"
+    g = rs.catalog_triples({"relations": [], "predicates": [p]}, builtin=False, at=AT)
+    assert (rs.predicate_iri("humanPred"), rs._BUILTIN, rdflib.Literal(True)) not in g
+    await client.sparql_update(
+        f"INSERT DATA {{ GRAPH <{rs.CATALOG_GRAPH}> {{ {g.serialize(format='nt')} }} }}"
+    )
+
+    def change(c: dict) -> None:
+        c["relations"][0]["label"]["ja"] = "変えた"
+
+    _fake(monkeypatch, change)
+    assert await rs.seed_builtin(client, at=AT2) is True
+    names = [x["name"] for x in (await rs.read_catalog(client))["predicates"]]
+    assert "humanPred" in names
+    assert "humanPred" not in [x["name"] for x in (await rs.read_catalog(client, builtin_only=True))["predicates"]]
+    # 呼び手が builtin=True なら印が付く
+    g2 = rs.catalog_triples({"relations": [], "predicates": [p]}, builtin=True)
+    assert (rs.predicate_iri("humanPred"), rs._BUILTIN, rdflib.Literal(True)) in g2
 
 
 # --- 読み戻し・種まき ----------------------------------------------------------
