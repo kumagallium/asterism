@@ -210,7 +210,7 @@ def test_install_goes_through_phases_and_becomes_ready(tmp_path: Path, sidecar_d
     assert (rt.root / "venv" / "bin" / "python").is_file()
 
     info = json.loads((rt.root / "runtime.json").read_text())
-    assert info["docling"] == "2.102.1"
+    assert info["docling"] == "2.150.1"
     assert len(info["requirements_sha256"]) == 64
     assert {m["repo_id"] for m in info["models"]} == {
         "docling-project/docling-layout-heron",
