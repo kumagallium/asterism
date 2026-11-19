@@ -157,3 +157,39 @@ export function standardPredicatesFor(source: EndKind, target: EndKind, c: Relat
   if (target === 'unknown') return classy(source) ? classFamily : propFamily
   return [] // 種類と項目の混在・項目 → 項目以外
 }
+
+/** 目録の主な関数を、全関係・全種別で一度試し呼びする（例外が出る目録は使わないための安全網。結果は見ない）。 */
+export function exerciseCatalog(c: RelationCatalog): void {
+  const kinds: EndKind[] = ['class', 'property', 'quantity', 'unknown']
+  for (const s of kinds) {
+    for (const t of kinds) {
+      knowledgePredicatesFor(s, t, c)
+      standardPredicatesFor(s, t, c)
+    }
+  }
+  for (const r of c.relations) {
+    isRelationName(r.name, c)
+    isSymmetricPairRelation(r.name, c)
+    isSymmetricDraftRelation(r.name, c)
+    isHierarchyRelation(r.name, c)
+    for (const lang of ['ja', 'en'] as const) {
+      draftRelationLabel(r.name, lang, c)
+      relationSentence(r.name, 'S', 'O', lang, c)
+    }
+    for (const k of ['class', 'property'] as const) {
+      predicateOfRelation(r.name, k, k, c)
+      knowledgePredicateOf(r.name, k, c)
+    }
+    knowledgePredicateOf(r.name, undefined, c)
+  }
+  for (const p of c.predicates) {
+    isDirectedPredicate(p.name, c)
+    isSymmetricPredicate(p.name, c)
+    isKnowledgePredicate(p.name, c)
+    for (const lang of ['ja', 'en'] as const) predicateLabel(p.name, lang, c)
+  }
+  assignableRelations(c)
+  relationNames(c)
+  predicateNames(c)
+  knowledgePredicateNames(c)
+}

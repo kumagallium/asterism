@@ -13,7 +13,7 @@ import { normalizeName } from '../decide/decide'
 import { QUANTITY_KIND_NS, SV_NS } from '../lineChoice'
 import { BUILTIN_CATALOG } from '../relations/builtinCatalog'
 import type { RelationName } from '../relations/catalog'
-import { isHierarchyRelation, predicateOfRelation } from '../relations/relationFns'
+import { isHierarchyRelation, isRelationName, predicateOfRelation } from '../relations/relationFns'
 import { isValidSlug, slugFromText } from '../vocabQuestion'
 
 export type Step = 1 | 2 | 3
@@ -194,7 +194,7 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 const isStr = (v: unknown): v is string => typeof v === 'string'
 const str = (v: unknown): string => (isStr(v) ? v : '')
-const isRel = (v: unknown): v is RelKind => REL_KINDS.includes(v as RelKind)
+const isRel = (v: unknown): v is RelKind => isRelationName(v)
 
 function conceptOf(c: Record<string, unknown>, by: 'ai' | 'human'): ConceptRow | null {
   if (!isStr(c.key) || !isStr(c.label_ja)) return null
