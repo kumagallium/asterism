@@ -91,9 +91,11 @@ STATES = ("relation", "none", "dropped", "failed")
 
 _NONE = "none"
 _MAX_EVIDENCE = 3
-_DIRECTED_TO_PROPERTY = ("lowers", "raises", "affects")
-_SAME_KIND = ("sub", "eq", "part")
-_CYCLE_RELS = ("sub", "part")
+# 検査と問いの規則は目録から導く（``asterism.relation_catalog``）
+_DIRECTED_TO_PROPERTY = relation_catalog.to_property_only_relations()
+_SAME_KIND = relation_catalog.same_kind_relations()
+_CYCLE_RELS = relation_catalog.acyclic_relations()
+_QUESTION_OP = relation_catalog.question_ops()
 _NAME_RE = re.compile(r"[a-z0-9_-]{1,64}")
 _ANNOTATED = ("context", "tentative", "review")
 
@@ -775,11 +777,7 @@ def _confirmed_names() -> dict[str, frozenset[str]]:
 _CONFIRMED_NAMES = _confirmed_names()
 #: 下書きの関係 → 数える ``factors`` の向き（``knowledge.factors`` と同じく ``affects`` の問いは
 #: 3 つの関係全部を数える）。
-_FACTOR_DIRECTIONS = {
-    "lowers": ("lowers", "affects"),
-    "raises": ("raises", "affects"),
-    "affects": ("affects",),
-}
+_FACTOR_DIRECTIONS = relation_catalog.factor_directions()
 
 
 def questions(
@@ -821,11 +819,12 @@ def questions(
             continue
         seen.add((frm, rel, to))
         ends.update((frm, to))
-        if rel == "has_property":
+        op_of_rel = _QUESTION_OP.get(rel)
+        if op_of_rel == "bearers":
             owners.setdefault(to, set()).add(frm)
-        if rel == "sub":
+        if op_of_rel == "kinds":
             add("kinds", to)
-        elif rel == "part":
+        elif op_of_rel == "parts":
             add("parts", to)
             parents.setdefault(frm, set()).add(to)
         elif rel in _FACTOR_DIRECTIONS:
