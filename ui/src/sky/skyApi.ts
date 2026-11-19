@@ -2,6 +2,7 @@
 // `asterism.sky_view`）。公開済みのものだけが来る。draft は含まれない。
 import { throwApiError } from '../api'
 import { authHeaders } from '../authToken'
+import type { KnowledgePredicateName } from '../relations/catalog'
 
 /** 種類（星）。`links` は同じデータセットの中の別の種類（星座の線）。 */
 export interface SkyKind {
@@ -63,18 +64,8 @@ export interface SkyHub {
   members: string[]
 }
 
-/** 語どうしの知識の線の関係（一部・下げる・上げる・変える・作る・測る・変わる・競合する・物性）。 */
-export type SkyKnowledgeRelation =
-  | 'isPartOf'
-  | 'lowers'
-  | 'raises'
-  | 'affects'
-  | 'makes'
-  | 'measuresProperty'
-  | 'measuresMaterial'
-  | 'becomes'
-  | 'competesWith'
-  | 'hasProperty'
+/** 語どうしの知識の線の関係（一部・下げる・上げる・変える・作る・測る・変わる・競合する・物性）。型は目録の生成物から導く。 */
+export type SkyKnowledgeRelation = KnowledgePredicateName
 
 /** 語（用語）どうしの知識の線。`from` が `to` を下げる／上げる／変える、`from` は `to` の一部。 */
 export interface SkyLine {

@@ -20,6 +20,7 @@ import type {
   SkyKnowledgeRelation,
   SkyTerm,
 } from './skyApi'
+import { isSymmetricPredicate, knowledgePredicateOf } from '../relations/relationFns'
 import {
   KNOW_PITCH,
   planKnowledge,
@@ -944,7 +945,7 @@ export function layoutSky(sky: SkyData, opts: LayoutOptions): SkyLayout {
     const seen =
       real !== undefined &&
       (conceptSeen.has(`${e.from}>${e.to}>${real}`) ||
-        (real === 'competesWith' && conceptSeen.has(`${e.to}>${e.from}>${real}`)))
+        (isSymmetricPredicate(real) && conceptSeen.has(`${e.to}>${e.from}>${real}`)))
     if (e.info.state === 'thin' && seen) continue
     edges.push({ kind: 'draft', from: e.from, to: e.to, draft: e.info })
   }
@@ -988,24 +989,11 @@ function drawnWidth(label: string, w: number): number {
   return Math.min(w, t + 26)
 }
 
-/** 提案の線の関係 → 本物の知識の線の関係（同じ関係は二重に引かない）。 */
-/** 下書きの関係の名前 → 確定側の名前。 */
-const REAL_RELATION: Record<string, SkyKnowledgeRelation | undefined> = {
-  part: 'isPartOf',
-  lowers: 'lowers',
-  raises: 'raises',
-  affects: 'affects',
-  makes: 'makes',
-  becomes: 'becomes',
-  competes: 'competesWith',
-  has_property: 'hasProperty',
-}
-
-/** 下書きの関係 → 確定側の名前。`measures` だけは相手の概念の種別で決まる（項目＝measuresProperty・種類＝measuresMaterial）。
- *  相手の種別が分からなければ undefined（表示名は下書きの名前「測る」で出す）。星図と地図で同じ割り方を使う。 */
+/** 下書きの関係 → 確定側の名前（知識の関係だけ）。`measures` だけは相手の概念の種別で決まる（項目＝measuresProperty・種類＝measuresMaterial）。
+ *  相手の種別が分からなければ undefined（表示名は下書きの名前「測る」で出す）。星図と地図で同じ割り方を使う。
+ *  同じ関係は二重に引かない、の判定に使う。目録（relations/）から導く。 */
 export function realRelationOf(rel: string, toKind: 'class' | 'property' | undefined): SkyKnowledgeRelation | undefined {
-  if (rel === 'measures') return toKind === 'property' ? 'measuresProperty' : toKind === 'class' ? 'measuresMaterial' : undefined
-  return REAL_RELATION[rel]
+  return knowledgePredicateOf(rel, toKind) as SkyKnowledgeRelation | undefined
 }
 
 /** 知識の線の小さな札の幅（「一部」「part」・↓ ↑ ↕）。置き場所を決めるときに見込む。 */
