@@ -30,7 +30,7 @@ from pathlib import Path
 
 import yaml
 
-from asterism import substrate
+from asterism import relation_catalog, substrate
 from asterism.crosswalk import (
     RECIPE_PRIMITIVES,
     XW,
@@ -750,7 +750,7 @@ async def remove_hub(client, perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> No
 # (consistent with the deterministic / citable product direction).
 
 #: 自前の関係の述語の名前空間（関係の述語だけ・利用者裁定 2026-11-17）。
-REL = "https://kumagallium.github.io/asterism/vocab/relation#"
+REL = relation_catalog.REL_NS
 
 ALIGNMENT_GRAPH = substrate.ALIGNMENT_GRAPH
 _ALIGN_RESOURCE = "https://kumagallium.github.io/asterism/crosswalk/resource/alignment/"
@@ -770,94 +770,29 @@ _XSD = "http://www.w3.org/2001/XMLSchema#"
 # "the values this predicate carries are of this quantity kind" — enough for a tool to
 # ask "who else measured thermal conductivity?" across datasets, which is the question
 # the grounding exists to answer.
-ALIGN_RELATIONS: dict[str, str] = {
-    "equivalentClass": "http://www.w3.org/2002/07/owl#equivalentClass",
-    "subClassOf": "http://www.w3.org/2000/01/rdf-schema#subClassOf",
-    "equivalentProperty": "http://www.w3.org/2002/07/owl#equivalentProperty",
-    "subPropertyOf": "http://www.w3.org/2000/01/rdf-schema#subPropertyOf",
-    "hasQuantityKind": "http://qudt.org/schema/qudt/hasQuantityKind",
-    # 知識の関係（問いから育てる・design.md §15.2）。自前の述語は作らず標準を使う
-    # （``sv:`` に述語は置かない）。BFO の part of と RO の regulates 系。
-    "isPartOf": "http://purl.obolibrary.org/obo/BFO_0000050",
-    "lowers": "http://purl.obolibrary.org/obo/RO_0002212",  # negatively regulates
-    "raises": "http://purl.obolibrary.org/obo/RO_0002213",  # positively regulates
-    "affects": "http://purl.obolibrary.org/obo/RO_0002211",  # regulates
-    # 実験の記録の関係（14a-1・design.md §23）。標準の述語を使い、自前は competesWith の 1 つだけ。
-    "makes": "http://purl.obolibrary.org/obo/RO_0002234",  # has output（手法 → 材料）
-    # assay measures characteristic
-    "measuresProperty": "http://purl.obolibrary.org/obo/RO_0009006",
-    "measuresMaterial": "http://www.w3.org/ns/sosa/hasFeatureOfInterest",
-    "becomes": "http://purl.obolibrary.org/obo/RO_0001001",  # derives into（材料 → 材料）
-    "competesWith": f"{REL}competesWith",  # 向きなし・自前（標準に無い）
-    "hasProperty": "http://purl.obolibrary.org/obo/RO_0000053",  # has characteristic
-}
+#: 値は目録（:mod:`asterism.relation_catalog`）から導く。
+ALIGN_RELATIONS: dict[str, str] = relation_catalog.align_relations()
 
 #: 人が確定する「知識の関係」。データの宣言（``wired.json``）には数えず、``knowledge.json``
 #: に数える（孤立の定義の改訂・利用者裁定 2026-10-20）。
-KNOWLEDGE_RELATIONS: tuple[str, ...] = (
-    "isPartOf",
-    "lowers",
-    "raises",
-    "affects",
-    "makes",
-    "measuresProperty",
-    "measuresMaterial",
-    "becomes",
-    "competesWith",
-    "hasProperty",
-)
+KNOWLEDGE_RELATIONS: tuple[str, ...] = relation_catalog.knowledge_relations()
 
 #: 向きの無い関係。A→B と B→A は同じ 1 本（:func:`canonical_ends` が IRI の文字列順に並べる）。
-SYMMETRIC_RELATIONS = frozenset({"competesWith"})
+SYMMETRIC_RELATIONS = relation_catalog.symmetric_predicates()
 
 #: 自分自身に結ぶのを拒む関係（実験の記録の 6 つ）。
-NO_SELF_RELATIONS = frozenset(
-    {"makes", "measuresProperty", "measuresMaterial", "becomes", "competesWith", "hasProperty"}
-)
+NO_SELF_RELATIONS = relation_catalog.no_self_predicates()
 
 #: 語（種類）に付ける役割の札の閉じた値。
 ROLES = ("material", "method", "concept", "other")
 ROLES_JA = {"material": "材料", "method": "手法", "concept": "概念", "other": "そのほか"}
-_MATERIAL = frozenset({"material"})
-_NOT_MATERIAL = frozenset({"method", "concept", "other"})
-_ANY_ROLE: frozenset[str] = frozenset()  # 空 = その端は検査しない
-
 #: 確定側の関係名 → ``(from の許す役割, to の許す役割)``。表に無い関係（既存の 9 つ）は検査しない。
-ROLE_RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
-    "makes": (_NOT_MATERIAL, _MATERIAL),
-    "measuresProperty": (_NOT_MATERIAL, _ANY_ROLE),
-    "measuresMaterial": (_NOT_MATERIAL, _MATERIAL),
-    "becomes": (_MATERIAL, _MATERIAL),
-    "competesWith": (_MATERIAL, _MATERIAL),
-    "hasProperty": (_MATERIAL, _ANY_ROLE),
-}
+ROLE_RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = relation_catalog.role_rules()
 
 #: 自前の述語の記録（ADR relations-for-experiments.md §3）。自前にするのは、標準を探して
 #: 無かったものだけ。``searched`` = 探した語彙（ラベル・定義とも該当なし）、``date`` = 探した日。
 #: 後で標準が見つかれば ``owl:equivalentProperty`` で結ぶ（IRI は変えない）。
-OWN_RELATIONS: dict[str, dict] = {
-    "competesWith": {
-        "label_ja": "競合する",
-        "label_en": "competes with",
-        "definition": (
-            "Two materials (phases) compete: under the same conditions, the formation of one "
-            "makes the other less likely to form. Symmetric."
-        ),
-        "searched": [
-            "RO (release 2026-09-04)",
-            "BFO",
-            "SOSA / SSN",
-            "OBI",
-            "IAO",
-            "CHMO",
-            "SIO",
-            "PATO",
-            "ENVO",
-            "OLS4 (all ontologies; only schema.org competitor, a sports term)",
-        ],
-        "date": "2026-11-17",
-    },
-}
+OWN_RELATIONS: dict[str, dict] = relation_catalog.own_relations()
 
 
 def canonical_ends(relation: str, source: str, target: str) -> tuple[str, str]:
@@ -897,7 +832,7 @@ def _alignment_iri(source: str, relation: str, target: str) -> str:
 
 #: 循環を拒む述語（上へ辿って自分に戻る線）。``lowers`` / ``raises`` / ``affects`` は含めない —
 #: フィードバック（A が B を下げ、B が A を下げる）は正当なので循環を許す。
-_SUBSUMPTION = ("subClassOf", "subPropertyOf", "isPartOf")
+_SUBSUMPTION = relation_catalog.subsumption_predicates()
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 _RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 
@@ -955,36 +890,31 @@ async def _declared_shapes(client, iris: list[str]) -> dict[str, set[str]]:
     return out
 
 
-_CLASS_ONLY = frozenset({"class"})
-_PROPERTY_ONLY = frozenset({"property"})
-_EITHER = frozenset({"class", "property"})
-_UNCHECKED: frozenset[str] = frozenset()  # 空 = その端は検査しない
-
 #: 述語ごとの「端の許す種別」``(from, to)``。端の宣言が決まるとき（データセットの ontology
 #: graph か共有語彙 graph に ``rdfs:Class`` / ``rdf:Property`` として宣言があるとき）だけ検査し、
 #: 宣言が無い端・両方で宣言された端は通す。``isPartOf`` は表に加えて「両端が同じ種別」
 #: （:data:`SAME_SHAPE_RELATIONS`）も求める。``hasQuantityKind`` の to は QUDT の量の種類
 #: （個体）なので検査しない。
-RELATION_SHAPES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
-    "subClassOf": (_CLASS_ONLY, _CLASS_ONLY),
-    "equivalentClass": (_CLASS_ONLY, _CLASS_ONLY),
-    "subPropertyOf": (_PROPERTY_ONLY, _PROPERTY_ONLY),
-    "equivalentProperty": (_PROPERTY_ONLY, _PROPERTY_ONLY),
-    "hasQuantityKind": (_PROPERTY_ONLY, _UNCHECKED),
-    "isPartOf": (_EITHER, _EITHER),
-    # 種類か項目が、項目を下げる／上げる／変える（to が種類と宣言されていれば拒む）
-    "lowers": (_EITHER, _PROPERTY_ONLY),
-    "raises": (_EITHER, _PROPERTY_ONLY),
-    "affects": (_EITHER, _PROPERTY_ONLY),
-    # 実験の記録（種類 → 種類／項目）
-    "makes": (_CLASS_ONLY, _CLASS_ONLY),
-    "measuresProperty": (_CLASS_ONLY, _PROPERTY_ONLY),
-    "measuresMaterial": (_CLASS_ONLY, _CLASS_ONLY),
-    "becomes": (_CLASS_ONLY, _CLASS_ONLY),
-    "competesWith": (_CLASS_ONLY, _CLASS_ONLY),
-    "hasProperty": (_CLASS_ONLY, _PROPERTY_ONLY),
-}
-SAME_SHAPE_RELATIONS = frozenset({"isPartOf"})
+#: 並びは従来の公開名と同じ（目録の並びとは違う）。
+_SHAPES_ORDER = (
+    "subClassOf",
+    "equivalentClass",
+    "subPropertyOf",
+    "equivalentProperty",
+    "hasQuantityKind",
+    "isPartOf",
+    "lowers",
+    "raises",
+    "affects",
+    "makes",
+    "measuresProperty",
+    "measuresMaterial",
+    "becomes",
+    "competesWith",
+    "hasProperty",
+)
+RELATION_SHAPES = relation_catalog.relation_shapes(order=_SHAPES_ORDER)
+SAME_SHAPE_RELATIONS = relation_catalog.same_shape_predicates()
 assert set(RELATION_SHAPES) == set(ALIGN_RELATIONS)  # 述語を足したら表も足す
 
 

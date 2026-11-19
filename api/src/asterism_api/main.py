@@ -12386,6 +12386,7 @@ def build_app(
     from asterism_api.handles_routes import register_handles
     from asterism_api.license_routes import register_license  # 循環 import 回避（上の注記参照）
     from asterism_api.place_routes import register_place  # 循環 import 回避（上の注記参照）
+    from asterism_api.relations_routes import register_relations  # 関係の目録（R0a）
     from asterism_api.sky_suggestions_routes import register_sky_suggestions  # 結べそうな線
     from asterism_api.themes_routes import register_themes  # 知りたいことから作る（テーマ）
     from asterism_api.vocab_routes import register_vocab  # 共有の言葉（上位構造 ADR §2）
@@ -12413,6 +12414,7 @@ def build_app(
     register_sky_suggestions(app, cfg, write_auth=_write_auth)  # 公開のあとの「結べそうな線」
     register_chat(app, cfg, _resolve_llm, write_auth=_write_auth)  # 話（チャット）の API
     register_ai(app, cfg, _resolve_llm, write_auth=_write_auth)  # AI の適性検査
+    register_relations(app)  # 関係の目録（読み取りのみ・認証なし）
     register_export(app, cfg)
     register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）

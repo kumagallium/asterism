@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from asterism import relation_catalog
 from asterism import shared_vocab as sv
 from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
@@ -127,24 +128,11 @@ def _knowledge_target_kind_message(q: str, op: str) -> str:
 KNOWLEDGE_DIRECTIONS = ("lowers", "raises", "affects")
 #: 下書きの関係の名前（``theme_propose.RELATIONS`` と同じ）。ストアの述語には
 #: :func:`relation_predicate` で写す。
-RELATION_KINDS = (
-    "sub",
-    "eq",
-    "quantity",
-    "part",
-    "lowers",
-    "raises",
-    "affects",
-    "makes",
-    "measures",
-    "becomes",
-    "competes",
-    "has_property",
-)
+RELATION_KINDS = relation_catalog.relation_kinds()
 #: 実験の記録の関係（下書きの名前・14a-1）。種別と役割の検査は :func:`experiment_relation_problem`。
-EXPERIMENT_RELATIONS = ("makes", "measures", "becomes", "competes", "has_property")
+EXPERIMENT_RELATIONS = relation_catalog.experiment_relations()
 #: 向きの無い下書きの関係（確定側は competesWith・``crosswalk_runtime.SYMMETRIC_RELATIONS``）。
-SYMMETRIC_DRAFT_RELATIONS = ("competes",)
+SYMMETRIC_DRAFT_RELATIONS = relation_catalog.symmetric_draft_relations()
 
 
 def draft_rel_key(frm: str, rel: str, to: str) -> tuple[str, str, str]:
@@ -833,28 +821,13 @@ def relation_predicate(rel: str, kind: str, to_kind: str | None = None) -> str:
     ``measures`` は相手の種別（``to_kind``）で 2 つに割れる: ``property`` なら
     ``measuresProperty``・それ以外の種別なら ``measuresMaterial``。``to_kind`` が無ければ
     決められないので :class:`ThemeError`。ほかの関係は ``to_kind`` を見ない。"""
-    if rel == "sub":
-        return "subClassOf" if kind == "class" else "subPropertyOf"
-    if rel == "eq":
-        return "equivalentClass" if kind == "class" else "equivalentProperty"
-    if rel == "measures":
-        if to_kind is None:
-            raise ThemeError("「測る」は、相手が項目か種類かが分からないと決められません")
-        return "measuresProperty" if to_kind == "property" else "measuresMaterial"
     try:
-        return {
-            "quantity": "hasQuantityKind",
-            "part": "isPartOf",
-            "lowers": "lowers",
-            "raises": "raises",
-            "affects": "affects",
-            "makes": "makes",
-            "becomes": "becomes",
-            "competes": "competesWith",
-            "has_property": "hasProperty",
-        }[rel]
+        name = relation_catalog.resolve_predicate(rel, kind, to_kind)
     except KeyError:
         raise ThemeError(f"関係は {RELATION_KINDS} のどれかです: {rel!r}") from None
+    if name is None:
+        raise ThemeError("「測る」は、相手が項目か種類かが分からないと決められません")
+    return name
 
 
 def experiment_relation_problem(

@@ -33,8 +33,8 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
+from asterism import relation_catalog, themes
 from asterism import shared_vocab as sv
-from asterism import themes
 from asterism.shared_vocab import SharedTerm, normalize_label
 
 __all__ = [
@@ -797,54 +797,9 @@ def dismissal_keys(
 
 #: 述語（``crosswalk`` の線の ``relation``）→ 図の関係名（``themes.relation_predicate`` の逆）。
 #: 画面に出す線はこの 15 の述語だけ（``measuresProperty`` と ``measuresMaterial`` は同じ「測る」）。
-PRED_TO_REL = {
-    "subClassOf": "sub",
-    "subPropertyOf": "sub",
-    "equivalentClass": "eq",
-    "equivalentProperty": "eq",
-    "hasQuantityKind": "quantity",
-    "isPartOf": "part",
-    "lowers": "lowers",
-    "raises": "raises",
-    "affects": "affects",
-    "makes": "makes",
-    "measuresProperty": "measures",
-    "measuresMaterial": "measures",
-    "becomes": "becomes",
-    "competesWith": "competes",
-    "hasProperty": "has_property",
-}
+PRED_TO_REL = relation_catalog.pred_to_rel()
 #: 図の関係名 → 線を言い表す文（``{s}`` = 主語の名前・``{o}`` = 目的語の名前）。
-REL_SENTENCE = {
-    "ja": {
-        "sub": "{s} は {o} の一種",
-        "eq": "{s} と {o} は同じもの",
-        "quantity": "{s} の量は {o}",
-        "part": "{s} は {o} の一部",
-        "lowers": "{s} は {o} を下げる",
-        "raises": "{s} は {o} を上げる",
-        "affects": "{s} は {o} を変える",
-        "makes": "{s} で {o} を作る",
-        "measures": "{s} で {o} を測る",
-        "becomes": "{s} が {o} に変わる",
-        "competes": "{s} と {o} は競合する",
-        "has_property": "{s} の {o}",
-    },
-    "en": {
-        "sub": "{s} is a kind of {o}",
-        "eq": "{s} is the same as {o}",
-        "quantity": "The quantity of {s} is {o}",
-        "part": "{s} is a part of {o}",
-        "lowers": "{s} lowers {o}",
-        "raises": "{s} raises {o}",
-        "affects": "{s} changes {o}",
-        "makes": "{s} makes {o}",
-        "measures": "{s} measures {o}",
-        "becomes": "{s} turns into {o}",
-        "competes": "{s} competes with {o}",
-        "has_property": "{s} has the property {o}",
-    },
-}
+REL_SENTENCE = relation_catalog.rel_sentence()
 
 
 def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str]:
