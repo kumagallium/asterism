@@ -6,6 +6,6 @@
 # Verified end-to-end at this pin (docs/reports/pdf-docling-production.md): docling
 # 2.102.1 resolves docling-core 2.82.0 + docling-ibm-models 3.13.3 — the converter id
 # stamped onto lit:DocumentConversionActivity.
-docling==2.102.1
+docling==2.132.0
 fastapi>=0.110
 uvicorn[standard]>=0.27
