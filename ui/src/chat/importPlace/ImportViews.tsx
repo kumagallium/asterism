@@ -166,6 +166,11 @@ export function ImportListNotice({ notice, onDismiss }: { notice: ListNotice; on
   )
 }
 
+/** 用語の候補の総数。関係が付いた用語の数より少ない・0 のとき（古い写しなど）は出さない（null）。 */
+function candidateTotal(total: number, related: number): number | null {
+  return total > 0 && total >= related ? total : null
+}
+
 // ── 結果の 1 枚 ──
 
 /** 結果の 1 枚に「答えられる問い」の節を出すか（未確認の関係を答えに使う 14e-2 が入ったので出す）。 */
@@ -191,10 +196,15 @@ export function ImportResultCard(p: ImportResultProps) {
   const skip = skipKey(r)
   const lost = lostCount(r)
   const { shown, more } = questionRows(r)
+  const termTotal = candidateTotal(r.copied.terms, r.relations.terms)
   return (
     <div className="imp-res" role="status" aria-label={t('result.label')} data-testid="import-result">
       <p className="imp-big">{t('result.read', { name: p.name, claims: n(r.copied.claims), topics: n(r.copied.topics) })}</p>
-      <p>{t('result.added', { terms: n(r.relations.terms), relations: n(r.relations.shown) })}</p>
+      <p data-testid="import-added">
+        {termTotal === null
+          ? t('result.added', { terms: n(r.relations.terms), relations: n(r.relations.shown) })
+          : t('result.addedOf', { total: n(termTotal), terms: n(r.relations.terms), relations: n(r.relations.shown) })}
+      </p>
       {r.relations.candidates > 0 && <p>{t('result.candidates', { n: n(r.relations.candidates) })}</p>}
       {lost > 0 && <p data-testid="import-lost">{t('result.lost', { n: n(lost) })}</p>}
       {skip && (
@@ -316,6 +326,7 @@ function datasetRow(r: ImportRow, p: SourcesProps, t: TFunction, n: (v: number) 
 function sourceRow(s: ImportSource, p: SourcesProps, t: TFunction, n: (v: number) => string, when: (s: string | null) => string) {
   const confirming = p.confirming === s.source
   const running = s.running !== null && p.jobSource !== s.source
+  const termTotal = candidateTotal(s.counts.terms, s.relations.terms)
   const row = (
     <tr key={s.source} data-testid="import-source-row" data-source={s.source}>
       <td data-label={t('sources.source')} className="imp-name">
@@ -327,7 +338,16 @@ function sourceRow(s: ImportSource, p: SourcesProps, t: TFunction, n: (v: number
         )}
       </td>
       <td data-label={t('sources.contents')}>{t('sources.counts', { claims: n(s.counts.claims), topics: n(s.counts.topics) })}</td>
-      <td data-label={t('sources.terms')}>{n(s.relations.terms)}</td>
+      <td data-label={t('sources.terms')}>
+        <span>
+          {n(s.relations.terms)}{' '}
+          {termTotal !== null && (
+            <span className="imp-un" data-testid="import-term-total">
+              {t('sources.termTotal', { n: n(termTotal) })}
+            </span>
+          )}
+        </span>
+      </td>
       <td data-label={t('sources.relations')}>
         <span>
           {n(s.relations.shown)} <span className="imp-un">{t('sources.unconfirmed', { n: n(s.relations.unconfirmed) })}</span>

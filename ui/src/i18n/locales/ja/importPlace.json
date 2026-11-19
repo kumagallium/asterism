@@ -45,6 +45,7 @@
   "result": {
     "read": "{{name}} から 知見 {{claims}}・トピック {{topics}} を読みました。",
     "added": "用語 {{terms}}・関係 {{relations}} を知識グラフに足しました（未確認）。",
+    "addedOf": "用語の候補 {{total}} のうち、関係が付いた用語 {{terms}}・関係 {{relations}} を知識グラフに足しました（未確認）。",
     "candidates": "関係を言えなかった組 {{n}}（候補として残しています）。",
     "lost": "落とした・失敗したもの {{n}}。",
     "skip": {
@@ -70,6 +71,7 @@
     "actions": "操作",
     "counts": "知見 {{claims}}・トピック {{topics}}",
     "unconfirmed": "（未確認 {{n}}）",
+    "termTotal": "（候補 {{n}}）",
     "running": "走っています",
     "rerun": "写し直す",
     "remove": "外す",
