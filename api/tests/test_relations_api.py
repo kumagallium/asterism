@@ -62,9 +62,10 @@ def test_step0_copies_match_the_catalog() -> None:
     assert tuple(theme_propose.RELATIONS) == rc.relation_kinds()
     assert tuple(pair_propose.PAIR_RELS) == without_quantity
     assert tuple(pair_propose.SYMMETRIC_RELS) == rc.symmetric_pair_relations()
-    # PAPER_RELS は並びが違う（part が先頭）。値の集合で見る
+    # PAPER_RELS は並びが違う（part が先頭）。値の集合で見る。目録の ``paper`` が正
     assert len(paper_propose.PAPER_RELS) == 10
-    assert set(paper_propose.PAPER_RELS) == set(without_eq)
+    assert set(paper_propose.PAPER_RELS) == set(rc.paper_relations())
+    assert set(rc.paper_relations()) == set(without_eq)
 
 
 @pytest.mark.parametrize("name", ["sub", "measures", "competes"])

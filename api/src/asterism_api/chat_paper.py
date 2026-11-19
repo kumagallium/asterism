@@ -576,7 +576,7 @@ def build_ops(
             else ()
         )
     } - factor_to  # fmt: skip
-    measure_to = {to for _f, to, r in pairs if r["rel"] == "measures"}
+    measure_to = {to for _f, to, r in pairs if r["rel"] == _MEASURER_REL}
     for k, t in terms.items():  # 既存の用語を選ぶ（1 つに決まらなければ関係の位置の種類で）
         if len(t["cands"]) == 1:
             t["existing"] = t["cands"][0]

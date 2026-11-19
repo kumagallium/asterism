@@ -1,6 +1,6 @@
 # 関係の目録 — 関係の定義を置く、コードの中の 1 か所
 
-状態: 実装（R0a・R0b）。設計は AI for Science 側 `ui-redesign-2026-10-19/design.md` §23.13。
+状態: 実装（R0a・R0b・R0c は実装済み、R0d は実装中）。設計は AI for Science 側 `ui-redesign-2026-10-19/design.md` §23.13。
 前提 = [`relations-for-experiments.md`](relations-for-experiments.md)（12 文・15 述語）。
 
 ## 背景
@@ -76,11 +76,11 @@ R0a の見張りのうち、api の `chat_paper._CLASS_BOTH`・`consult_graph_ro
 
 ## R0 の分け方
 
-- R0a（これ）: 目録・ingest の正の定義を導出に・`GET /api/relations`・同期テスト
-- R0b（実装済み）: ingest・api の写しを目録の導出に。`step0/`・`mcp/`・`demo-agent/` は AI への指示と道具の説明で
+- R0a（実装済み）: 目録・ingest の正の定義を導出に・`GET /api/relations`・同期テスト
+- R0b（この PR）: ingest・api の写しを目録の導出に。`step0/`・`mcp/`・`demo-agent/` は AI への指示と道具の説明で
   文面を変えないため写しのまま（同期テストで縛る）。同期テストは step0 と ui・i18n の分が残る
-- R0c: ui と i18n を API の目録から
-- R0d: 目録をストアに置く（利用者が関係を足せる。形は利用者に案を示してから）
+- R0c（実装済み・#844）: ui と i18n を API の目録から
+- R0d（実装中）: 目録をストアに置く（利用者が関係を足せる。形は利用者に案を示してから）
 
 ## 向きは 3 層で中身が違う（揃えない）
 
@@ -128,3 +128,5 @@ R0a の見張りのうち、api の `chat_paper._CLASS_BOTH`・`consult_graph_ro
 - `themes/themeDraft.ts` の `'competes'`・`'has_property'` を見る数え方（約 761-767 行）・`lineEstimate`・`knowledgeEstimate`・`MISSING_MIN_OTHERS`
 - `chat/handWays.ts` の `need`
 - `decide/decide.ts` の `CHOICE_ORDER`（ひとこと決めるの並び）
+- `startswith("equivalent")` が残る 3 か所（`ingest/src/asterism/suggested_lines.py` の `suggested_lines`・`api/src/asterism_api/chat_attach.py` の提案の文の選び分け・`ingest/src/asterism/shared_vocab.py` の `_down_set`）。述語の名前の接頭辞で「同じ」を見ており、目録は引いていない。
+- `sky_view._LINE_RELATIONS` の並び（種類の側 → 項目の側）は、目録の述語の並びと `shapes` の from に依る。目録で述語の並びや種別を変えると並びが変わる。
