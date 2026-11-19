@@ -427,4 +427,3 @@ def catalog_to_json() -> dict[str, Any]:
         "relations": [relation_to_json(r) for r in RELATIONS],
         "predicates": [predicate_to_json(p) for p in PREDICATES],
     }
-

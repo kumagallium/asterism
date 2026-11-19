@@ -140,6 +140,8 @@ KNOWN_DECIDE_DIFFERENCES = {
 def test_decide_json_option_and_sentence_match_the_catalog() -> None:
     names = [p.name for p in rc.PREDICATES]
     first_rule = {rule.name for r in rc.RELATIONS for rule in r.predicates[:1]}
+    # 実験の関係は述語が 2 つでも同じ文（measuresProperty・measuresMaterial）なので両方を見る
+    first_rule |= {rule.name for r in rc.RELATIONS if r.experiment for rule in r.predicates}
     owner = {rule.name: r for r in rc.RELATIONS for rule in r.predicates}
     seen_known: set[tuple[str, str]] = set()
     for lang in LANGS:
