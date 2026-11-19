@@ -2,7 +2,8 @@
 // 1 行目: 名前・種別・「足す」→ add_concept。2 行目: A・関係・B・「足す」→ add_relation。返事はチャットに手番として出る。
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { REL_KINDS } from '../themes/themeDraft'
+import { useCatalog } from '../relations/catalog'
+import { relationNames } from '../relations/relationFns'
 import { WAYS, targetsFor } from './handWays'
 import type { GraphOp, SetAnswerBody, SkyDraft } from './chatApi'
 
@@ -21,10 +22,11 @@ export interface HandFormProps {
 export function HandForm({ draft, nextKey, busy, onSubmit, onAnswer }: HandFormProps) {
   const { t } = useTranslation('chat')
   const { t: tt } = useTranslation('themes')
+  const catalog = useCatalog() // API の目録が重なったら関係の選択肢を引き直す
   const [name, setName] = useState('')
   const [kind, setKind] = useState<'class' | 'property'>('class')
   const [from, setFrom] = useState('')
-  const [rel, setRel] = useState<string>(REL_KINDS[0])
+  const [rel, setRel] = useState<string>(() => relationNames()[0])
   const [to, setTo] = useState('')
   const concepts = draft?.concepts ?? []
   const has = (k: string) => concepts.some((c) => c.key === k)
@@ -96,7 +98,7 @@ export function HandForm({ draft, nextKey, busy, onSubmit, onAnswer }: HandFormP
             ))}
           </select>
           <select className="hand-select" data-testid="hand-rel-kind" value={rel} aria-label={t('hand.rel')} onChange={(e) => setRel(e.target.value)} disabled={busy}>
-            {REL_KINDS.map((r) => (
+            {relationNames(catalog).map((r) => (
               <option key={r} value={r}>
                 {tt(`map.pillTitle.${r}`)}
               </option>

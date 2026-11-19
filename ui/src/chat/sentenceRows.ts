@@ -1,6 +1,7 @@
 // 「文」のタブの行（PR 11o）。点の 1 枚の文と、この話の下書き全体から、画面に出す 1 行ずつを組む。純関数。
 // 言い方は api の graph_diff.REL_SENTENCE と同じ（「A は B の一種」）。
 import type { Evidence, Point } from './chatApi'
+import { relationSentence } from '../relations/relationFns'
 import type { DraftSky } from '../sky/skyApi'
 
 export interface SentenceRow {
@@ -18,41 +19,9 @@ export interface SentenceRow {
   evidence?: Evidence[]
 }
 
-const SENTENCE = {
-  ja: {
-    sub: '{s} は {o} の一種',
-    eq: '{s} と {o} は同じもの',
-    quantity: '{s} の量は {o}',
-    part: '{s} は {o} の一部',
-    lowers: '{s} は {o} を下げる',
-    raises: '{s} は {o} を上げる',
-    affects: '{s} は {o} を変える',
-    makes: '{s} で {o} を作る',
-    measures: '{s} で {o} を測る',
-    becomes: '{s} が {o} に変わる',
-    competes: '{s} と {o} は競合する',
-    has_property: '{s} の {o}',
-  },
-  en: {
-    sub: '{s} is a kind of {o}',
-    eq: '{s} is the same as {o}',
-    quantity: 'The quantity of {s} is {o}',
-    part: '{s} is a part of {o}',
-    lowers: '{s} lowers {o}',
-    raises: '{s} raises {o}',
-    affects: '{s} changes {o}',
-    makes: '{s} makes {o}',
-    measures: '{s} measures {o}',
-    becomes: '{s} turns into {o}',
-    competes: '{s} competes with {o}',
-    has_property: '{s} has the property {o}',
-  },
-} as const
-
-/** 下書きの関係 1 本を文にする（知らない関係名は「s —rel→ o」）。 */
+/** 下書きの関係 1 本を文にする（知らない関係名は「s - o」）。文の型は目録（relations/）から引く。 */
 export function relSentence(rel: string, s: string, o: string, lang: 'ja' | 'en'): string {
-  const tpl = (SENTENCE[lang] as Record<string, string>)[rel]
-  return tpl ? tpl.replace('{s}', s).replace('{o}', o) : `${s} - ${o}`
+  return relationSentence(rel, s, o, lang) ?? `${s} - ${o}`
 }
 
 /** 点の 1 枚の文 → 行。下書きの鍵（from/rel/to/draft_id）を持つ文は、種（from_seed）でなければ未承認の行。 */

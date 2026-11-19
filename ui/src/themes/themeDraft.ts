@@ -11,39 +11,19 @@
 //   - 関係は閉集合 9 述語（一種・同じ・量・一部・下げる・上げる・変える）。標準の述語を使う。
 import { normalizeName } from '../decide/decide'
 import { QUANTITY_KIND_NS, SV_NS } from '../lineChoice'
+import { BUILTIN_CATALOG } from '../relations/builtinCatalog'
+import type { RelationName } from '../relations/catalog'
+import { isHierarchyRelation, isRelationName, predicateOfRelation } from '../relations/relationFns'
 import { isValidSlug, slugFromText } from '../vocabQuestion'
 
 export type Step = 1 | 2 | 3
 export const LAST_STEP: Step = 3
 
 export type TermKind = 'class' | 'property'
-export type RelKind =
-  | 'sub'
-  | 'eq'
-  | 'quantity'
-  | 'part'
-  | 'lowers'
-  | 'raises'
-  | 'affects'
-  | 'makes'
-  | 'measures'
-  | 'becomes'
-  | 'competes'
-  | 'has_property'
-export const REL_KINDS: readonly RelKind[] = [
-  'sub',
-  'eq',
-  'quantity',
-  'part',
-  'lowers',
-  'raises',
-  'affects',
-  'makes',
-  'measures',
-  'becomes',
-  'competes',
-  'has_property',
-]
+/** 下書き側の関係名。型は目録の生成物から導く（relations/builtinCatalog.ts）。 */
+export type RelKind = RelationName
+/** 組み込みの関係名（目録の並び）。実行時の一覧（API が足した関係を含む）は `relationNames()`。 */
+export const REL_KINDS: readonly RelKind[] = BUILTIN_CATALOG.relations.map((r) => r.name)
 export type RelationProblem =
   | 'same'
   | 'mixed'
@@ -214,7 +194,7 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 const isStr = (v: unknown): v is string => typeof v === 'string'
 const str = (v: unknown): string => (isStr(v) ? v : '')
-const isRel = (v: unknown): v is RelKind => REL_KINDS.includes(v as RelKind)
+const isRel = (v: unknown): v is RelKind => isRelationName(v)
 
 function conceptOf(c: Record<string, unknown>, by: 'ai' | 'human'): ConceptRow | null {
   if (!isStr(c.key) || !isStr(c.label_ja)) return null
@@ -854,24 +834,7 @@ export function conceptsFor(
 /** 下書きの関係 → alignment の述語名（api の ALIGN_RELATIONS のキー）。主語の種別で変わる。
  *  `measures` だけは相手（to）の種別で決まる（項目＝measuresProperty・それ以外＝measuresMaterial）。 */
 export function relationPredicate(rel: RelKind, subjectKind: TermKind, objectKind?: TermKind): string {
-  switch (rel) {
-    case 'sub':
-      return subjectKind === 'class' ? 'subClassOf' : 'subPropertyOf'
-    case 'eq':
-      return subjectKind === 'class' ? 'equivalentClass' : 'equivalentProperty'
-    case 'quantity':
-      return 'hasQuantityKind'
-    case 'part':
-      return 'isPartOf'
-    case 'competes':
-      return 'competesWith'
-    case 'has_property':
-      return 'hasProperty'
-    case 'measures':
-      return objectKind === 'property' ? 'measuresProperty' : 'measuresMaterial'
-    default:
-      return rel
-  }
+  return predicateOfRelation(rel, subjectKind, objectKind)
 }
 
 /** 標準語のプレフィックス → 名前空間（known_vocabs.yaml と QUDT の量の種類）。 */
@@ -1011,7 +974,7 @@ export function prevStep(step: Step): Step {
 
 /** 図の線の種類。段をつくる（一種・一部）か、同じ段の横の線か。 */
 export function isHierarchy(rel: RelKind): boolean {
-  return rel === 'sub' || rel === 'part'
+  return isHierarchyRelation(rel)
 }
 
 /** 概念の表示名（言語に合わせる。英語で英語名が無ければ日本語名）。 */

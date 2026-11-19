@@ -3,6 +3,7 @@
 // （チャットで作った関係）は、取り込み元が「すべて」・状態が「すべて」か「確認済み」・関係の種類が合うときだけ。
 // 語の点は、出ている線か、通った行（候補を出すなら候補も）に絡むものだけ。絞り込みが全部「すべて」なら何もしない。
 import type { SkyData, SkyLine } from '../../sky/skyApi'
+import { isSymmetricPredicate } from '../../relations/relationFns'
 import { realRelationOf } from '../../sky/skyLayout'
 import type { Ledger, LedgerRow } from './knowledgeRelationsApi'
 import { ALL, filterCandidates, filterRelations, isShown, type LedgerFilter } from './ledgerView'
@@ -16,7 +17,7 @@ const realOf = (r: LedgerRow): string | undefined => (r.rel ? realRelationOf(r.r
 function rowMatches(r: LedgerRow, e: SkyLine): boolean {
   if (!r.from.termIri || !r.to.termIri || realOf(r) !== e.relation) return false
   if (r.from.termIri === e.from && r.to.termIri === e.to) return true
-  return e.relation === 'competesWith' && r.from.termIri === e.to && r.to.termIri === e.from
+  return isSymmetricPredicate(e.relation) && r.from.termIri === e.to && r.to.termIri === e.from
 }
 
 /** 絞り込みの「関係の種類」（下書き側の名前）が、この線の関係に当たるか。 */
