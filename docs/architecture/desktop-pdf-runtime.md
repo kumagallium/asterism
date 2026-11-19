@@ -101,7 +101,7 @@ pdf-runtime.partial/   入れている途中。成功したら rename、失敗�
 
 ### D3. モデル — コミットで固定し、変換時はネットワークを使わない
 
-- docling 2.102.1 は、レイアウトのモデル（`docling-project/docling-layout-heron`）を `main` で、
+- docling 2.102.1 と 2.150.1（2026-11-19 に更新）は、どちらもレイアウトのモデル（`docling-project/docling-layout-heron`）を `main` で、
   表のモデル（`docling-project/docling-models`）をタグ `v2.3.0` で取りに行く。`main` は動くので、
   入れた時期によって別のモデルになり得る。**同じ PDF から同じ構造・同じ ID を得る**ために、
   どちらも**コミットで固定**する（`pdf_runtime/models.json`）。
