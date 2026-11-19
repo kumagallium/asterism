@@ -33,7 +33,8 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 | 反復と整列 | 既存の 8/16/24px 余白、操作寸法、文字階層を共通に使う |
 | 色以外の識別 | 下線・文言・○●⊙を併用。コントラストも数値で確認する |
 
-金の文字/暗面は 10.48:1、金ボタンの文字/塗りは 10.13:1（指定 RGB 値からの計算）。
+金の文字/浮いた面は 6.59:1、金ボタンの文字/塗りは 10.13:1（指定 RGB 値からの計算）。
+面は「沈む（グラフの地）→ 地 → 面 → 浮く（ダイアログ・メニュー）」の順に明るくする。ダイアログの後ろの幕は黒に近い色で下を沈め、開いた面と沈んだ画面の明度差は 1.66:1、枠は 4.6:1 を確保する（`ui/src/appearance.contrast.test.ts` で固定）。
 配色比率を固定的な法則にせず、主操作の塗り面積を小さくして、情報の領域を広く保つ。
 
 ### 現行の配置
@@ -61,6 +62,8 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 | カード/パネル | `--surface` | #ffffff |
 | 薄い面（入力/コード） | `--surface-alt` | #f7f9fc |
 | 沈んだ面（タブ列/表頭） | `--surface-sink` | #edf1f6 |
+| 浮いている面（ダイアログ/メニュー）と枠 | `--surface-raised` / `--border-raised` | #ffffff / #dce4ef |
+| ダイアログの後ろの幕（標準/強い/弱い） | `--overlay` / `--overlay-strong` / `--overlay-soft` | 紺 32% / 45% / 12% |
 | 星図の地（紙の星図・canvas の背景） | `--paper` | #fbfcfe |
 | 見出し・強調 | `--fg` | #16243b |
 | **本文（段落）** | `--body` | #34445e |
@@ -85,12 +88,13 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 
 | 用途 | 変数 | 値 |
 |---|---|---|
-| 背景 / パネル / グラフ | `--bg` / `--surface` / `--graph-paper` | #0b1220 / #111d30 / #0a1424 |
-| ロゴ / 主要操作 / 操作上の文字 | `--brand-ink` / `--primary` / `--primary-fg` | #b7ccff / #ebc86e / #222014 |
-| 見出し / 本文 / 補足 | `--fg` / `--body` / `--faint` | #e8edf6 / #c4cfe0 / #8d9fb8 |
-| 用語 / 種類 / データセット | `--graph-term` / `--graph-kind` / `--graph-dataset` | #91aed6 / #c8d9ff / #a3b4cd |
-| 関係 / 提案の関係 | `--graph-edge` / `--graph-edge-proposed` | #61799a / #516680 |
-| 警告 / エラー | `--warn-fg` / `--error-fg` | #ffba91 / #ffb5aa |
+| 背景 / パネル / グラフ | `--bg` / `--surface` / `--graph-paper` | #1a2940 / #233550 / #162338 |
+| 浮いている面 / 枠 / 幕 | `--surface-raised` / `--border-raised` / `--overlay` | #2b3f5e / #6b84a8 / rgb(7 12 22 / 68%) |
+| ロゴ / 主要操作 / 操作上の文字 | `--brand-ink` / `--primary` / `--primary-fg` | #c6d8ff / #ebc86e / #222014 |
+| 見出し / 本文 / 補足 | `--fg` / `--body` / `--faint` | #f4f7fc / #dbe3f0 / #b5c3d9 |
+| 用語 / 種類 / データセット | `--graph-term` / `--graph-kind` / `--graph-dataset` | #a3bfe6 / #d3e1ff / #b4c4db |
+| 関係 / 提案の関係 | `--graph-edge` / `--graph-edge-proposed` | #7d95b8 / #64799a |
+| 警告 / エラー | `--warn-fg` / `--error-fg` | #ffc8a6 / #ffc4bb |
 
 値のつながりの 8 色は `--graph-value-0`〜`--graph-value-7` を凡例と Canvas で共有する。
 Canvas は外観変更に購読して色だけを再描画し、Sigma 本体を作り直さない。

@@ -4071,7 +4071,7 @@ tr.kz-cols-dropped td {
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: rgb(15 35 66 / 45%);
+  background: var(--overlay-strong);
 }
 .shape-overlay-panel {
   display: flex;
@@ -4082,8 +4082,9 @@ tr.kz-cols-dropped td {
   width: 98vw;
   padding: var(--space-3);
   border-radius: var(--radius-lg);
-  background: var(--surface);
-  box-shadow: 0 12px 40px rgb(15 35 66 / 25%);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-raised);
+  box-shadow: var(--shadow);
 }
 .shape-overlay-head {
   display: flex;

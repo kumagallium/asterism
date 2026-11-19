@@ -106,9 +106,9 @@
   gap: 0.3rem;
   width: 16em;
   padding: var(--space-2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-raised);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--surface-raised);
   box-shadow: var(--shadow-2);
 }
 

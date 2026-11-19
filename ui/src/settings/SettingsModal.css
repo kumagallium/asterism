@@ -3,7 +3,7 @@
 .settings-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 35, 66, 0.32);
+  background: var(--overlay);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -13,8 +13,8 @@
 }
 
 .settings-modal {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-raised);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   width: min(720px, 100%);
@@ -427,7 +427,7 @@
   padding: 7px 10px;
   line-height: 20px;
   border-radius: var(--radius-sm);
-  background: var(--bg-soft, rgba(0, 0, 0, 0.03));
+  background: var(--surface-alt);
 }
 .storage-notice-close {
   flex: none;
@@ -663,7 +663,7 @@
   display: block;
   margin: 0.35rem 0;
   padding: 0.3rem 0.5rem;
-  background: var(--panel-2, rgba(0, 0, 0, 0.04));
+  background: var(--surface-alt);
   border-radius: 4px;
   font-size: 0.82rem;
   word-break: break-all;
@@ -735,7 +735,7 @@
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--bg-soft, rgba(0, 0, 0, 0.03));
+  background: var(--surface-alt);
   overflow-x: auto;
   font-size: 0.78rem;
   line-height: 1.55;

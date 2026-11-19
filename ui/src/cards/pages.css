@@ -427,7 +427,7 @@
 .export-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 35, 66, 0.32);
+  background: var(--overlay);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -441,8 +441,8 @@
   gap: var(--space-3);
   width: min(420px, 100%);
   padding: var(--space-4);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-raised);
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
 }

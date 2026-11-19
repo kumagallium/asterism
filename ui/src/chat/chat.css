@@ -660,7 +660,7 @@
   inset: 0;
   z-index: 19;
   padding: 0;
-  background: rgba(15, 35, 66, 0.28);
+  background: var(--overlay);
   border: none;
   border-radius: 0;
 }
@@ -1207,8 +1207,8 @@ button.chat-question-title:hover {
   min-width: 200px;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-raised);
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   padding: 4px;
@@ -1233,7 +1233,7 @@ button.chat-question-title:hover {
 .source-picker-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 35, 66, 0.32);
+  background: var(--overlay);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1241,8 +1241,8 @@ button.chat-question-title:hover {
   z-index: 100;
 }
 .source-picker {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-raised);
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   width: min(560px, 100%);

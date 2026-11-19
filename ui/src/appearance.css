@@ -1,63 +1,70 @@
-/* 承認済みの濃紺の面・青白い情報・淡い金の操作。 */
+/* 濃紺の面・青白い情報・淡い金の操作。
+ * 面は「沈む → 地 → 面 → 浮く」の順に明るくし、手前のものほど明るく見せる。
+ * 幕は黒に近い色で下を沈める（紺の幕は暗い地の上では暗くならない）。 */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --brand-ink: #b7ccff;
-  --bg: #0b1220;
-  --surface: #111d30;
-  --surface-alt: #0e192a;
-  --surface-sink: #17243a;
-  --paper: #0a1424;
-  --fg: #e8edf6;
-  --body: #c4cfe0;
-  --muted: #9dafc8;
-  --faint: #8d9fb8;
-  --border: #24344d;
-  --border-strong: #3c516f;
+  --brand-ink: #c6d8ff;
+  --bg: #1a2940;
+  --surface: #233550;
+  --surface-alt: #1e2e47;
+  --surface-sink: #32486a;
+  --surface-raised: #2b3f5e;
+  --paper: #162338;
+  --fg: #f4f7fc;
+  --body: #dbe3f0;
+  --muted: #c2cee0;
+  --faint: #b5c3d9;
+  --border: #40577a;
+  --border-strong: #6b84a8;
+  --border-raised: #6b84a8;
+  --overlay: rgb(7 12 22 / 68%);
+  --overlay-strong: rgb(7 12 22 / 76%);
+  --overlay-soft: rgb(7 12 22 / 40%);
   --primary: #ebc86e;
   --primary-hover: #f5d991;
   --primary-fg: #222014;
-  --primary-soft: #342f20;
-  --primary-softer: #29271f;
-  --accent: #93b3de;
-  --accent-strong: #b7ccff;
-  --accent-soft: #172b43;
-  --entity: #b7ccff;
-  --entity-soft: #192c49;
-  --activity: #93b3de;
-  --activity-soft: #172b43;
-  --graph-kind: #c8d9ff;
-  --graph-term: #91aed6;
-  --graph-dataset: #a3b4cd;
-  --graph-proposed: #6e85a4;
-  --graph-edge: #61799a;
-  --graph-edge-proposed: #516680;
-  --graph-paper: #0a1424;
-  --graph-value-0: #b7ccff;
-  --graph-value-1: #95b9ef;
-  --graph-value-2: #a0c7ed;
-  --graph-value-3: #b6b8f0;
-  --graph-value-4: #c6bbeb;
-  --graph-value-5: #8fc4d4;
-  --graph-value-6: #b0c5de;
-  --graph-value-7: #a7b6d0;
+  --primary-soft: #4d4630;
+  --primary-softer: #3a3a36;
+  --accent: #a7c4ec;
+  --accent-strong: #c6d8ff;
+  --accent-soft: #2a4666;
+  --entity: #c6d8ff;
+  --entity-soft: #2c4669;
+  --activity: #a7c4ec;
+  --activity-soft: #2a4666;
+  --graph-kind: #d3e1ff;
+  --graph-term: #a3bfe6;
+  --graph-dataset: #b4c4db;
+  --graph-proposed: #8499b8;
+  --graph-edge: #7d95b8;
+  --graph-edge-proposed: #64799a;
+  --graph-paper: #162338;
+  --graph-value-0: #c6d8ff;
+  --graph-value-1: #a0c3f5;
+  --graph-value-2: #a9cff2;
+  --graph-value-3: #bfc1f5;
+  --graph-value-4: #cfc4f0;
+  --graph-value-5: #98cddc;
+  --graph-value-6: #b9cde4;
+  --graph-value-7: #b0bfd8;
 
-  --sky: #172842;
-  --sky-fg: #edf2fc;
-  --prov-result: #e5a298;
-  --success-fg: #b5cdee;
-  --success-bg: #192c43;
-  --success-border: #3c5878;
-  --error-fg: #ffb5aa;
-  --error-bg: #382329;
-  --error-border: #82505a;
-  --info-fg: #a9d4f7;
-  --info-bg: #152c42;
-  --info-border: #375d7e;
-  --warn-fg: #ffba91;
-  --warn-bg: #38271f;
-  --warn-border: #865b43;
-  --shadow-soft: 0 1px 2px rgb(0 0 0 / 16%);
-  --shadow: 0 1px 2px rgb(0 0 0 / 20%), 0 10px 28px rgb(0 0 0 / 22%);
+  --sky: #2a4266;
+  --sky-fg: #f4f7fc;
+  --prov-result: #f0b3a9;
+  --success-fg: #c3d8f3;
+  --success-bg: #294666;
+  --success-border: #56789c;
+  --error-fg: #ffc4bb;
+  --error-bg: #54323a;
+  --error-border: #a0636e;
+  --info-fg: #b8ddfa;
+  --info-bg: #234a68;
+  --info-border: #4f7fa3;
+  --warn-fg: #ffc8a6;
+  --warn-bg: #553a2c;
+  --warn-border: #a8714f;
+  --shadow-soft: 0 1px 2px rgb(5 10 20 / 28%);
+  --shadow: 0 2px 6px rgb(5 10 20 / 35%), 0 18px 48px rgb(5 10 20 / 50%);
 }
 
 /* 明るい面向けの塗りボタンにも、その面に合う文字色を与える。 */
@@ -78,6 +85,10 @@
 }
 :root[data-theme="dark"] .chat-new:hover:not(:disabled) {
   background: var(--primary-soft);
+}
+/* 広い面を金の地で塗ると濁るので、選択は金の枠で示して地は控えめにする。 */
+:root[data-theme="dark"] .model-row.active {
+  background: var(--primary-softer);
 }
 :root[data-theme="dark"] .skeleton {
   background: var(--surface-sink);
