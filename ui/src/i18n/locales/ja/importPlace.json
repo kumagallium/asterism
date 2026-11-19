@@ -32,7 +32,8 @@
     "copy": "写す",
     "pairs": "関係を選ぶ",
     "done": "まとめ",
-    "mark": "済"
+    "mark": "済",
+    "label": "取り込みのステップ"
   },
   "progress": {
     "pairsCount": "関係を選ぶ（{{done}} / {{total}} 組）",

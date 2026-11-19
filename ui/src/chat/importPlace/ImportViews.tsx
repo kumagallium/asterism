@@ -1,6 +1,7 @@
 // 取り込みの画面の部品（PR 14d-2b・契約 §2）。状態は持たない（props だけ）ので、
 // renderToStaticMarkup でも、関数として呼んで onClick を直に押す形でも検査できる。
 import type { TFunction } from 'i18next'
+import { Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { barPercent, lostCount, questionRows, reasonKey, skipKey, stepsOf, type ImportJobState } from './importJob'
 import type { ImportRow } from '../importRows'
@@ -99,13 +100,19 @@ export function ImportProgress({ job, canCancel, aiSet = true, onCancel }: { job
   return (
     <div className="imp-prog">
       <div role="status" className="imp-prog-body" data-testid="import-progress">
-        <ol className="imp-steps">
-          {steps.map((s) => (
+        {/* 押せるタブに見えないよう、番号の丸を線でつなぐ（押す場所ではなく、進んでいる順番を示す） */}
+        <ol className="imp-steps" aria-label={t('steps.label')}>
+          {steps.map((s, i) => (
             <li key={s.id} className={s.state === 'cur' ? 'is-cur' : ''} data-step={s.id} data-state={s.state} aria-current={s.state === 'cur' ? 'step' : undefined}>
-              {s.state === 'done' && <b className="imp-mark">{t('steps.mark')}</b>}
-              {s.id === 'pairs' && s.state === 'cur' && job.done !== null && job.total !== null && !noPairs
-                ? t('progress.pairsCount', { done: job.done.toLocaleString(), total: job.total.toLocaleString() })
-                : t(`steps.${s.id}`)}
+              <span className="imp-step-no" aria-hidden="true" data-testid="import-step-no">
+                {s.state === 'done' ? <Check size={14} strokeWidth={3} /> : i + 1}
+              </span>
+              {s.state === 'done' && <span className="imp-sr">{t('steps.mark')}</span>}
+              <span className="imp-step-label">
+                {s.id === 'pairs' && s.state === 'cur' && job.done !== null && job.total !== null && !noPairs
+                  ? t('progress.pairsCount', { done: job.done.toLocaleString(), total: job.total.toLocaleString() })
+                  : t(`steps.${s.id}`)}
+              </span>
             </li>
           ))}
         </ol>

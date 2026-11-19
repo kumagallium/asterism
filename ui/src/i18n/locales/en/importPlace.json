@@ -32,7 +32,8 @@
     "copy": "Copy",
     "pairs": "Pick relations",
     "done": "Summarize",
-    "mark": "Done"
+    "mark": "Done",
+    "label": "Import steps"
   },
   "progress": {
     "pairsCount": "Pick relations ({{done}} / {{total}} pairs)",
