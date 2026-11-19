@@ -108,6 +108,17 @@ describe('進み', () => {
     press(byTestId(ImportProgress({ job: job(), canCancel: true, onCancel }), 'import-cancel')[0])
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
+  it('段は順番つきのステップで、押せるボタンではない', () => {
+    const html = renderToStaticMarkup(<ImportProgress job={job()} canCancel onCancel={noop} />)
+    expect(html).toContain('<ol class="imp-steps" aria-label="steps.label">')
+    // 済んだ段は印と読み上げの「済」、今とこれからの段は番号
+    const nos = [...html.matchAll(/data-testid="import-step-no">(.*?)<\/span>/g)].map((m) => m[1])
+    expect(nos[0]).toContain('<svg')
+    expect(nos.slice(1)).toEqual(['2', '3'])
+    expect(html).toContain('<span class="imp-sr">steps.mark</span>')
+    // 押せるのは「取り消す」だけ
+    expect(html.match(/<button/g)).toHaveLength(1)
+  })
   it('数が無ければ棒は流れる・ジョブ id が無い間は取り消せない', () => {
     const html = renderToStaticMarkup(<ImportProgress job={job({ stage: 'copy', done: null, total: null })} canCancel={false} onCancel={noop} />)
     expect(html).toContain('is-flow')

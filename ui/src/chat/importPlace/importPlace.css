@@ -73,42 +73,82 @@
   gap: var(--space-2);
   width: 100%;
 }
+/* 段: 番号の丸を線でつないだステップ。押す場所ではないので、枠のあるタブの形にしない */
 .imp-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .imp-steps li {
-  display: inline-flex;
+  position: relative;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
-  padding: 2px var(--space-3);
+  gap: var(--space-1);
+  min-width: 0;
   color: var(--muted);
   font-size: var(--text-sm);
+  text-align: center;
+}
+/* 前の段との間の線（丸の中心の高さ・丸との間に少し隙間） */
+.imp-steps li + li::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  right: calc(50% + 17px);
+  left: calc(-50% + 17px);
+  height: 2px;
+  background: var(--border-strong);
+}
+.imp-steps li[data-state='done'] + li::before {
+  background: var(--accent);
+}
+.imp-step-no {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 99px;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+}
+.imp-step-label {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .imp-steps li.is-cur {
-  border-color: var(--accent);
   color: var(--fg);
   font-weight: 600;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.imp-steps li.is-cur .imp-step-no {
+  color: var(--accent-strong);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .imp-steps li[data-state='done'] {
   color: var(--fg);
 }
-.imp-mark {
-  padding: 0 6px;
-  font-size: var(--text-xs);
-  font-weight: 600;
+.imp-steps li[data-state='done'] .imp-step-no {
   color: var(--success-fg);
   background: var(--success-bg);
-  border: 1px solid var(--success-border);
-  border-radius: 99px;
+  border-color: var(--success-fg);
+}
+/* 画面には出さず、読み上げにだけ渡す */
+.imp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .imp-bar {
   width: 100%;
