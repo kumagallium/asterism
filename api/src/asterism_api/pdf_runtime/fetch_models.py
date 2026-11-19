@@ -2,7 +2,7 @@
 
 使い方: ``python fetch_models.py <models.json> <HF_HOME>``
 
-docling 2.102.1 は ``snapshot_download(repo_id, revision=<参照名>)`` を
+docling（2.102.1・2.150.1 で確認）は ``snapshot_download(repo_id, revision=<参照名>)`` を
 ``allow_patterns`` なしで呼ぶ（リポジトリ全体を取る）ので、ここも同じく全体を取る。
 コミット指定で取ると ``refs/<参照名>`` が
 書かれないため、オフライン（``HF_HUB_OFFLINE=1``）で docling が参照名から引けるよう自分で書く。
