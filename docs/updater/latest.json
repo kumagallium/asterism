@@ -1,11 +1,11 @@
 {
-  "version": "0.71.1",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at f0836273d0fc7c355a3ee2fcd95288d08032964e -->\n\n## What's Changed\n* docs(manual): v0.71.0 の節目（確認した関係が正本に入る） by @kumagallium in https://github.com/kumagallium/asterism/pull/825\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.71.0...v0.71.1",
-  "pub_date": "2026-11-18T21:54:33Z",
+  "version": "0.71.2",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a890e1edfa4ab99ccfbaf7ce3c3b57488d3b20f4 -->\n\n## What's Changed\n* fix(ui): 取り込みの進みをステップと分かる形にする by @kumagallium in https://github.com/kumagallium/asterism/pull/827\n* fix(ui): 取り込みの結果に用語の候補の総数を出す by @kumagallium in https://github.com/kumagallium/asterism/pull/828\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.71.1...v0.71.2",
+  "pub_date": "2026-11-19T04:40:53Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVkwS3BTVVBYeko0dEZMRDhvWDJkZnVxdFhaQkNHcWFQQ0JrSVBHTHhwaHB6aTRhQk9laGRYVlpYelFNOVZTSXFBS1lsTFl1NS9jdXhSVy9aMGd6YmdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDM4ODcyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmFMc2pTcDBTek53emYwYnFtekp0UXdDT3lpenZsc3lUVzM1cFE5d3pTMEdtaFMzOXU0ZzA5cHVyZGwyZWtjU1drLzJndTRBNlJQeUVxS1NZTmNuUkFRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.71.1/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVIyeWVXcVg3eUFIc3RwYXVBYnU2QTNLdDhtMzhjSGlHanNwV2dVa3Qzc25SaldNcHBiZWJBQ1lCeGJnSHhuOHhqd0lPazBUb1gxV3ZFRFRrMyt4V1F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDYzMjUyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmVNeXAxOWp4OEdYWklrMlhyZ2Y2TlNBY2tqaDhNeEJLbXVPNVF0R2tiUkVsVHVBM1JUQXVqNmhDM1QxeE5rSFF5N1AvRFl4UTYrRjdBYlpGVmdUZkR3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.71.2/Asterism_aarch64.app.tar.gz"
     }
   }
 }
