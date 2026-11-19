@@ -1,0 +1,56 @@
+name: CodeQL
+
+# 自分のコードの静的解析（XSS・注入・パス操作・危険な正規表現など）。
+# 結果は Security タブの Code scanning と PR の注釈に出る。公開リポジトリは無料。
+# GitHub Actions のワークフロー自体（権限・スクリプト注入）も同じ仕組みで見る。
+# 仕分けは Claude の週次タスク（asterism-security-triage）が行う。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # ci.yml と同じ理由: tagpr の Release PR では走らせない（同じ差分は main への push で見る）
+    branches-ignore: ["tagpr-from-*"]
+  schedule:
+    - cron: "40 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          # テスト・実験・生成物は配布物ではないので解析から外す
+          config: |
+            paths-ignore:
+              - "**/tests/**"
+              - "**/*.test.ts"
+              - "**/*.test.tsx"
+              - "experiments/**"
+              - "datasets/**"
+              - "ui/dist/**"
+              - "manual/.vitepress/cache/**"
+              - "manual/.vitepress/dist/**"
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: "/language:${{ matrix.language }}"
