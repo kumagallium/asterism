@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.71.2](https://github.com/kumagallium/asterism/compare/v0.71.1...v0.71.2) - 2026-11-19
+
+- fix(ui): 取り込みの進みをステップと分かる形にする by @kumagallium in https://github.com/kumagallium/asterism/pull/827
+- fix(ui): 取り込みの結果に用語の候補の総数を出す by @kumagallium in https://github.com/kumagallium/asterism/pull/828
+
 ## [v0.71.1](https://github.com/kumagallium/asterism/compare/v0.71.0...v0.71.1) - 2026-11-18
 
 - docs(manual): v0.71.0 の節目（確認した関係が正本に入る） by @kumagallium in https://github.com/kumagallium/asterism/pull/825
