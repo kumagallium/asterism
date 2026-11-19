@@ -7,6 +7,13 @@ import { hashPosition, layoutNetwork, neighborhoodOf } from '../../networkModel'
 import { draftCardConcepts, draftNodeId, hubNodeId, kindId, realRelationOf, termId, termLabel } from '../../sky/skyLayout'
 import type { DraftSky, SkyData, SkyDataset } from '../../sky/skyApi'
 import { isDirectedRelation } from '../../lineChoice'
+import {
+  draftRelationLabel as draftLabel,
+  isSymmetricDraftRelation,
+  isSymmetricPairRelation,
+  isSymmetricPredicate,
+  predicateLabel,
+} from '../../relations/relationFns'
 import type { PointSel } from '../chatState'
 
 export type MapNodeType = 'term' | 'kind' | 'draft' | 'hub' | 'dataset'
@@ -109,33 +116,15 @@ export const HUB_SIZE = 8
 export const DATASET_SIZE = 8
 export const datasetNodeId = (datasetId: string): string => `d|${datasetId}`
 
-/** 関係の短い表示名。この辞書が正本（sky.json のキーは参照しない）。
- *  i18n のシングルトンは module 直下で読まない罠があるので、lang 引数で引く辞書にしてある。 */
-const RELATION_LABEL: Record<'ja' | 'en', Record<string, string>> = {
-  ja: {
-    isA: '一種', isPartOf: '一部', lowers: '下げる', raises: '上げる', affects: '変える',
-    makes: '作る', measuresProperty: '測る', measuresMaterial: '測る', measures: '測る', becomes: '変わる', competesWith: '競合する', hasProperty: '物性',
-  },
-  en: {
-    isA: 'kind of', isPartOf: 'part of', lowers: 'lowers', raises: 'raises', affects: 'changes',
-    makes: 'makes', measuresProperty: 'measures', measuresMaterial: 'measures', measures: 'measures', becomes: 'turns into', competesWith: 'competes with', hasProperty: 'has property',
-  },
-}
-
-/** 下書き側の関係名（sub・eq・…）の短い名前。台帳の線・一覧・絞り込みで使う。 */
-const DRAFT_SHORT: Record<'ja' | 'en', Record<string, string>> = {
-  ja: { sub: '一種', eq: '同じ', quantity: '量', part: '一部', lowers: '下げる', raises: '上げる', affects: '変える', makes: '作る', measures: '測る', becomes: '変わる', competes: '競合する', has_property: '物性' },
-  en: { sub: 'kind of', eq: 'same as', quantity: 'quantity', part: 'part of', lowers: 'lowers', raises: 'raises', affects: 'changes', makes: 'makes', measures: 'measures', becomes: 'turns into', competes: 'competes with', has_property: 'has property' },
-}
-
-/** 下書き側の関係名の短い表示名。知らない名前はそのまま。 */
+/** 下書き側の関係名（sub・eq・…）の短い名前。台帳の線・一覧・絞り込みで使う。目録（relations/）から引く。
+ *  知らない名前はそのまま。i18n のシングルトンは module 直下で読まない罠があるので、目録も lang 引数で関数の中から引く。 */
 export function draftRelationLabel(rel: string, lang: 'ja' | 'en'): string {
-  return DRAFT_SHORT[lang][rel] ?? rel
+  return draftLabel(rel, lang)
 }
 
-/** 関係の表示名。引けなければ undefined。 */
+/** 関係の表示名（確定側の述語・`isA`・`measures`）。引けなければ undefined。 */
 export function relationLabel(relation: string, lang: 'ja' | 'en'): string | undefined {
-  return RELATION_LABEL[lang][relation]
+  return predicateLabel(relation, lang)
 }
 
 /** SkyData＋提案 → graphology のグラフ。位置は hashPosition（まだ配置していない）。 */
@@ -158,7 +147,7 @@ export function buildMapGraph(
     if (edgeKeys.has(key)) return
     edgeKeys.add(key)
     // 矢じり: 向きのある関係の線（用語どうしの確定した線・台帳・提案）だけ。a → b が関係の向き（主語 → 目的語）
-    const arrow = directed && (attrs.kind === 'concept' || attrs.kind === 'draft') && !attrs.candidate && attrs.relation !== 'eq' && attrs.relation !== 'competes'
+    const arrow = directed && (attrs.kind === 'concept' || attrs.kind === 'draft') && !attrs.candidate && !isSymmetricPairRelation(attrs.relation ?? '')
     g.addEdge(a, b, arrow ? { ...attrs, directed: true } : attrs)
   }
 
@@ -290,14 +279,14 @@ export function buildMapGraph(
       // 両端がストアの用語の点で、`sky.edges` に同じ関係の線があれば、それが 1 本（確認済みの濃い線・名前・矢じり）
       if (placed.has(r.from) && placed.has(r.to)) {
         const real = realRelationOf(r.rel, d.concepts.find((c) => c.key === r.to)?.kind)
-        if (real && (conceptSeen.has(`${a}>${b}>${real}`) || (real === 'competesWith' && conceptSeen.has(`${b}>${a}>${real}`)))) continue
+        if (real && (conceptSeen.has(`${a}>${b}>${real}`) || (isSymmetricPredicate(real) && conceptSeen.has(`${b}>${a}>${real}`)))) continue
       }
       const label = draftRelationLabel(r.rel, lang)
       addEdge(
         a,
         b,
         { kind: 'draft', relation: r.rel, label, ledger: true, evidence: x.evidence ?? 0, ...(x.confirmed ? {} : { thin: true, unconfirmed: true }) },
-        r.rel !== 'competes' && r.rel !== 'eq',
+        !isSymmetricPairRelation(r.rel),
       )
     }
   }
@@ -336,9 +325,9 @@ export function buildMapGraph(
       // 薄い提案の線だけ、既にある本物の線と同じ関係なら張らない
       // （向きの無い関係＝競合する は、本物の線が逆向きでも同じ線）
       const seen =
-        conceptSeen.has(`${a}>${b}>${real}`) || (real === 'competesWith' && conceptSeen.has(`${b}>${a}>${real}`))
+        conceptSeen.has(`${a}>${b}>${real}`) || (real !== undefined && isSymmetricPredicate(real) && conceptSeen.has(`${b}>${a}>${real}`))
       if (state === 'thin' && real && seen) continue
-      addEdge(a, b, { kind: 'draft', relation: r.rel, thin: state === 'thin', proposed: state === 'thin' }, r.rel !== 'competes')
+      addEdge(a, b, { kind: 'draft', relation: r.rel, thin: state === 'thin', proposed: state === 'thin' }, !isSymmetricDraftRelation(r.rel))
     }
   }
 

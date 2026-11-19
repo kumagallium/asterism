@@ -9,6 +9,9 @@
 // 知識の関係（問いから育てる・design.md §15.2）は `knowledgeRelationsFor` が別に持つ。ひとこと決める
 // （DecidePanel）は従来の 3 文（一種・同じ・量）のまま、知識の文は②（下書きをたしかめる）で決める。
 import type { Alignment } from './crosswalkApi'
+import { BUILTIN_CATALOG } from './relations/builtinCatalog'
+import type { KnowledgePredicateName, PredicateName } from './relations/catalog'
+import { isDirectedPredicate, isKnowledgePredicate, isSymmetricPredicate, knowledgePredicatesFor, standardPredicatesFor } from './relations/relationFns'
 import type { SharedTerm } from './vocabApi'
 
 /** 共有のことば（sv:）の名前空間。 */
@@ -31,42 +34,19 @@ export interface PickEnd {
   termKind: TermKind
 }
 
-/** 閉集合の 15 述語（api の ALIGN_RELATIONS）。後ろの 10 が知識の関係（標準の述語: BFO part of・RO regulates 系・作る/測る/変わる/競合する/物性）。 */
-export const RELATION_ORDER = [
-  'equivalentClass',
-  'subClassOf',
-  'equivalentProperty',
-  'subPropertyOf',
-  'hasQuantityKind',
-  'isPartOf',
-  'lowers',
-  'raises',
-  'affects',
-  'makes',
-  'measuresProperty',
-  'measuresMaterial',
-  'becomes',
-  'competesWith',
-  'hasProperty',
-] as const
-export type AlignRelation = (typeof RELATION_ORDER)[number]
+/**
+ * 閉集合の述語（目録の並び・組み込みの 15）。後ろの 10 が知識の関係（標準の述語: BFO part of・RO regulates 系・
+ * 作る/測る/変わる/競合する/物性）。型は生成物（relations/builtinCatalog.ts）から導く。
+ * 実行時に API の目録が足す述語は、関数（`isKnowledgeRelation` ほか）が目録から読む。
+ */
+export const RELATION_ORDER: readonly AlignRelation[] = BUILTIN_CATALOG.predicates.map((p) => p.name)
+export type AlignRelation = PredicateName
 
-/** 人が確定する「知識の関係」（データの宣言には数えず、knowledge.json に数える）。 */
-export const KNOWLEDGE_RELATIONS = [
-  'isPartOf',
-  'lowers',
-  'raises',
-  'affects',
-  'makes',
-  'measuresProperty',
-  'measuresMaterial',
-  'becomes',
-  'competesWith',
-  'hasProperty',
-] as const
-export type KnowledgeRelation = (typeof KNOWLEDGE_RELATIONS)[number]
+/** 人が確定する「知識の関係」（データの宣言には数えず、knowledge.json に数える）。組み込みの並び。 */
+export const KNOWLEDGE_RELATIONS: readonly KnowledgeRelation[] = BUILTIN_CATALOG.predicates.filter((p) => p.knowledge).map((p) => p.name as KnowledgeRelation)
+export type KnowledgeRelation = KnowledgePredicateName
 export const isKnowledgeRelation = (relation: string | null | undefined): relation is KnowledgeRelation =>
-  (KNOWLEDGE_RELATIONS as readonly string[]).includes(relationKey(relation))
+  isKnowledgePredicate(relationKey(relation))
 
 /** 標準の語の kind を IRI から推す（量の種類だけ分かる。他は呼び手が知っていれば渡す）。 */
 export function standardTermKind(iri: string, known?: 'class' | 'property'): TermKind {
@@ -82,14 +62,7 @@ export function relationKey(relation: string | null | undefined): string {
 
 /** 向きのある関係か（⊂・量の種類・知識の関係。競合する＝competesWith は向きが無い）。それ以外（≡・未知の対応）は両向きとして描く。 */
 export function isDirectedRelation(relation: string | null | undefined): boolean {
-  const k = relationKey(relation)
-  if (k === 'competesWith') return false
-  return (
-    k === 'subClassOf' ||
-    k === 'subPropertyOf' ||
-    k === 'hasQuantityKind' ||
-    (KNOWLEDGE_RELATIONS as readonly string[]).includes(k)
-  )
+  return isDirectedPredicate(relationKey(relation))
 }
 
 /**
@@ -97,7 +70,7 @@ export function isDirectedRelation(relation: string | null | undefined): boolean
  * 向きが無いが「同じ」ではないので含めない。≡ の線として数える・描く所はこちらで見る。
  */
 export function isEquivalenceRelation(relation: string | null | undefined): boolean {
-  return relationKey(relation) !== 'competesWith' && !isDirectedRelation(relation)
+  return !isSymmetricPredicate(relationKey(relation)) && !isDirectedRelation(relation)
 }
 
 /** 関係の記号（title・一覧用）。 */
@@ -115,44 +88,16 @@ export function relationSymbol(relation: string | null | undefined): string {
   return '≡'
 }
 
-const isClassy = (k: TermKind) => k === 'class' || k === 'quantity'
-
 /**
- * 知識の関係で引ける関係（api の述語ごとの種別表と同じ）: 一部は同じ種別どうし（種類どうし・項目どうし）、
+ * 知識の関係で引ける関係（目録の述語ごとの種別表と同じ）: 一部は同じ種別どうし（種類どうし・項目どうし）、
  * 下げる・上げる・変えるは「種類か項目 → 項目」。空なら引けない。
  */
 export function knowledgeRelationsFor(source: TermKind, target: TermKind): KnowledgeRelation[] {
-  const out: KnowledgeRelation[] = []
-  const sameShape =
-    (isClassy(source) && isClassy(target)) || (source === 'property' && target === 'property')
-  if (sameShape) out.push('isPartOf')
-  // 見分けられない端は、分かっている側に合わせる（api が最後の砦）
-  if (source === 'unknown' && target !== 'unknown') out.push('isPartOf')
-  if (target === 'unknown' && source !== 'unknown') out.push('isPartOf')
-  if (target === 'property' || target === 'unknown') {
-    if (source !== 'quantity') out.push('lowers', 'raises', 'affects')
-  }
-  // 作る・測る・変わる・競合する・物性（量の種類の端には出さない。見分けられない端は両方の候補に入れる）
-  if (source === 'class' || source === 'unknown') {
-    if (target === 'class' || target === 'unknown') out.push('makes', 'measuresMaterial', 'becomes', 'competesWith')
-    if (target === 'property' || target === 'unknown') out.push('measuresProperty', 'hasProperty')
-  }
-  return [...new Set(out)]
+  return knowledgePredicatesFor(source, target) as KnowledgeRelation[]
 }
 /** `source → target` の向きで引ける関係（閉集合から kind で絞る）。空なら引けない。 */
 export function relationsFor(source: TermKind, target: TermKind): AlignRelation[] {
-  if (source === 'property' && target === 'quantity') return ['hasQuantityKind']
-  if (source === 'property' && target === 'unknown')
-    return ['equivalentProperty', 'subPropertyOf', 'hasQuantityKind']
-  const classFamily: AlignRelation[] = ['equivalentClass', 'subClassOf']
-  const propFamily: AlignRelation[] = ['equivalentProperty', 'subPropertyOf']
-  if (isClassy(source) && isClassy(target)) return classFamily
-  if (source === 'property' && target === 'property') return propFamily
-  // 片方が見分けられないときは、分かっている方の kind に合わせる（混在の拒否は api が最後の砦）。
-  if (source === 'unknown' && target === 'unknown') return [...classFamily, ...propFamily]
-  if (source === 'unknown') return isClassy(target) ? classFamily : propFamily
-  if (target === 'unknown') return isClassy(source) ? classFamily : propFamily
-  return [] // 種類と項目の混在・項目 → 項目以外
+  return standardPredicatesFor(source, target) as AlignRelation[]
 }
 
 const ROLE_RANK: Record<EndRole, number> = { dataset: 0, shared: 1, standard: 2 }

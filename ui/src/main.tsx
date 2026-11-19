@@ -7,6 +7,7 @@ import App from './App.tsx'
 import { startBackendWatch } from './desktop/backend.ts'
 import { initUpdater } from './desktop/updater.ts'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
+import { loadRelationCatalog } from './relations/catalog.ts'
 import { SettingsProvider } from './settings/SettingsContext.tsx'
 
 // Stale-deploy self-heal. A lazy chunk that fails to import mid-session almost
@@ -45,6 +46,9 @@ initUpdater()
 // デスクトップ版だけ: バックエンド（SPA 自身を配信しているローカルサーバ）の死活を
 // 見張り、止まっていれば画面上部の BackendDownBanner に出す。ブラウザ/web 配備では no-op。
 startBackendWatch()
+
+// 関係の目録（組み込みに API の目録を重ねる）。失敗しても組み込みのまま。
+void loadRelationCatalog()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

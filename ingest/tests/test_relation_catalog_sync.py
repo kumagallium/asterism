@@ -60,53 +60,22 @@ def _pred_labels() -> dict[str, str]:
 # --- ui の ts ---------------------------------------------------------------
 
 
-def test_sentence_rows_SENTENCE_matches_the_catalog() -> None:
-    text = _read(UI / "chat" / "sentenceRows.ts")
-    body = _slice(text, "const SENTENCE = {", "} as const")
-    for lang in LANGS:
-        i = body.index(f"{lang}: {{")
-        block = body[i : body.index("},", i)]
-        got = _nonempty(_pairs(block), 12)
-        assert got == {r.name: r.sentence[lang] for r in rc.RELATIONS}, lang
+def test_ui_builtin_catalog_is_generated_from_the_catalog() -> None:
+    """ui の組み込みの目録（生成物）が、今の目録から作り直したものと一字一句同じ。
 
+    R0c で ui の直書き（``SENTENCE``・``DRAFT_SHORT``・``RELATION_LABEL``・``RELATION_ORDER``・
+    ``REL_KINDS``）を消し、ui はこの生成物から導く形にした。見張りは生成物 1 か所でよい。"""
+    import importlib.util
 
-def test_map_model_DRAFT_SHORT_and_RELATION_LABEL_match_the_catalog() -> None:
-    text = _read(UI / "chat" / "map" / "mapModel.ts")
-    short = _slice(text, "const DRAFT_SHORT", "/** 下書き側の関係名の短い表示名")
-    label = _slice(text, "const RELATION_LABEL", "/** 下書き側の関係名（sub・eq")
-    for lang in LANGS:
-        want = {r.name: r.label[lang] for r in rc.RELATIONS}
-        i = short.index(f"  {lang}: {{")
-        got = _nonempty(_pairs(short[i : short.index("}", i)]), 12)
-        assert got == want, f"DRAFT_SHORT {lang}"
-        i = label.index(f"  {lang}: {{")
-        got = _nonempty(_pairs(label[i : label.index("},", i)]), 12)
-        keymap = _pred_labels()
-        assert set(got) == set(keymap), f"RELATION_LABEL {lang} のキー"
-        for key, value in got.items():
-            assert value == want[keymap[key]], f"RELATION_LABEL {lang} {key}"
-
-
-def test_line_choice_RELATION_ORDER_is_the_predicate_order() -> None:
-    text = _read(UI / "lineChoice.ts")
-    body = _slice(text, "export const RELATION_ORDER = [", "] as const")
-    got = re.findall(r"'(\w+)'", body)
-    assert _nonempty({i: v for i, v in enumerate(got)}, 15)
-    assert got == [p.name for p in rc.PREDICATES]
-
-
-def test_theme_draft_REL_KINDS_and_RelKind_are_the_relation_names() -> None:
-    text = _read(UI / "themes" / "themeDraft.ts")
-    union_src = _slice(text, "export type RelKind =", "export const REL_KINDS")
-    arr_src = _slice(text, "export const REL_KINDS", "export type RelationProblem")
-    union = re.findall(r"'(\w+)'", union_src)
-    arr = re.findall(r"'(\w+)'", arr_src)
-    assert _nonempty({i: v for i, v in enumerate(union)}, 12)
-    assert _nonempty({i: v for i, v in enumerate(arr)}, 12)
-    assert union == arr == list(rc.relation_kinds())
-
-
-# --- ui の json -------------------------------------------------------------
+    script = UI.parents[1] / "scripts" / "gen_relation_catalog_ts.py"
+    spec = importlib.util.spec_from_file_location("gen_relation_catalog_ts", script)
+    assert spec is not None and spec.loader is not None
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    have = (UI / "relations" / "builtinCatalog.ts").read_text(encoding="utf-8")
+    assert "BUILTIN_CATALOG" in have
+    # 古ければ python scripts/gen_relation_catalog_ts.py で作り直す
+    assert have == gen.render()
 
 
 def _json(lang: str, name: str) -> dict:

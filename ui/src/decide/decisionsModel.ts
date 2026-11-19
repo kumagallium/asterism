@@ -1,7 +1,9 @@
 // 「決めたこと」画面の純関数（絞り込み・1 行 1 文・hash）。描画（DecisionsView）から切り離して
 // vitest で固定する。LLM は使わない。
 import type { Alignment } from '../crosswalkApi'
-import { KNOWLEDGE_RELATIONS, relationKey } from '../lineChoice'
+import { relationKey } from '../lineChoice'
+import { getCatalog } from '../relations/catalog'
+import { isKnowledgePredicate } from '../relations/relationFns'
 import { endLabel } from '../vocabQuestion'
 import type { Translate } from './decide'
 
@@ -18,10 +20,10 @@ export const DECISION_FILTERS = [
 ] as const
 export type DecisionFilter = (typeof DECISION_FILTERS)[number]
 
-const SUB = new Set(['subClassOf', 'subPropertyOf'])
-const SAME = new Set(['equivalentClass', 'equivalentProperty'])
-const KNOWLEDGE = new Set<string>(KNOWLEDGE_RELATIONS)
-const KNOWN = new Set([...SUB, ...SAME, 'hasQuantityKind', ...KNOWLEDGE])
+/** 下書き側の関係 `rel` の確定側の述語名（一種＝subClassOf・subPropertyOf／同じ／量）。目録から引く。 */
+const predicatesOf = (rel: string): Set<string> => new Set(getCatalog().relations.find((r) => r.name === rel)?.predicates.map((p) => p.name))
+/** 「決めたこと」に出る関係（一種・同じ・量・知識の関係）。 */
+const isKnown = (rel: string): boolean => predicatesOf('sub').has(rel) || predicatesOf('eq').has(rel) || predicatesOf('quantity').has(rel) || isKnowledgePredicate(rel)
 
 /** 1 行の絞り込みの判定。`perspective` は一覧では使わない（常に false）。 */
 export function matchesFilter(a: Alignment, filter: DecisionFilter): boolean {
@@ -30,13 +32,13 @@ export function matchesFilter(a: Alignment, filter: DecisionFilter): boolean {
     case 'all':
       return true
     case 'sub':
-      return SUB.has(rel)
+      return predicatesOf('sub').has(rel)
     case 'same':
-      return SAME.has(rel)
+      return predicatesOf('eq').has(rel)
     case 'quantity':
-      return rel === 'hasQuantityKind'
+      return predicatesOf('quantity').has(rel)
     case 'knowledge':
-      return KNOWLEDGE.has(rel)
+      return isKnowledgePredicate(rel)
     case 'standard':
       return a.source_kind === 'standard' || a.target_kind === 'standard'
     case 'broken':
@@ -86,7 +88,7 @@ export function decisionSentence(
   const subject = endName(a, 'source', datasetNames)
   const target = endName(a, 'target', datasetNames)
   const rel = relationKey(a.relation)
-  if (!KNOWN.has(rel)) return t('decisions:sentence.other', { subject, target, relation: rel })
+  if (!isKnown(rel)) return t('decisions:sentence.other', { subject, target, relation: rel })
   return t(`decide:sentence.${rel}`, { subject, target })
 }
 
