@@ -142,6 +142,11 @@ ONTOLOGY_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "ontology/"
 # ``kind_counts`` or ``classes_index`` (a minted ``rdfs:Class`` must not show up as an
 # individual in a ``?s a ?c`` count).
 SHARED_VOCAB_GRAPH: str = LIFECYCLE_GRAPH_BASE + "vocab/shared"
+# The relation-catalog graph (ADR relation-catalog.md §ストアでの表し方): the built-in
+# catalog of relations / predicates, placed in the store (R0d). Like
+# :data:`SHARED_VOCAB_GRAPH` it is not canonical and is not listed by
+# :func:`readable_graph_iris` (so it never joins a dataset scope or a raw-SPARQL FROM).
+RELATION_CATALOG_GRAPH: str = LIFECYCLE_GRAPH_BASE + "vocab/relations"
 CONTROL_GRAPH_IRI: str = LIFECYCLE_GRAPH_BASE + "control"
 # The forwarding ledger (ADR id-move-after-publish.md): when a re-design changes
 # HOW ids are made, this holds one ``<old> dcterms:isReplacedBy <new>`` per row,

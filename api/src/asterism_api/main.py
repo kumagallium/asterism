@@ -6128,6 +6128,15 @@ def build_app(
             logger.exception(
                 "default->canonical/legacy migration or promote-flag backfill failed (continuing)"
             )
+        # 関係の目録（組み込み）をストアの正本へ 1 回置く（R0d・relation-catalog.md）。冪等＝
+        # 同じなら何も書かない。ストアが無い・書けない起動でも止めない（ログだけ）。
+        try:
+            from asterism import relation_store
+
+            if await relation_store.seed_builtin(client, at=datetime.now(UTC).isoformat()):
+                logger.info("relation catalog: seeded the built-in entries into the store")
+        except Exception:
+            logger.warning("relation catalog seeding failed (continuing)", exc_info=True)
         stop = asyncio.Event()
         task: asyncio.Task[None] | None = None
         if start_watcher:
