@@ -43,6 +43,7 @@ _REASONS: dict[str, dict[str, str]] = {
         "unknown": "この組は台帳にありません",
         "already_related": "この組にはもう関係が付いています。先に「違う」にしてください",
         "relation": "この関係は選べません",
+        "retired": "この関係は使うのをやめています。新しくは付けられません",
         "direction": "主語を選んでください",
         "term": "語が写しにありません",
         "same": "同じ語どうしは結べません",
@@ -56,6 +57,7 @@ _REASONS: dict[str, dict[str, str]] = {
         "unknown": "This pair is not in the ledger",
         "already_related": "This pair already has a relation. Mark it as wrong first",
         "relation": "This relation cannot be chosen",
+        "retired": "This relation is retired and cannot be newly assigned",
         "direction": "Choose the subject",
         "term": "A term is missing from the copy",
         "same": "A term cannot be related to itself",
@@ -179,6 +181,7 @@ def register_knowledge_review_routes(
                 raise HTTPException(404, _REASONS[body.lang]["unknown"])
             msgs = _REASONS[body.lang]
             return JSONResponse(
-                status_code=422, content={"detail": msgs.get(reason, reason), "reason": reason}
+                status_code=400 if reason == "retired" else 422,
+                content={"detail": msgs.get(reason, reason), "reason": reason},
             )
         return {**result, "summary": pr.summarize(ledger)}

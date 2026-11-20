@@ -39,10 +39,7 @@ from asterism.crosswalk import XW
 from asterism.crosswalk_runtime import (
     ALIGN_RELATIONS,
     ALIGNMENT_GRAPH,
-    KNOWLEDGE_RELATIONS,
-    ROLE_RULES,
     ROLES,
-    SYMMETRIC_RELATIONS,
     _check_same_shape,
     _declared_roles,
     _declared_shapes,
@@ -1018,16 +1015,18 @@ _REL_BY_IRI = {v: k for k, v in ALIGN_RELATIONS.items()}
 
 async def _alignment_lines(client: Any) -> list[tuple[str, str, str]]:
     """(source, relation key, target) for every semantic line in the alignment graph."""
-    values = " ".join(f"<{v}>" for v in ALIGN_RELATIONS.values())
+    align = relation_catalog.align_relations()  # 足した関係の述語も読み戻す（呼ぶたびに引く）
+    rel_by_iri = {v: k for k, v in align.items()}
+    values = " ".join(f"<{v}>" for v in align.values())
     rows = await _bindings(
         client,
         f"SELECT ?s ?r ?t WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?s ?r ?t }} "
         f"VALUES ?r {{ {values} }} FILTER(isIRI(?s) && isIRI(?t)) }} ORDER BY ?s ?r ?t",
     )
     return [
-        (b["s"]["value"], _REL_BY_IRI[b["r"]["value"]], b["t"]["value"])
+        (b["s"]["value"], rel_by_iri[b["r"]["value"]], b["t"]["value"])
         for b in rows
-        if b["r"]["value"] in _REL_BY_IRI
+        if b["r"]["value"] in rel_by_iri
     ]
 
 
@@ -1200,7 +1199,8 @@ async def knowledge_counts(client: Any) -> dict[str, int]:
     2026-10-20・design.md §15.2): Ask / MCP answer "knowledge N, data 0" with who decided
     it and when. A term no knowledge line touches is absent. Reads the alignment graph
     only — never a dataset's data graph — so it works with no published dataset."""
-    values = " ".join(f"<{ALIGN_RELATIONS[r]}>" for r in KNOWLEDGE_RELATIONS)
+    align = relation_catalog.align_relations()
+    values = " ".join(f"<{align[r]}>" for r in relation_catalog.knowledge_relations())
     rows = await _bindings(
         client,
         f"SELECT DISTINCT ?s ?r ?t WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ ?s ?r ?t }} "
@@ -1360,8 +1360,9 @@ async def preview_alignment(
     （その語が無ければ同じ計算）。
 
     ``ValueError`` — 関係が閉集合に無い・IRI の形が不正。"""
-    if relation not in ALIGN_RELATIONS:
-        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if relation not in relation_catalog.align_relations():
+        names = sorted(relation_catalog.align_relations())
+        raise ValueError(f"relation must be one of {names}, got {relation!r}")
     _check_iri(source)
     _check_iri(target)
     source, target = canonical_ends(relation, source, target)
@@ -1386,7 +1387,7 @@ async def preview_alignment(
             )
         except ValueError:
             return refused("mixed")
-        if relation in ROLE_RULES:
+        if relation in relation_catalog.role_rules():
             roles = await _declared_roles(client, [source, target])
             try:
                 check_roles(relation, roles.get(source), roles.get(target))
@@ -1477,7 +1478,8 @@ def _same_dismissal(r: dict, subject: str, term: str, relation: str | None) -> b
     if r["subject"] == subject and r["term"] == term:
         return True
     # 向きの無い関係は、両端の順を問わず同じ却下
-    return relation in SYMMETRIC_RELATIONS and r["subject"] == term and r["term"] == subject
+    symmetric = relation_catalog.symmetric_predicates()
+    return relation in symmetric and r["subject"] == term and r["term"] == subject
 
 
 def dismiss_fit(
@@ -1504,8 +1506,9 @@ def dismiss_fit(
     ):
         raise ValueError(f"subject must be a non-empty key: {subject!r}")
     if relation is not None:
-        if relation not in ALIGN_RELATIONS:
-            raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}: {relation!r}")
+        if relation not in relation_catalog.align_relations():
+            names = sorted(relation_catalog.align_relations())
+            raise ValueError(f"relation must be one of {names}: {relation!r}")
         if not term.startswith(CONCEPT_SUBJECT_PREFIX):
             _check_iri(term)
         elif not term[len(CONCEPT_SUBJECT_PREFIX) :].strip() or any(ord(c) < 32 for c in term):

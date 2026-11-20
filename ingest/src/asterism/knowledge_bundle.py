@@ -31,9 +31,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from asterism import relation_catalog
 from asterism.shared_vocab import normalize_label
 from asterism.term_match import NAME_MAX, match_terms, merge_key, name_variants
-from asterism.themes import RELATION_KINDS
 
 __all__ = [
     "FORMAT",
@@ -395,10 +395,11 @@ def merge_relations(
         k = f"term_relations.json:{reason}"
         dropped[k] = dropped.get(k, 0) + 1
 
+    relation_kinds = relation_catalog.relation_kinds()  # 足した関係も読める（やめたものも）
     merged: dict[tuple[str, str, str], list[str]] = {}
     for r in relations:
         rel = r.get("rel")
-        if rel not in RELATION_KINDS:
+        if rel not in relation_kinds:
             drop("bad_rel")
             continue
         a, b = term_of.get(str(r.get("from_term"))), term_of.get(str(r.get("to_term")))

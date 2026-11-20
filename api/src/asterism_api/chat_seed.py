@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from asterism import crosswalk_runtime, graph_diff, themes
+from asterism import crosswalk_runtime, graph_diff, relation_catalog, themes
 from asterism import shared_vocab as sv
 from asterism.shared_vocab import SharedTerm
 
@@ -72,7 +72,7 @@ def seed_from_theme(root: Any, existing: list[SharedTerm], theme: dict) -> dict:
         frm_iri, to_iri = str(ln.get("from")), str(ln.get("to"))
         # 向きの無い関係は標準の語が from（IRI の並びで前）に来る — 用語を主語に入れ替える
         if (
-            str(ln.get("relation")) in crosswalk_runtime.SYMMETRIC_RELATIONS
+            str(ln.get("relation")) in relation_catalog.symmetric_predicates()
             and by_iri.get(frm_iri) is None
             and by_iri.get(to_iri) is not None
         ):

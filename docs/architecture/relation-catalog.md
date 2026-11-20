@@ -237,3 +237,52 @@ rc:predicate-competesWith-own  rdfs:label "競合する"@ja ; xw:date "2026-11-1
 `readable_graph_iris` には入れない（データセットの範囲・`/api/cards` の範囲・既定の FROM に混ざらない）。
 目録は確認済みの関係の定義だけなので、外の AI に見せても未確認は漏れない。目録を構造のまま返す道具 `list_relations`（引数なし・`{relations, predicates, source}`・
 `source` はストア `store`／読めない・空・形の検査に通らないときのコードの目録 `code`）を MCP に足した。**これが主役の道**で、AI は SPARQL・IRI を書かずに引ける。`sparql_query` で目録のグラフを名指す道は逃げ道。アプリ内の `/mcp` も同じ道具を出す。
+
+## 人が足す関係（R3a）
+
+設計: design.md §23.13（③）・契約 `contracts/prR3a-contract.md`。**API まで**（画面・AI への選択肢・問い・星図は後の段）。
+
+### 形
+
+1 件 = `Relation`（`builtin=False`）＋ 確定側の `Predicate` 1 つ。**名前と述語は機械が作る**。人も AI も書かない。
+
+| 項目 | 値 |
+|---|---|
+| 関係の名前 | `u_<8 桁の 16 進>`（`secrets.token_hex(4)`・既存とぶつかれば引き直す）。**組み込みは `u_` で始めない**（テストで固定） |
+| 述語の名前・IRI | `u<同じ 8 桁>`・`REL_NS + 述語名`（自前の名前空間の下。標準の述語は任意の `exact_match` で「同じ意味」と指すだけ） |
+| 項目の IRI | 組み込みと同じ（`CATALOG_NS#<名前>`・`#predicate-<述語名>`） |
+| 人が決める性質 | **向き（対称か）**と**終わりの種類（B は項目に限るか）**の 2 つだけ。`symmetric_draft = symmetric_pair = 向きが無い`・`to_property_only = 項目に限る`。循環・同じ種類・実験・論文は付けない（`False`） |
+| 述語の形 | `knowledge=True`・`shapes=(両方, 項目か両方)`・`own`（表示名・説明・探した範囲は空・足した日） |
+| 足す欄 | `definition`（AI への 1 文・必須）・`exact_match`・`retired`・`retired_at`・`unstated_key`。来歴は `xw:addedBy "human"`＋`prov:generatedAtTime`（読み戻すと `added_by`・`added_at`）。JSON には**人の項目にだけ**出る |
+| 入力の検査 | 表示名 1〜40 文字・説明 1〜200 文字（NFKC・制御／書式の文字なし・URL・`<>{}`・バッククォート・バックスラッシュを断る）。表示名が組み込み・足した関係の名前・表示名と `merge_key` で同じなら 409 |
+
+文の型が無いときは表示名から機械が作る既定の文（`{s} → {o}（表示名）`・向きが無ければ `↔`）。
+
+### 書く・読む（`relation_store`）
+
+- `add_relation`・`update_relation`（表示名・文・説明・`exact_match` だけ）・`retire_relation`・`delete_relation`・`read_human`・`usage`・`refresh_human`。書くのは目録のグラフだけで、**1 回の更新**（読み手が半端な項目を見ない）。組み込みの名前を渡されたら断る。
+- `xw:order` は組み込みの後ろ（10000〜）。置き換え（直す・やめる）でも並びは変わらない。
+- `seed_builtin` は今のまま、人の項目（`xw:builtin true` でない）に触らない。
+
+### 目録への重ね方（`relation_catalog`）
+
+- `set_human(relations, predicates)` で入れ物に入れる。読み出し関数は**組み込み＋足した関係**を返す（組み込みが先・足した順）。`catalog_to_json()` は**組み込みだけ**のまま（種まきと `gen_relation_catalog_ts` の正）。`overlay_catalog_to_json()` が重ねた目録。**足した関係 0 件なら全部の出力が組み込みだけのときと同じ**。
+- **やめた関係（`retired`）**: 「選べる」集合（`assignable_relation_kinds`・`assignable_predicates`・`assign` と AI の答えの検査）からは外し、「読める」集合（`relation_kinds`・`pred_to_rel`・`rel_sentence`・確定の線の読み戻し）には残す。付いた組と根拠は残り、読み戻せる。名前と述語は後から変えない・戻す口は作らない。
+- 起動時（種まきの後）に `refresh_human`（失敗しても起動は止めない＝足した関係 0 件として動く）。口で書いた後も同じ。
+- **import 時に固定していた定数のうち B・C・D の道の物は、呼ぶたびに目録から引く**。`ALIGN_RELATIONS`（実体の dict を持ち続ける読み手のため、変わったときに中身だけ作り直す）・`graph_diff.PRED_TO_REL`／`REL_SENTENCE`・`pair_relations._CONFIRMED_NAMES`（`LiveMap`＝呼ぶたびに引く読み取り専用の辞書）。組み込みだけで足りる所（問いの型・論文・話の下書きの AI・step0）は触らない。
+
+### 使われているか・削除
+
+使われている = (a) 確定の線（足した関係の述語の 3 つ組がどこかのグラフにある）・(b) 取り込み元の台帳に `rel == 名前` の件・(c) 話の下書き・却下の記録に名前（関係の名前・述語の名前）が出る。`{lines, ledger, drafts}` を数える。
+`DELETE` は全部 0 のときだけ（1 つでもあれば 409 と数。画面は「使うのをやめる」を勧める）。消すと目録の項目だけが消える。
+
+### 口（`relations_routes.py`）
+
+`POST /api/relations`・`PATCH /api/relations/{name}`・`POST /api/relations/{name}/retire`・`DELETE /api/relations/{name}`（すべて `write_auth`。組み込みは 403・無ければ 404）。`GET /api/relations` は既定で重ねた目録（`?usage=1` で足した関係に使われ方）。語の組に付ける口（`assign`）はやめた関係を 400（`reason: retired`）で断る。
+
+### 残した穴
+
+- **単一のプロセスの前提**（デスクトップと今の本番）。複数のワーカーで動くときの、足した関係の同期は未対応（書いたワーカーだけが重ねた目録を持つ。起動時に読む）。
+- 足した関係を AI に選ばせる（R3b）・画面（R3c）・問い・星図・判定し直し（R4）は後の段。星図（`sky_view`）の線の集合は組み込みのまま（読み戻しで落ちないだけ）。
+- 話の下書き（`themes`）に、やめた関係を新しく選ばせない検査は無い（読めるだけ）。
+- スタンドアロンの MCP（`asterism_mcp` が別のプロセスで動くとき）は、起動時に足した関係を読まない。`list_relations` はストアを読むので足した関係が出るが、線の読み戻しの述語の集合は組み込みのまま。

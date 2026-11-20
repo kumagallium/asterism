@@ -851,7 +851,8 @@ def register_consult_graph(
             if exact in have:
                 return exact
             back = (plan["target"], plan["relation"], plan["source"])
-            return back if plan["relation"] in _SYMMETRIC and back in have else None
+            symmetric = relation_catalog.symmetric_pair_predicates()  # 足した関係も
+            return back if plan["relation"] in symmetric and back in have else None
 
         for plan in plans:
             here = found(plan)

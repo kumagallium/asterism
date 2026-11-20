@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import Any
 
 from asterism import knowledge_bundle, relation_catalog
-from asterism.graph_diff import PRED_TO_REL
 from asterism.knowledge import LINE_OPS, MISSING_MIN_OTHERS
 from asterism.knowledge_bundle import KnowledgeCopy
 from asterism.shared_vocab import describe_selection
@@ -81,6 +80,16 @@ __all__ = [
 PAIR_RELATIONS = tuple(r for r in RELATION_KINDS if r != "quantity")
 #: 向きの無い関係（語の id の順に並べる）。
 SYMMETRIC_PAIR_RELATIONS = relation_catalog.symmetric_pair_relations()
+
+
+def _readable_relations() -> tuple[str, ...]:
+    """読める関係（組み込み＋人が足した関係。やめたものも含む）。呼ぶたびに目録から引く。"""
+    return tuple(r for r in relation_catalog.relation_kinds() if r != "quantity")
+
+
+def _assignable_relations() -> tuple[str, ...]:
+    """新しく付けられる関係（やめた関係を除く）。"""
+    return tuple(r for r in relation_catalog.assignable_relation_kinds() if r != "quantity")
 #: 「見込み」の語彙（束の約束）。根拠の知見が全部これに当たるときだけ ``tentative``。
 TENTATIVE: dict[str, set[str]] = {
     "epistemic_status": {"speculation"},
@@ -172,11 +181,11 @@ def relation_problem(
     if from_term.get("id") is not None and from_term.get("id") == to_term.get("id"):
         return "same"
     fk, tk = str(from_term.get("kind")), str(to_term.get("kind"))
-    if rel in _DIRECTED_TO_PROPERTY:
+    if rel in relation_catalog.to_property_only_relations():
         return None if tk == "property" else "target_not_property"
     if rel in _SAME_KIND:
         return None if fk == tk else "mixed"
-    if rel in PAIR_RELATIONS:
+    if rel in _readable_relations():
         return experiment_relation_problem(
             rel, fk, tk, from_term.get("role"), to_term.get("role")
         )
@@ -185,7 +194,7 @@ def relation_problem(
 
 def _order(rel: str, frm: str, to: str) -> tuple[str, str]:
     """向きの無い関係は語の id の順に並べる。"""
-    if rel in SYMMETRIC_PAIR_RELATIONS and to < frm:
+    if rel in relation_catalog.symmetric_pair_relations() and to < frm:
         return to, frm
     return frm, to
 
@@ -284,12 +293,12 @@ def check_answer(
         kind = _unstated_kind(answer.get("unstated_kind"))
         extra = {"unstated_kind": kind} if kind else {}  # 無いときは欄ごと出さない
         return _core(task, "none", note=note, **extra)
-    if rel not in PAIR_RELATIONS:
+    if rel not in _assignable_relations():
         return _core(task, "dropped", reason="relation", note=note)
     rel = str(rel)
 
     side = answer.get("from")
-    if rel in SYMMETRIC_PAIR_RELATIONS:
+    if rel in relation_catalog.symmetric_pair_relations():
         side = side if side in ("a", "b") else "a"
     if side not in ("a", "b"):
         return _core(task, "dropped", reason="direction", rel=rel, note=note)
@@ -469,9 +478,10 @@ def origin_relations(copy: KnowledgeCopy) -> tuple[list[dict], dict[str, int]]:
     def drop(why: str) -> None:
         dropped[why] = dropped.get(why, 0) + 1
 
+    readable = _readable_relations()
     for r in copy.term_relations:
         rel = str(r.get("rel"))
-        if rel not in PAIR_RELATIONS:
+        if rel not in readable:
             drop("relation")
             continue
         frm, to = _order(rel, str(r.get("from_term")), str(r.get("to_term")))
@@ -507,7 +517,7 @@ def origin_check(row: Mapping[str, Any], pairs: Mapping[str, Any]) -> str:
         return "unseen"  # state の無い件（外したあとに縮めた「違う」の記録）も、まだ答えの無い組
     if entry.get("state") != "relation" or entry.get("rel") != row.get("rel"):
         return "disputes"
-    if row.get("rel") in SYMMETRIC_PAIR_RELATIONS:
+    if row.get("rel") in relation_catalog.symmetric_pair_relations():
         same = {str(entry.get("from")), str(entry.get("to"))} == {frm, to}
     else:
         same = (str(entry.get("from")), str(entry.get("to"))) == (frm, to)
@@ -823,12 +833,13 @@ def _confirmed_names() -> dict[str, frozenset[str]]:
     ``measures`` は相手の種別で割れるので、``measuresMaterial``・``measuresProperty`` の
     両方に当たるものとして持つ。"""
     acc: dict[str, set[str]] = {}
-    for pred, rel in PRED_TO_REL.items():
+    for pred, rel in relation_catalog.pred_to_rel().items():
         acc.setdefault(rel, set()).add(pred)
     return {rel: frozenset(v) for rel, v in acc.items()}
 
 
-_CONFIRMED_NAMES = _confirmed_names()
+#: 呼ぶたびに目録から導く（足した関係の述語も入る）。
+_CONFIRMED_NAMES = relation_catalog.LiveMap(_confirmed_names)
 #: 下書きの関係 → 数える ``factors`` の向き（``knowledge.factors`` と同じく ``affects`` の問いは
 #: 3 つの関係全部を数える）。
 _FACTOR_DIRECTIONS = relation_catalog.factor_directions()
@@ -1382,7 +1393,9 @@ def assign(
         return no("unknown")
     if e.get("state") == "relation":
         return no("already_related")
-    if rel not in PAIR_RELATIONS:
+    if relation_catalog.is_retired(rel):
+        return no("retired")  # 使うのをやめた関係は、新しくは付けられない
+    if rel not in _assignable_relations():
         return no("relation")
     if subject not in ("a", "b"):
         return no("direction")

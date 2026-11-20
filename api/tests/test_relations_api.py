@@ -46,7 +46,8 @@ def test_relations_route_shape_and_no_auth(tmp_path: Path, healthy_client) -> No
 def test_the_route_is_read_only(tmp_path: Path, healthy_client) -> None:
     app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
     with TestClient(app) as client:
-        assert client.post("/api/relations", json={}).status_code in (404, 405)
+        # R3a: POST は人が関係を足す口になった（トークンなしは 401）。PUT は無いまま
+        assert client.post("/api/relations", json={}).status_code in (401, 404, 405)
         assert client.put("/api/relations", json={}).status_code in (404, 405)
 
 
