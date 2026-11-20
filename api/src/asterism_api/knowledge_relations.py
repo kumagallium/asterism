@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 from asterism import knowledge_bundle as kb
-from asterism import ledger_answer
+from asterism import ledger_answer, relation_catalog
 from asterism import pair_relations as pr
 from asterism import unstated_groups as ug
 from asterism.graph_diff import REL_SENTENCE
@@ -70,6 +70,26 @@ class RelationsBody(BaseModel):
 
 
 # ---- ジョブ ----
+
+
+def _added_relations() -> list[dict[str, Any]]:
+    """目録の「人が足した関係」（やめた物を除く・足した順）を、AI に渡す形にする（R3b）。
+    読めなければ 0 件として動く（足した関係が無いときと同じ）。"""
+    try:
+        return [
+            {
+                "name": r.name,
+                "label": dict(r.label),
+                "definition": dict(r.definition),
+                "symmetric": bool(r.symmetric_pair),
+                "to_property_only": bool(r.to_property_only),
+            }
+            for r in relation_catalog.human_relations()
+            if not r.retired
+        ]
+    except Exception:
+        logger.warning("relations: added relations unreadable", exc_info=True)
+        return []
 
 
 async def run_relations(
@@ -127,6 +147,10 @@ async def run_relations(
     model = next((m for m in (getattr(c, "model", None) for c in pool) if isinstance(m, str)), None)
     sem = asyncio.Semaphore(len(pool))
     terms = {str(t["id"]): t for t in copy.terms if "id" in t}
+    # R3b: 人が足した関係（やめた物を除く）を走りの始めに 1 回だけ読み、全部の組に同じ物を渡す。
+    # 0 件なら AI への呼び出しは今までと同じ（引数を足さない）
+    extra = _added_relations()
+    extra_kw: dict[str, Any] = {"extra": extra} if extra else {}
 
     def usage_hook(llm: Any) -> Callable[[], None] | None:
         """``complete`` が成功して返るたびにワーカースレッドから呼ばれる。その回の使用量を
@@ -180,7 +204,7 @@ async def run_relations(
             st["inflight"] += 1
             try:
                 answer = await asyncio.to_thread(
-                    propose_pair, llm, task["input"], lang, on_call=usage_hook(llm)
+                    propose_pair, llm, task["input"], lang, on_call=usage_hook(llm), **extra_kw
                 )
                 reason = None
             except Exception as exc:  # PairProposeError・LLM の例外はその組だけ failed

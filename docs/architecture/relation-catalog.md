@@ -289,3 +289,7 @@ rc:predicate-competesWith-own  rdfs:label "競合する"@ja ; xw:date "2026-11-1
 - 足した関係を AI に選ばせる（R3b）・画面（R3c）・問い・星図・判定し直し（R4）は後の段。星図（`sky_view`）は星図の外なので線の集合は組み込みのまま（足した関係の線は読み戻しで落ちない・星図には描かれない）。
 - `consult_graph_routes._SYMMETRIC`・`shared_vocab._REL_BY_IRI` は本体では使わなくなったが、既存のテストが固定しているので残してある。
 - スタンドアロンの MCP（`asterism_mcp` が別のプロセスで動くとき）は、起動時に足した関係を読まない。`list_relations` はストアを読むので足した関係が出るが、線の読み戻しの述語の集合は組み込みのまま。
+
+## R3b — 足した関係を組ごとに関係を選ぶ AI に渡す
+
+R3a で足した関係は、R3b で AI の選べる集合に入る（別名 `x1`… で答え、機械が名前に戻す・上限 40・聞き直さない）。詳細は [`pair-relations.md`](pair-relations.md) の「足した関係を AI に渡す」。画面は R3c。
