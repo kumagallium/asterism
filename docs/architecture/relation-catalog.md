@@ -1,6 +1,6 @@
 # 関係の目録 — 関係の定義を置く、コードの中の 1 か所
 
-状態: 実装（R0a・R0b・R0c は実装済み、R0d は実装中）。設計は AI for Science 側 `ui-redesign-2026-10-19/design.md` §23.13。
+状態: 実装（R0a・R0b・R0c は実装済み、R0d はこの PR）。設計は AI for Science 側 `ui-redesign-2026-10-19/design.md` §23.13。
 前提 = [`relations-for-experiments.md`](relations-for-experiments.md)（12 文・15 述語）。
 
 ## 背景
@@ -77,10 +77,10 @@ R0a の見張りのうち、api の `chat_paper._CLASS_BOTH`・`consult_graph_ro
 ## R0 の分け方
 
 - R0a（実装済み）: 目録・ingest の正の定義を導出に・`GET /api/relations`・同期テスト
-- R0b（この PR）: ingest・api の写しを目録の導出に。`step0/`・`mcp/`・`demo-agent/` は AI への指示と道具の説明で
+- R0b（実装済み・#845）: ingest・api の写しを目録の導出に。`step0/`・`mcp/`・`demo-agent/` は AI への指示と道具の説明で
   文面を変えないため写しのまま（同期テストで縛る）。同期テストは step0 と ui・i18n の分が残る
 - R0c（実装済み・#844）: ui と i18n を API の目録から
-- R0d（実装中）: 目録をストアに置く（利用者が関係を足せる。形は利用者に案を示してから）
+- R0d（この PR）: 目録をストアに置く（下の「ストアでの表し方」。利用者が案 A を選んだ。人が足す口は未）
 
 ## 向きは 3 層で中身が違う（揃えない）
 
@@ -130,3 +130,106 @@ R0a の見張りのうち、api の `chat_paper._CLASS_BOTH`・`consult_graph_ro
 - `decide/decide.ts` の `CHOICE_ORDER`（ひとこと決めるの並び）
 - `startswith("equivalent")` が残る 3 か所（`ingest/src/asterism/suggested_lines.py` の `suggested_lines`・`api/src/asterism_api/chat_attach.py` の提案の文の選び分け・`ingest/src/asterism/shared_vocab.py` の `_down_set`）。述語の名前の接頭辞で「同じ」を見ており、目録は引いていない。
 - `sky_view._LINE_RELATIONS` の並び（種類の側 → 項目の側）は、目録の述語の並びと `shapes` の from に依る。目録で述語の並びや種別を変えると並びが変わる。
+
+## ストアでの表し方（R0d）
+
+状態: 実装（R0d）。**振る舞いは変えない**: 今の読み手（`themes`・`graph_diff`・`crosswalk_runtime` など）は
+コードの目録を読んだまま。ストアには「置く」と「読み戻す」だけを足した。実装は
+`ingest/src/asterism/relation_store.py`。
+
+### 置き場所と名前
+
+| 物 | IRI |
+|---|---|
+| グラフ | `substrate.RELATION_CATALOG_GRAPH` = `…/graph/vocab/relations`（`SHARED_VOCAB_GRAPH` と並ぶ） |
+| 項目の名前空間 | `https://kumagallium.github.io/asterism/vocab/relation-catalog#` |
+| 関係 | `#<短い名前>`（`#sub`・`#has_property`） |
+| 確定の述語の記述 | `#predicate-<camelCase>`（`#predicate-competesWith`） |
+| 規則（関係にぶら下がる） | `#<関係>-rule-<n>`（n は 1 から） |
+| 入れ子・並びの子の節 | `#<親>-<欄>`・`#<親>-<欄>-<n>`（例 `#predicate-competesWith-own-searched-3`） |
+
+関係の名前と `predicate-` で始まる名前はぶつからない（関係の名前は `predicate-` で始まらない）。
+標準の述語（RO・SOSA・OWL・RDFS・QUDT の IRI）と自前の述語 `…/vocab/relation#competesWith` は**主語として何も書かない**。
+項目の `xw:predicate` が指すだけ。自前の記録（表示名・定義・探した語彙・日付）は述語の記述の子の節（`-own`）に書く。
+
+### 語彙（`xw:` = `…/crosswalk/ontology#`。既存の用語と名前がぶつからないことを `git grep` で確認）
+
+| 種別 | 用語 |
+|---|---|
+| クラス | `xw:RelationEntry`・`xw:PredicateEntry`・`xw:PredicateRule`・`xw:EntryPart`（入れ子・並びの子の節） |
+| 項目の性質 | `rdfs:label`（`@ja`・`@en`）・`xw:name`・`xw:sentence`（言語タグつき）・`xw:order`（並び）・`xw:builtin`・`xw:addedBy`・`prov:generatedAtTime`・`xw:rule`（関係 → 規則）・`xw:predicate`（規則・述語の記述 → 述語の IRI） |
+| 欄の性質 | 欄名の camelCase（`xw:symmetricDraft`・`xw:noSelf`・`xw:sameShape`・`xw:shapes`・`xw:roles`・`xw:own`・`xw:when` …） |
+| 子の節 | `xw:ownerEntry`（どの項目のものか）・`xw:value`（文字列の並び）・`xw:from`・`xw:to`・`xw:date`・`xw:definition`・`xw:searched` |
+
+組み込みの項目には `xw:builtin true`・`xw:addedBy "machine"`・`prov:generatedAtTime`（置いた時刻）。
+人が足す段（R0d の後）は `xw:builtin` を付けず、`xw:addedBy "human"` とする想定。
+
+### 名前の規則と予約の欄名
+
+| 物 | 規則 | 今の件数 |
+|---|---|---|
+| 関係の名前 | `^[a-z][a-z0-9_]*$` | 12 件すべて合う |
+| 述語の名前 | `^[a-z][A-Za-z0-9]*$` | 15 件すべて合う |
+
+理由: 子の節の IRI（`<項目>-…`）は必ず `-` を含み、関係の名前には `-` が無いので、子の節が別の関係の IRI と
+ぶつからない。述語の記述の IRI（`predicate-<名前>`）も、関係の名前に `-` が無いのでぶつからない
+（述語の名前にも `-` が無いので、子の節ともぶつからない）。`catalog_triples` は規則に合わない名前を `ValueError` で断る
+（人が足す口も同じ検査を通る）。
+
+予約の欄名（camelCase・`RESERVED_FIELDS`）: `order`・`value`・`ownerEntry`・`addedBy`・`rule`・`predicate`。
+規則用の性質と同じ名前になって壊れるので、目録の欄（入れ子の中も）がこの名前だと `ValueError`。
+`name`・`builtin`・`label`・`iri`・`predicates` は目録の欄が同じ性質に写る約束なので予約の外。
+
+`catalog_triples(catalog, *, builtin, at=None)` の `builtin` は呼び手が明示する（`seed_builtin` は `True`）。
+項目に `builtin` の欄があればそれが優先。人の述語は `builtin=False` で通すと `xw:builtin true` が付かず、
+種まきは触らない。
+
+### 規則の表し方（「測る」「一種」「同じもの」）
+
+両端の種別で述語が割れる関係は、規則の節を並べて関係にぶら下げる。並びは `xw:order`（意味を持つ: 1 つ目の条件に当たれば 1 つ目）。
+
+```
+rc:measures      a xw:RelationEntry ; rdfs:label "測る"@ja , "measures"@en ; xw:rule rc:measures-rule-1 , rc:measures-rule-2 .
+rc:measures-rule-1  a xw:PredicateRule ; xw:order 1 ; xw:name "measuresProperty" ; xw:predicate obo:RO_0009006 ; xw:when rc:measures-rule-1-when-1 , rc:measures-rule-1-when-2 .
+rc:measures-rule-1-when-1  xw:order 1 ; xw:value "to_kind" .   # -when-2 は "property"
+rc:predicate-competesWith  a xw:PredicateEntry ; xw:predicate <…/vocab/relation#competesWith> ; xw:own rc:predicate-competesWith-own .
+rc:predicate-competesWith-own  rdfs:label "競合する"@ja ; xw:date "2026-11-17" ; xw:searched rc:predicate-competesWith-own-searched-1 , … .
+```
+
+### 目録の欄を一般的に写す（R0b などで欄が足されても動く）
+
+`catalog_triples(catalog_to_json())` は、JSON の**値の型**だけで写す（モジュールの docstring の表）。
+文字列・真偽・整数・言語別の文字列・入れ子の辞書・文字列の並び・辞書の並び・`None`（何も書かない）。
+読み戻し（`read_catalog`）は、今のコードの目録の形（欄の名前と型）を雛形にするので、欄が足されれば
+書くのも読むのも自動で追従する。**無視するもの**: 上の型以外の値（リストのリスト・浮動小数点など）、
+ストアにあってコードの目録に無い欄（読み戻さない）。欄が `None` の項目しか無い欄は、型が分からないので
+読み戻しても `None`。
+
+### 種まき（`seed_builtin(client, *, at)`）
+
+- 起動時（`main.py` の `lifespan`）に 1 回。単一ユーザー（`local.py`）も本番（`compose.prod.yaml`）も同じ `lifespan` を通る。
+- 冪等: ストアの `xw:builtin true` の項目を読み戻し、今の目録（`catalog_to_json()`）と**完全に同じ**なら何も書かない（時刻も動かさない）。
+- 違えば、組み込みの項目（と `xw:ownerEntry` でぶら下がる子の節）だけを消して入れ直す（1 回の更新）。
+  `xw:builtin true` でない項目＝将来人が足した関係には触らない。時刻は入れ直したときだけ新しくなる。
+- **組み込みの項目の主語は機械のもの**。組み込みの項目（と子の節）の主語に付いた 3 つ組は、再種まきで消える。
+  人の確認・注釈はここに直接書かない（人の確認は別の節に書き、組み込みの項目を指す形にする。R3 で作る）。
+- 失敗しても起動を止めない（ログだけ）。ストアに繋がらない起動・テストの偽ストアでも壊れない。
+
+### 読み戻しの口
+
+- `GET /api/relations` — 従来どおりコードの目録（既定 `source=code`）。
+- `GET /api/relations?source=store` — ストアから読んだ同じ形の目録（並びも同じ）。テストでコードの目録と一致を見る。
+
+### 外に紛れ込まない
+
+グラフは `canonical/`・`ontology/`・`meta/`・`moved/` のどの接頭辞にも入らず、データセットの一覧（registry 由来）・
+`/api/sky`・`find_datasets`・名前の索引の列挙（接頭辞つき）には現れない。`readable_graph_iris` にも入れていないので、
+データセットの範囲（`FROM`）にも混ざらない。
+
+### MCP から引けるか（未対応・利用者に伺い中）
+
+**今は引けない**。`sparql_query` の `FROM` / `FROM NAMED` は `readable_graph_iris`（canonical・ontology・共有の言葉）に
+限られ、`vocab/relations` は拒否される（実機で確認）。`readable_graph_iris` に足すと `/api/cards` など
+他の読み手の範囲にも混ざる。本体が利用者に次の 2 案を伺っている（決まったら別の PR）:
+「MCP の `sparql_query` の許可リストに目録のグラフだけを足す（推奨）」／「目録を返す道具を足す」。
+この PR では触っていない。

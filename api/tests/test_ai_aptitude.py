@@ -170,6 +170,8 @@ def _done(events: list[dict]) -> dict:
 def test_api_runs_saves_without_key_and_leaves_store(tmp_path: Path) -> None:
     app, ds, cfg = _api(tmp_path, _Fake("limited"))
     with TestClient(app, headers={**_AUTH, **KEY}) as c:
+        # 起動時に機械が種をまく関係の目録（R0d）は、実行の前に数える
+        before = set(ds.quads((None, None, None, None)))
         events = _run(c, **{"X-LLM-Provider": "openai", "X-LLM-Model": "m1"})
         progress = [e for e in events if e.get("event") == "running" and "n" in e]
         assert progress[0]["n"] == 1 and progress[-1]["n"] == 40 and progress[-1]["total"] == 40
@@ -181,7 +183,7 @@ def test_api_runs_saves_without_key_and_leaves_store(tmp_path: Path) -> None:
     assert result == {"provider": "openai", **entry}  # GET と done は同じ
     raw = (cfg.appdata_root / "settings.json").read_text("utf-8")
     assert "test-key" not in raw
-    assert len(ds) == 0  # 読むだけ
+    assert set(ds.quads((None, None, None, None))) == before  # 読むだけ（全 3 つ組が同じ）
 
 
 def test_models_coexist_and_rerun_overwrites(tmp_path: Path) -> None:
