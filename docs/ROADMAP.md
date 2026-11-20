@@ -96,6 +96,7 @@
 ## 更新 log
 
 - 2026-11-19: **MCP の `sparql_query` で関係の目録を引けるようにした**。生の SPARQL の検査が、目録のグラフ（`…/graph/vocab/relations`）を名前を挙げたときだけ読ませる（データセットの範囲には混ぜない）。
+- 2026-11-20: **関係の目録を構造のまま返す MCP の道具 `list_relations` を足した**。引数なしで `{relations, predicates, source}`（`GET /api/relations` と同じ形＋ストア／コードのどちらから読んだか）。主役の道で、`sparql_query` は逃げ道。アプリ内の `/mcp` でも出る。
 
 - 2026-11-19: **PDF 部品の固定一覧を「Python 3.11.5 以上」として作り直し、soupsieve を 2.10 → 4.1.2 に上げた**（high を含む警告 3 件）。これまでは「3.11」（= 3.11.0）として解決していたため、`requires-python >=3.11.5` の版が選ばれなかった。同梱の Python は 3.11 系の最新なので条件は必ず満たす。torch 2.13・setuptools 84 は、torchvision が torch 2.11 に固定していることと、torch 2.13 の macOS 用が macOS 14 以上でしか入らないことから見送り、警告は理由付きで閉じた（低い重大度・PDF の変換では使わない経路）。
 - 2026-11-19: **デスクトップ版の自動更新の部品（tauri-plugin-updater）を 2.10.1 → 2.14.1、tauri を 2.11.5 → 2.12.7 に上げた**。updater が引く zip 4.6 に critical を含む警告（展開時のシンボリックリンク・権限・ZIP の読み違い）があったため。zip は 9.7.2 になり、`cargo audit` の脆弱性は 0 件。npm 側の @tauri-apps/api・cli・plugin-updater も揃えた。署名の検証は minisign-verify 0.3 に変わるので、公開中の v0.71.3 の更新ファイルを同じ手順で検証し、本物は通り 1 ビット変えたものは弾かれることを確かめた。版の照合（`require_signed_version`）は既定の無効のまま（今の署名は `version:` を持たない）。

@@ -1402,3 +1402,49 @@ async def sparql_query(
         "truncated": truncated,
         **extra,
     }
+
+
+# ----------------------------------------------------------------------------
+# list_relations — 関係の目録を構造のまま返す（SPARQL を書かせない道）
+# ----------------------------------------------------------------------------
+
+
+def _catalog_is_well_formed(catalog: Any, code: dict[str, Any]) -> bool:
+    """読み戻した目録が形の検査に通るか。
+
+    - ``relations``・``predicates`` が空でない配列で、各項目が ``name`` を持つ dict
+    - 組み込み（コードの目録）の名前が全部ある（種まきが欠けた・壊れたストアを弾く）
+    """
+    if not isinstance(catalog, dict):
+        return False
+    for section in ("relations", "predicates"):
+        items = catalog.get(section)
+        if not isinstance(items, list) or not items:
+            return False
+        if not all(isinstance(i, dict) and isinstance(i.get("name"), str) for i in items):
+            return False
+        have = {i["name"] for i in items}
+        if not {i["name"] for i in code[section]} <= have:
+            return False
+    return True
+
+
+async def list_relations(client: OxigraphClient) -> dict[str, Any]:
+    """関係の目録 ``{"relations", "predicates", "source"}``（``GET /api/relations`` と同じ形）。
+
+    正本はストアの目録（``relation_store.read_catalog``）。ストアが読めない・空・形の検査に
+    通らないときはコードの目録を返し ``source`` を ``"code"`` にする。"""
+    from asterism import relation_catalog, relation_store
+
+    code = relation_catalog.catalog_to_json()
+    try:
+        stored = await relation_store.read_catalog(client)
+    except Exception:
+        return {**code, "source": "code"}
+    if not _catalog_is_well_formed(stored, code):
+        return {**code, "source": "code"}
+    return {
+        "relations": stored["relations"],
+        "predicates": stored["predicates"],
+        "source": "store",
+    }
