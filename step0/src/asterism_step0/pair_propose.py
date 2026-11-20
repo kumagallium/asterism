@@ -5,6 +5,7 @@
 
     {"rel": "makes", "from": "a", "evidence": ["c1"], "note": "理由 1 行"}
 
+``none`` のときだけ、任意の欄 ``unstated_kind``（言えなかった関係の種類を短い名詞で）も返せる。
 関係は ``PAIR_RELS`` の 11 個か ``none``（言えない）。根拠は番号だけ（引用文は書かせない）。
 1 回の仕事は 1 組だけ。検査に落ちたら理由を添えて聞き直す（最初 + 2 回）。
 やらないこと: 確からしさ・文脈の語・台帳への保存（ingest の仕事）。id・IRI・コードも書かせない。
@@ -13,6 +14,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable
 from typing import Any
 
@@ -51,6 +53,7 @@ MAX_CLAIMS = 8
 MAX_EVIDENCE = 3
 _ATTEMPTS = 3
 _LEN_NOTE = 200
+_LEN_KIND = 20  # unstated_kind の長さの上限
 _LEN_CLAIM = 600  # prompt に載せる 1 文の長さ
 _LEN_NAME = 80
 _EVIDENCE_RE = re.compile(r"^c([0-9]{1,2})\Z")
@@ -91,6 +94,11 @@ Answer with ONE JSON object and nothing else:
   knowledge instead of what the statements say.
 - Use eq only when a statement says the two are the same thing (not merely similar, and not
   because their abbreviations look alike).
+- Only for none: "unstated_kind" (optional) is a short noun naming the kind of relation the
+  statements express between the two terms when it is not in the list (e.g. condition,
+  comparison, co-use, purpose), in the language of the statements, at most 20 characters.
+  When there is no relation or you cannot tell, do not write it (never write none or
+  unknown). Omit it for every other rel.
 - Do NOT write ids, keys, IRIs, SPARQL or code.
 """
 
@@ -110,6 +118,8 @@ def pair_json_schema() -> dict:
                 "items": {"type": "string", "pattern": "^c[0-9]{1,2}$"},
             },
             "note": {"type": "string", "maxLength": _LEN_NOTE},
+            # 任意（required に入れない）。rel が none のときだけ意味を持つ
+            "unstated_kind": {"type": "string", "maxLength": _LEN_KIND},
         },
     }
 
@@ -138,8 +148,51 @@ def build_pair_user(pair: dict, lang: str = "ja") -> str:
     return "\n".join(parts)
 
 
+_KIND_NONE_WORDS = frozenset(
+    {
+        "none", "null", "n/a", "na", "unknown", "nothing", "no relation",
+        "なし", "無し", "不明", "該当なし", "関係なし", "分からない", "わからない",
+    }
+)  # fmt: skip
+_KIND_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*:", re.IGNORECASE)
+_KIND_NUMBER = re.compile(r"^c\d+(?:,\s*c\d+)*\Z", re.IGNORECASE)
+_KIND_CODE = re.compile(
+    r"https?://|[<>{}`]|\b(?:SELECT|INSERT|DELETE|WHERE|PREFIX)\b", re.IGNORECASE
+)
+
+
+def _clean_kind(raw: Any) -> str | None:
+    """``unstated_kind`` の正規化（step0 と ingest に同じ規則を 2 か所書き、見張りのテストで
+    同じ答えを縛る）。通れば整えた文字列・捨てるなら ``None``。
+
+    NFKC にそろえ・空白を詰め・制御と書式の文字（Cc・Cf）を取り除く。捨てる物: 空・20 文字超
+    （切らない）・文字が無い（記号・数字だけ）・1 文字の英字・「無い／分からない」の言い換え・
+    関係の短い名前と ``none``・知見の番号の形・スキームや URL・Markdown のリンク・
+    コードの記号と SQL 語。"""
+    if not isinstance(raw, str):
+        return None
+    kind = unicodedata.normalize("NFKC", raw)
+    kind = " ".join(kind.split())
+    kind = "".join(ch for ch in kind if unicodedata.category(ch) not in ("Cc", "Cf")).strip()
+    if not kind or len(kind) > _LEN_KIND:
+        return None
+    if not any(ch.isalpha() for ch in kind):
+        return None
+    low = kind.casefold()
+    if len(kind) == 1 and kind.isascii():
+        return None
+    if low in _KIND_NONE_WORDS or low in {*PAIR_RELS, "none"} or _KIND_NUMBER.match(low):
+        return None
+    if _KIND_SCHEME.match(kind) or "//" in kind or low.startswith("www."):
+        return None
+    if "[" in kind or "]" in kind or _KIND_CODE.search(kind):
+        return None
+    return kind
+
+
 def validate_pair_answer(obj: Any, n_claims: int) -> dict:
-    """答えを正規化する → ``{rel, from, evidence, note}``。
+    """答えを正規化する → ``{rel, from, evidence, note}``（``none`` で種類があれば
+    ``unstated_kind`` も）。
     形が合わなければ :class:`PairProposeError`。"""
     if not isinstance(obj, dict):
         raise PairProposeError("$: must be an object")
@@ -150,7 +203,11 @@ def validate_pair_answer(obj: Any, n_claims: int) -> dict:
     note = " ".join(note.split()) if isinstance(note, str) else ""
     note = "" if _CODE_LIKE.search(note) else note[:_LEN_NOTE]
     if rel == NONE:
-        return {"rel": NONE, "from": None, "evidence": [], "note": note}
+        out = {"rel": NONE, "from": None, "evidence": [], "note": note}
+        kind = _clean_kind(obj.get("unstated_kind"))
+        if kind:  # 無いときは欄ごと出さない（古い答えと同じ形）
+            out["unstated_kind"] = kind
+        return out
     frm = obj.get("from")
     if rel in SYMMETRIC_RELS:
         frm = "a"
