@@ -231,5 +231,5 @@ rc:predicate-competesWith-own  rdfs:label "競合する"@ja ; xw:date "2026-11-1
 **引ける**。生の SPARQL の検査（`substrate.canonical_merge_query`。`/api/sparql` と MCP の `sparql_query` が通る）が、
 `FROM <…/graph/vocab/relations>`・`FROM NAMED <…>` で名前を挙げたときだけ目録のグラフを読ませる。
 `readable_graph_iris` には入れない（データセットの範囲・`/api/cards` の範囲・既定の FROM に混ざらない）。
-目録は確認済みの関係の定義だけなので、外の AI に見せても未確認は漏れない。目録を返す専用の道具は足していない
-（AI に SPARQL を書かせない道は、`GET /api/relations` を MCP の道具にするかを、関係を足す段で改めて決める）。
+目録は確認済みの関係の定義だけなので、外の AI に見せても未確認は漏れない。目録を構造のまま返す道具 `list_relations`（引数なし・`{relations, predicates, source}`・
+`source` はストア `store`／読めない・空・形の検査に通らないときのコードの目録 `code`）を MCP に足した。**これが主役の道**で、AI は SPARQL・IRI を書かずに引ける。`sparql_query` で目録のグラフを名指す道は逃げ道。アプリ内の `/mcp` も同じ道具を出す。

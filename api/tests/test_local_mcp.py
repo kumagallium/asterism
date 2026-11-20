@@ -129,6 +129,8 @@ def test_tools_are_listed(tmp_path: Path) -> None:
         # first (#438); without it a fresh client cannot discover anything.
         assert "find_datasets" in names
         assert "schema_summary" in names
+        # 関係の目録を構造のまま返す道（SPARQL を書かせない主役の道）
+        assert "list_relations" in names
 
 
 def test_api_routes_survive_the_mount(tmp_path: Path) -> None:

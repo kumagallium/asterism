@@ -41,6 +41,7 @@ from asterism_mcp.tools import (
     SparqlNotReadOnlyError,
     answer_knowledge_question,
     dataset_descriptions,
+    list_relations,
     provenance_of,
     schema_summary,
     sparql_query,
@@ -282,6 +283,22 @@ def build_server(
             )
         except ValueError as exc:
             return {"tool_name": tool_name, "found": False, "error": str(exc)}
+
+    @mcp.tool(
+        name="list_relations",
+        description=(
+            "Return the catalog of relations the app knows, as structured data: "
+            "the relation list (each with its sentence form, direction, the kinds "
+            "allowed at both ends), how each relation maps to a predicate, and the "
+            "app's own recorded predicates. Takes no arguments; write NO SPARQL, "
+            "code or IRIs. Returns {relations, predicates, source} where source is "
+            "'store' (read from the store) or 'code' (built-in fallback). Use it to "
+            "learn which relations exist and how they read before asking knowledge "
+            "questions."
+        ),
+    )
+    async def _list_relations() -> dict[str, object]:
+        return await list_relations(get_client())
 
     # The arbitrary-SPARQL escape hatch is gated by the deployment exposure
     # profile: a sensitive store (topology B) sets ASTERISM_EXPOSE_RAW_SPARQL=0
