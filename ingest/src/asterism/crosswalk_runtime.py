@@ -777,8 +777,10 @@ ALIGN_RELATIONS: dict[str, str] = relation_catalog.align_relations()
 def _sync_align_relations() -> None:
     """足した関係が入れ替わったら、同じ dict を作り直す（``from … import ALIGN_RELATIONS`` で
     束ねた読み手にも届くように、実体は入れ替えず中身だけ）。"""
-    ALIGN_RELATIONS.clear()
-    ALIGN_RELATIONS.update(relation_catalog.align_relations())
+    new = relation_catalog.align_relations()
+    for key in [k for k in ALIGN_RELATIONS if k not in new]:
+        del ALIGN_RELATIONS[key]  # 差分で足す・消す（空の辞書が見える窓を作らない）
+    ALIGN_RELATIONS.update(new)
 
 
 relation_catalog.on_change(_sync_align_relations)
@@ -1034,6 +1036,8 @@ async def assert_alignment(
     if relation not in relation_catalog.align_relations():
         names = sorted(relation_catalog.align_relations())
         raise ValueError(f"relation must be one of {names}, got {relation!r}")
+    if relation not in relation_catalog.assignable_predicates():
+        raise ValueError(f"retired relation: {relation}")  # やめた関係は新しく置かない
     source, target = canonical_ends(relation, source, target)
     if drafted_by not in DRAFTED_BY:
         raise ValueError(f"drafted_by must be one of {DRAFTED_BY}, got {drafted_by!r}")

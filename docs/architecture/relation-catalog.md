@@ -267,9 +267,12 @@ rc:predicate-competesWith-own  rdfs:label "競合する"@ja ; xw:date "2026-11-1
 ### 目録への重ね方（`relation_catalog`）
 
 - `set_human(relations, predicates)` で入れ物に入れる。読み出し関数は**組み込み＋足した関係**を返す（組み込みが先・足した順）。`catalog_to_json()` は**組み込みだけ**のまま（種まきと `gen_relation_catalog_ts` の正）。`overlay_catalog_to_json()` が重ねた目録。**足した関係 0 件なら全部の出力が組み込みだけのときと同じ**。
-- **やめた関係（`retired`）**: 「選べる」集合（`assignable_relation_kinds`・`assignable_predicates`・`assign` と AI の答えの検査）からは外し、「読める」集合（`relation_kinds`・`pred_to_rel`・`rel_sentence`・確定の線の読み戻し）には残す。付いた組と根拠は残り、読み戻せる。名前と述語は後から変えない・戻す口は作らない。
-- 起動時（種まきの後）に `refresh_human`（失敗しても起動は止めない＝足した関係 0 件として動く）。口で書いた後も同じ。
-- **import 時に固定していた定数のうち B・C・D の道の物は、呼ぶたびに目録から引く**。`ALIGN_RELATIONS`（実体の dict を持ち続ける読み手のため、変わったときに中身だけ作り直す）・`graph_diff.PRED_TO_REL`／`REL_SENTENCE`・`pair_relations._CONFIRMED_NAMES`（`LiveMap`＝呼ぶたびに引く読み取り専用の辞書）。組み込みだけで足りる所（問いの型・論文・話の下書きの AI・step0）は触らない。
+- **やめた関係（`retired`）**: 「選べる」集合（`assignable_relation_kinds`・`assignable_predicates`）からは外す。新しく選ぶ道はすべてこれを使って断る＝`pair_relations.assign`・AI の答えの検査（`check_answer`）・`crosswalk_runtime.assert_alignment`（`POST /api/crosswalk/alignments` も同じ関数）・話の下書きの確定（`themes._plan_commit`）・差分の検査（`graph_diff.check_relation`＝`retired`）。既存の線の読み戻し・取り消し（`remove_alignment`）・根拠の付け直し（`add_evidence`）は断らない。「読める」集合（`relation_kinds`・`pred_to_rel`・`rel_sentence`・確定の線の読み戻し）には残す。付いた組と根拠は残り、読み戻せる。名前と述語は後から変えない・戻す口は作らない。
+- 起動時（種まきの後）に `refresh_human(startup=True)`（失敗しても起動は止めない＝足した関係 0 件として動く）。口で書いた後も同じだが、**書き込み後の読み直しに失敗したら前の状態を保つ**（0 件にしない）。
+- **壊れた項目は捨てる**: `read_human`／`set_human` の手前の `sanitize_human` が、述語の記述が無い・規則の述語が見つからない・名前の規則違反・表示名が空の項目を捨てて警告のログを出す（目録全体は落とさない）。文の言語が欠けていれば、もう片方の言語か既定の文で埋める。壊れた項目でも `usage`・`DELETE` は検査なしの読み出しで通る。
+- 書き込み（add / update / retire / delete）はイベントループごとの `asyncio.Lock` を 1 つかける（重複の検査と書き込み・使われ方の集計と削除の間を閉じる）。人が足せる関係は 500 件まで（超えたら 409）。
+- 入力の文字の規則は `relation_store._clean_text` の 1 か所。表示名と `unstated_key` は R1 の `_unstated_kind` と同じ系統（スキーム・`//`・`www.`・Markdown のリンク・`[]`・`<>{}`・バッククォート・SQL 語・「無い」の言い換え・記号だけ／数字だけ・組み込みの関係名／述語名と同じ表示名を断る）。説明・文は自然文なので SQL 語と none は検査しない。
+- **import 時に固定していた定数のうち B・C・D の道の物は、呼ぶたびに目録から引く**。`ALIGN_RELATIONS`（実体の dict を持ち続ける読み手のため、変わったときにキーの差分で足す・消す）・`graph_diff.PRED_TO_REL`／`REL_SENTENCE`・`pair_relations._CONFIRMED_NAMES`（`LiveMap`＝呼ぶたびに引く読み取り専用の辞書）。組み込みだけで足りる所（問いの型・論文・話の下書きの AI・step0）は触らない。
 
 ### 使われているか・削除
 
@@ -283,6 +286,6 @@ rc:predicate-competesWith-own  rdfs:label "競合する"@ja ; xw:date "2026-11-1
 ### 残した穴
 
 - **単一のプロセスの前提**（デスクトップと今の本番）。複数のワーカーで動くときの、足した関係の同期は未対応（書いたワーカーだけが重ねた目録を持つ。起動時に読む）。
-- 足した関係を AI に選ばせる（R3b）・画面（R3c）・問い・星図・判定し直し（R4）は後の段。星図（`sky_view`）の線の集合は組み込みのまま（読み戻しで落ちないだけ）。
-- 話の下書き（`themes`）に、やめた関係を新しく選ばせない検査は無い（読めるだけ）。
+- 足した関係を AI に選ばせる（R3b）・画面（R3c）・問い・星図・判定し直し（R4）は後の段。星図（`sky_view`）は星図の外なので線の集合は組み込みのまま（足した関係の線は読み戻しで落ちない・星図には描かれない）。
+- `consult_graph_routes._SYMMETRIC`・`shared_vocab._REL_BY_IRI` は本体では使わなくなったが、既存のテストが固定しているので残してある。
 - スタンドアロンの MCP（`asterism_mcp` が別のプロセスで動くとき）は、起動時に足した関係を読まない。`list_relations` はストアを読むので足した関係が出るが、線の読み戻しの述語の集合は組み込みのまま。

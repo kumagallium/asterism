@@ -167,3 +167,33 @@ def test_足した関係を付ける口で付けられる_やめたら_400(tmp_p
         bad = client.post(f"{url}/assign", json={"key": none["key"], "rel": rel.name, "subject": "a"})
         assert bad.status_code == 400 and bad.json()["reason"] == "retired"
         assert _rows(client, "relation")[key]["rel"] == rel.name
+
+
+def test_壊れた項目があっても_GET_と_usage_は落ちず_DELETE_で消せる(tmp_path: Path) -> None:
+    from asterism import relation_store as rs
+
+    app, store = _app(tmp_path)
+    with TestClient(app, headers=_AUTH) as client:
+        ok = client.post("/api/relations", json=BODY).json()["relation"]["name"]
+        bad = client.post("/api/relations", json={**BODY, "label": {"ja": "別の"}}).json()["relation"]["name"]
+        store.store.update(
+            f"DELETE WHERE {{ GRAPH <{rs.CATALOG_GRAPH}> {{ <{rs.predicate_iri('u' + bad[2:])}> ?p ?o }} }}"
+        )
+        client.post(f"/api/relations/{ok}/retire")  # 書き込み後の読み直しでも壊れた項目は捨てられる
+        names = [r["name"] for r in client.get("/api/relations").json()["relations"]]
+        assert ok in names and bad not in names
+        got = client.get("/api/relations", params={"source": "store", "usage": 1})
+        assert got.status_code == 200
+        assert [r["name"] for r in got.json()["relations"] if r["name"] == bad]
+        assert client.delete(f"/api/relations/{bad}").status_code == 200
+        assert bad not in [r["name"] for r in client.get("/api/relations", params={"source": "store"}).json()["relations"]]
+
+
+def test_上限を超えると_409(tmp_path: Path, monkeypatch) -> None:
+    from asterism import relation_store as rs
+
+    monkeypatch.setattr(rs, "MAX_HUMAN_RELATIONS", 1)
+    app, _ = _app(tmp_path)
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.post("/api/relations", json=BODY).status_code == 201
+        assert client.post("/api/relations", json={**BODY, "label": {"ja": "二つ目"}}).status_code == 409

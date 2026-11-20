@@ -240,6 +240,8 @@ class _Applier:
         obj_kind = std.kind if std is not None else str(obj["kind"])  # type: ignore[index]
         if obj_key == subj["key"]:
             return "same"
+        if relation_catalog.is_retired(rel):
+            return "retired"  # やめた関係は新しく選べない
         if rel == "quantity":
             if subj["kind"] != "property" or std is None or std.kind != "quantity":
                 return "quantity_target"

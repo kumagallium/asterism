@@ -6142,7 +6142,7 @@ def build_app(
         try:
             from asterism import relation_store
 
-            await relation_store.refresh_human(client)
+            await relation_store.refresh_human(client, startup=True)
         except Exception:
             logger.warning("human relations load failed (continuing)", exc_info=True)
         stop = asyncio.Event()

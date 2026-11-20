@@ -32,11 +32,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import secrets
 import unicodedata
+import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -437,8 +439,25 @@ _URLISH = re.compile(r"(?:[a-z][a-z0-9+.-]*://|\bwww\.)", re.IGNORECASE)
 _IRI_BAD = re.compile(r"[\s<>\"{}|\\^`]")
 
 
-def _clean_text(value: Any, *, field_name: str, max_len: int) -> str:
-    """NFKC・空白の正規化・1〜``max_len`` 文字・制御／書式の文字なし・URL／コード／``<>{}`` の形を断る。"""
+_MD_LINK = re.compile(r"\[[^\]]*\]\([^)]*\)")
+_SQL_WORDS = re.compile(r"\b(?:SELECT|INSERT|DELETE|WHERE|PREFIX)\b", re.IGNORECASE)
+_NONE_WORDS = frozenset(
+    {
+        "none", "null", "n/a", "na", "unknown", "nothing", "no relation",
+        "なし", "無し", "不明", "該当なし", "関係なし", "分からない", "わからない",
+    }
+)  # fmt: skip
+
+
+def _clean_text(
+    value: Any, *, field_name: str, max_len: int, strict: bool = False
+) -> str:
+    """入力の文字の規則（1 か所）。NFKC・空白の正規化・1〜``max_len`` 文字・制御／書式の文字なし・
+    URL／``<>{}``／バッククォート／Markdown のリンクの形を断る。
+
+    ``strict``（表示名・``unstated_key``＝名詞の短い札）は R1 の ``_unstated_kind`` と同じ系統に、
+    さらにスキームの形・``//``・``[]``・SQL 語・「無い」の言い換え・記号だけ／数字だけも断る。
+    説明・文は自然文なので strict にしない。"""
     if not isinstance(value, str):
         raise RelationInputError(f"{field_name}: 文字列で入れてください")
     text = " ".join(unicodedata.normalize("NFKC", value).split())
@@ -449,13 +468,28 @@ def _clean_text(value: Any, *, field_name: str, max_len: int) -> str:
     for ch in text:
         if unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Co", "Cn") or ch in _FORBIDDEN_CHARS:
             raise RelationInputError(f"{field_name}: 使えない文字があります")
-    if _URLISH.search(text):
+    if _URLISH.search(text) or _MD_LINK.search(text):
         raise RelationInputError(f"{field_name}: URL の形は入れられません")
+    if strict:
+        low = text.casefold()
+        if re.match(r"^[a-z][a-z0-9+.-]*:", text, re.IGNORECASE) or "//" in text:
+            raise RelationInputError(f"{field_name}: URL の形は入れられません")
+        if "[" in text or "]" in text or _SQL_WORDS.search(text):
+            raise RelationInputError(f"{field_name}: 使えない文字があります")
+        if low in _NONE_WORDS:
+            raise RelationInputError(f"{field_name}: 「無い」の言い換えは入れられません")
+        if not any(ch.isalpha() for ch in text):
+            raise RelationInputError(f"{field_name}: 記号や数字だけにはできません")
     return text
 
 
 def _clean_lang_map(
-    value: Any, *, field_name: str, max_len: int, required: tuple[str, ...] = ()
+    value: Any,
+    *,
+    field_name: str,
+    max_len: int,
+    required: tuple[str, ...] = (),
+    strict: bool = False,
 ) -> dict[str, str]:
     if value is None:
         value = {}
@@ -467,7 +501,9 @@ def _clean_lang_map(
             raise RelationInputError(f"{field_name}: 言語は ja か en です: {lang!r}")
         if v is None or (isinstance(v, str) and not v.strip()):
             continue
-        out[lang] = _clean_text(v, field_name=f"{field_name}.{lang}", max_len=max_len)
+        out[lang] = _clean_text(
+            v, field_name=f"{field_name}.{lang}", max_len=max_len, strict=strict
+        )
     for lang in required:
         if lang not in out:
             raise RelationInputError(f"{field_name}.{lang}: 必須です")
@@ -495,9 +531,7 @@ def _clean_exact_match(value: Any) -> str | None:
 def _clean_unstated_key(value: Any) -> str | None:
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
-    if not isinstance(value, str) or len(value) > 200:
-        raise RelationInputError("unstated_key: 文字列（200 文字まで）で入れてください")
-    return value
+    return _clean_text(value, field_name="unstated_key", max_len=200, strict=True)
 
 
 def default_sentence(label: dict[str, str], *, symmetric: bool) -> dict[str, str]:
@@ -545,10 +579,14 @@ def _clean_sentence(value: Any) -> dict[str, str]:
 def _check_no_clash(label: dict[str, str], *, ignore: str | None = None) -> None:
     """表示名が組み込み・足した関係の名前・表示名と ``merge_key`` で同じなら ``RelationExists``。"""
     mine = {merge_key(t) for t in label.values()} - {""}
+    builtin_preds = {merge_key(p.name) for p in relation_catalog.PREDICATES}
+    if mine & builtin_preds:
+        raise RelationExists("既にある関係（組み込みの述語名と同じ表示名）")
     for r in relation_catalog.all_relations():
         if r.name == ignore:
             continue
         theirs = {merge_key(r.name), *(merge_key(t) for t in r.label.values() if t)}
+        theirs |= {merge_key(p.name) for p in r.predicates}  # 述語名と同じ表示名も断る
         if mine & theirs:
             shown = r.label.get("ja") or r.label.get("en") or r.name
             raise RelationExists(f"既にある関係（{shown}）")
@@ -659,19 +697,39 @@ async def _write(
     await client.sparql_update(" ;\n".join(parts))
 
 
+async def _read_human_raw(
+    client: Any,
+) -> tuple[list[relation_catalog.Relation], list[relation_catalog.Predicate]]:
+    """検査しない読み出し（壊れた項目も返す。削除・使われ方の数え方が使う）。変換できない項目は飛ばす。"""
+    cat = await read_catalog(client)
+    rels: list[relation_catalog.Relation] = []
+    for r in cat["relations"]:
+        if r.get("builtin"):
+            continue
+        try:
+            rels.append(relation_catalog.relation_from_json(r))
+        except Exception:
+            logger.warning("relation_store: unreadable human relation %r", r.get("name"))
+    wanted = {rule.name for r in rels for rule in r.predicates}
+    preds: list[relation_catalog.Predicate] = []
+    for p in cat["predicates"]:
+        if p.get("name") not in wanted:
+            continue
+        try:
+            preds.append(relation_catalog.predicate_from_json(p))
+        except Exception:
+            logger.warning("relation_store: unreadable human predicate %r", p.get("name"))
+    return rels, preds
+
+
 async def read_human(
     client: Any,
 ) -> tuple[list[relation_catalog.Relation], list[relation_catalog.Predicate]]:
-    """ストアの人が足した関係（組み込みでない項目）→ ``(関係, 述語)``（足した順）。"""
-    cat = await read_catalog(client)
-    rels = [
-        relation_catalog.relation_from_json(r) for r in cat["relations"] if not r.get("builtin")
-    ]
-    wanted = {rule.name for r in rels for rule in r.predicates}
-    preds = [
-        relation_catalog.predicate_from_json(p) for p in cat["predicates"] if p["name"] in wanted
-    ]
-    return rels, preds
+    """ストアの人が足した関係（組み込みでない項目）→ ``(関係, 述語)``（足した順）。
+
+    壊れた項目（述語の記述が無い等）は捨てて警告のログを出す（目録全体を落とさない）。"""
+    rels, preds = await _read_human_raw(client)
+    return relation_catalog.sanitize_human(rels, preds)
 
 
 async def _next_orders(client: Any) -> tuple[int, int]:
@@ -695,6 +753,17 @@ async def _orders_of(client: Any, rel: relation_catalog.Relation) -> tuple[int, 
     )
 
 
+async def _raw_relation(client: Any, name: str) -> relation_catalog.Relation:
+    """足した関係を検査なしで引く（壊れていても消せる）。組み込みは 403・無ければ 404。"""
+    if name in {r.name for r in relation_catalog.RELATIONS}:
+        raise RelationForbidden("組み込みの関係には触れません")
+    rels, _ = await _read_human_raw(client)
+    rel = next((r for r in rels if r.name == name), None)
+    if rel is None:
+        raise RelationNotFound(name)
+    return rel
+
+
 async def _human_pair(
     client: Any, name: str
 ) -> tuple[relation_catalog.Relation, relation_catalog.Predicate]:
@@ -708,7 +777,7 @@ async def _human_pair(
     return rel, pred
 
 
-async def add_relation(client: Any, spec: dict[str, Any], *, at: str) -> relation_catalog.Relation:
+async def _add_relation_locked(client: Any, spec: dict[str, Any], *, at: str) -> relation_catalog.Relation:
     """人が関係を足す。名前（``u_<8 桁の 16 進>``）と述語は機械が作る。
 
     ``spec``: ``label {ja, en?}``（ja 必須）・``definition {ja?, en?}``（どちらか必須・AI への 1 文）・
@@ -717,7 +786,7 @@ async def add_relation(client: Any, spec: dict[str, Any], *, at: str) -> relatio
     if not _ISO_AT.match(at):
         raise ValueError(f"at must be an ISO-8601 datetime: {at!r}")
     label = _clean_lang_map(
-        spec.get("label"), field_name="label", max_len=_LABEL_MAX, required=("ja",)
+        spec.get("label"), field_name="label", max_len=_LABEL_MAX, required=("ja",), strict=True
     )
     definition = _clean_lang_map(
         spec.get("definition"), field_name="definition", max_len=_DEFINITION_MAX
@@ -731,6 +800,8 @@ async def add_relation(client: Any, spec: dict[str, Any], *, at: str) -> relatio
 
     rels, preds = await read_human(client)  # 別の口で足された分も見て、重複を断る
     relation_catalog.set_human(rels, preds)
+    if len((await _read_human_raw(client))[0]) >= MAX_HUMAN_RELATIONS:
+        raise RelationLimit(f"足せる関係は {MAX_HUMAN_RELATIONS} 件までです")
     _check_no_clash(label)
     taken = {r.name for r in relation_catalog.all_relations()} | {
         p.name for p in relation_catalog.all_predicates()
@@ -754,7 +825,7 @@ async def add_relation(client: Any, spec: dict[str, Any], *, at: str) -> relatio
     return rel
 
 
-async def update_relation(
+async def _update_relation_locked(
     client: Any,
     name: str,
     *,
@@ -768,7 +839,7 @@ async def update_relation(
     渡さなかった欄はそのまま。``exact_match`` は ``None`` を渡すと消す。"""
     rel, pred = await _human_pair(client, name)
     new_label = (
-        _clean_lang_map(label, field_name="label", max_len=_LABEL_MAX, required=("ja",))
+        _clean_lang_map(label, field_name="label", max_len=_LABEL_MAX, required=("ja",), strict=True)
         if label is not None
         else dict(rel.label)
     )
@@ -809,7 +880,7 @@ async def update_relation(
     return new_rel
 
 
-async def retire_relation(client: Any, name: str, *, at: str) -> relation_catalog.Relation:
+async def _retire_relation_locked(client: Any, name: str, *, at: str) -> relation_catalog.Relation:
     """「使うのをやめる」。何度呼んでも同じ（やめた時刻は最初の 1 回）。戻す口は無い。"""
     if not _ISO_AT.match(at):
         raise ValueError(f"at must be an ISO-8601 datetime: {at!r}")
@@ -876,39 +947,89 @@ async def usage(
     * ``lines`` — 確定の線（足した関係の述語の 3 つ組がどこかのグラフにある数）
     * ``ledger`` — 取り込み元の台帳で ``rel == 名前`` の件
     * ``drafts`` — 話の下書き・却下の記録に名前（関係の名前・述語の名前）が出る件"""
-    rel, _ = await _human_pair(client, name)
-    pred = rel.predicates[0]
-    res = await client.sparql_select(
-        f"SELECT (COUNT(*) AS ?n) WHERE {{ GRAPH ?g {{ ?s <{pred.iri}> ?o }} }}"
-    )
-    rows = res.get("results", {}).get("bindings", [])
-    lines = int(rows[0]["n"]["value"]) if rows else 0
-    ledger, drafts = _scan_registry(registry_root, name, pred.name)
+    rel = await _raw_relation(client, name)  # 壊れた項目でも数えられる（502 にしない）
+    lines = 0
+    pred_name = _pred_name(name)
+    for rule in rel.predicates:
+        pred_name = rule.name
+        if not rule.iri:
+            continue
+        res = await client.sparql_select(
+            f"SELECT (COUNT(*) AS ?n) WHERE {{ GRAPH ?g {{ ?s <{rule.iri}> ?o }} }}"
+        )
+        rows = res.get("results", {}).get("bindings", [])
+        lines += int(rows[0]["n"]["value"]) if rows else 0
+    ledger, drafts = _scan_registry(registry_root, name, pred_name)
     return {"lines": lines, "ledger": ledger, "drafts": drafts}
+
+
+async def _delete_relation_locked(
+    client: Any, name: str, *, registry_root: str | Path | None = None
+) -> None:
+    """どこにも使われていないときだけ、目録の項目（関係と述語）を消す。使われていれば :class:`RelationInUse`。"""
+    rel = await _raw_relation(client, name)  # 壊れた項目（述語の記述が無い等）も消せる
+    counts = await usage(client, name, registry_root=registry_root)
+    if any(counts.values()):
+        raise RelationInUse(counts)
+    tops = [relation_iri(name), *(predicate_iri(rule.name) for rule in rel.predicates)]
+    await client.sparql_update(" ;\n".join(_delete_entry(t) for t in tops))
+
+
+_LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
+    weakref.WeakKeyDictionary()
+)
+#: 人の関係の数の上限（超えたら足せない）。
+MAX_HUMAN_RELATIONS = 500
+
+
+class RelationLimit(RelationExists):
+    """人が足せる関係の上限（409）。"""
+
+
+def _write_lock() -> asyncio.Lock:
+    """書き込みの排他（重複の検査と書き込み・使われ方の集計と削除の間を閉じる）。単一のプロセスの前提で、
+    イベントループごとに 1 つ（ループをまたいで 1 つの Lock を使い回さない）。"""
+    loop = asyncio.get_running_loop()
+    lock = _LOCKS.get(loop)
+    if lock is None:
+        lock = _LOCKS[loop] = asyncio.Lock()
+    return lock
+
+
+async def add_relation(client: Any, spec: dict[str, Any], *, at: str) -> relation_catalog.Relation:
+    async with _write_lock():
+        return await _add_relation_locked(client, spec, at=at)
+
+
+async def update_relation(client: Any, name: str, **kw: Any) -> relation_catalog.Relation:
+    async with _write_lock():
+        return await _update_relation_locked(client, name, **kw)
+
+
+async def retire_relation(client: Any, name: str, *, at: str) -> relation_catalog.Relation:
+    async with _write_lock():
+        return await _retire_relation_locked(client, name, at=at)
 
 
 async def delete_relation(
     client: Any, name: str, *, registry_root: str | Path | None = None
 ) -> None:
-    """どこにも使われていないときだけ、目録の項目（関係と述語）を消す。使われていれば :class:`RelationInUse`。"""
-    _, pred = await _human_pair(client, name)
-    counts = await usage(client, name, registry_root=registry_root)
-    if any(counts.values()):
-        raise RelationInUse(counts)
-    await client.sparql_update(
-        " ;\n".join((_delete_entry(relation_iri(name)), _delete_entry(predicate_iri(pred.name))))
-    )
+    async with _write_lock():
+        await _delete_relation_locked(client, name, registry_root=registry_root)
 
 
-async def refresh_human(client: Any) -> int:
+async def refresh_human(client: Any, *, startup: bool = False) -> int:
     """ストアの人が足した関係を読んで、重ねた目録（``relation_catalog.set_human``）に入れる。
 
-    失敗しても起動を止めない（足した関係 0 件として動く）。入れた件数を返す。"""
+    失敗しても起動を止めない。``startup`` の失敗だけ足した関係 0 件として動く。書き込み後の失敗は
+    前の状態を保つ（0 件にしない）。入れた（保った）件数を返す。"""
     try:
         rels, preds = await read_human(client)
     except Exception:
         logger.warning("relation_store: human relations read failed", exc_info=True)
-        relation_catalog.set_human((), ())
-        return 0
+        if startup:
+            relation_catalog.set_human((), ())
+            return 0
+        return len(relation_catalog.human_relations())
     relation_catalog.set_human(rels, preds)
     return len(rels)

@@ -391,7 +391,7 @@ async def test_向きの無い関係は逆向きを同じとして扱う():
     assert pred in rc.symmetric_predicates() and rc.cycle_rels(pred) is None
 
 
-async def test_起動時に読めなくても足した関係_0_件として動く():
+async def test_読みに失敗したとき_起動なら_0_件_書き込み後なら前の状態を保つ():
     class _Broken:
         async def sparql_select(self, q):
             raise RuntimeError("down")
@@ -399,7 +399,8 @@ async def test_起動時に読めなくても足した関係_0_件として動�
     rel_ok = _Client()
     await _add(rel_ok)
     assert len(rc.human_relations()) == 1
-    assert await rs.refresh_human(_Broken()) == 0 and rc.human_relations() == ()
+    assert await rs.refresh_human(_Broken()) == 1 and len(rc.human_relations()) == 1  # 保つ
+    assert await rs.refresh_human(_Broken(), startup=True) == 0 and rc.human_relations() == ()
 
 
 def test_unstated_groups_の_in_catalog_は足した関係も見る():
@@ -409,9 +410,176 @@ def test_unstated_groups_の_in_catalog_は足した関係も見る():
         name="u_00000001", label={"ja": "支える"}, sentence={"ja": "{s}", "en": "{s}"},
         predicates=(rc.PredicateRule("u00000001", rc.REL_NS + "u00000001"),), builtin=False, retired=True,
     )
-    rc.set_human([rel], [])
+    rc.set_human([rel], [rc.Predicate("u00000001", rc.REL_NS + "u00000001", (rc._EITHER, rc._EITHER))])
     keys = ug._catalog_keys()
     from asterism.term_match import merge_key
 
     assert keys[merge_key("支える")] == "u_00000001" and keys[merge_key("u_00000001")] == "u_00000001"
     assert keys[merge_key("競合する")] == "competes"  # 組み込みが先に勝つ
+
+
+# ---- やめた関係は新しく選ぶ道で断る（読み戻し・取り消し・根拠の付け直しは断らない） ----------
+
+
+async def test_やめた関係は新しく置けないが_既にある線は読めて外せて根拠も付け直せる():
+    c = _Client()
+    a, b = sv.term_iri("aa"), sv.term_iri("bb")
+    c.store.update(
+        f"INSERT DATA {{ GRAPH <{sv.SHARED_VOCAB_GRAPH}> {{ <{a}> a <http://www.w3.org/2000/01/rdf-schema#Class> . "
+        f"<{b}> a <http://www.w3.org/2000/01/rdf-schema#Class> }} }}"
+    )
+    rel = await _add(c)
+    pred = rel.predicates[0].name
+    await cr.assert_alignment(c, a, b, pred, at=AT)
+    await rs.retire_relation(c, rel.name, at=AT2)
+    await rs.refresh_human(c)
+    with pytest.raises(ValueError, match="retired relation"):
+        await cr.assert_alignment(c, b, a, pred, at=AT)  # 新しい線は置けない
+    assert [ln[1] for ln in await sv._alignment_lines(c)] == [pred]  # 読み戻せる
+    assert await cr.add_evidence(c, a, b, pred, ["https://x.test/s1"]) == 1  # 根拠の付け直し
+    await cr.remove_alignment(c, a, b, pred)  # 取り消し
+    assert await sv._alignment_lines(c) == []
+    assert pred not in rc.assignable_predicates()
+
+
+async def test_やめた関係は話の下書きの確定と差分の検査でも断る(tmp_path: Path):
+    from test_relations_experiments import _body, _c, _r
+    from test_relations_experiments import _Client as _ThemeClient
+
+    rel, pred = rs._build(
+        "u_0000abcd", label={"ja": "支える"}, sentence=rs.default_sentence({"ja": "支える"}, symmetric=False),
+        definition={"ja": "A が B を支える"}, symmetric=False, to_property_only=False,
+        exact_match=None, unstated_key=None, added_at=AT,
+    )
+    body = _body(
+        [_c("m", "Mg2Si", "class", "mg2si", "material"), _c("p", "熱伝導率", "property", "thermal_conductivity")],
+        [_r("m", rel.name, "p")],
+    )
+    rc.set_human([rel], [pred])
+    out = await themes.commit_theme(_ThemeClient(), tmp_path / "a", body, at=AT)
+    assert out["lines"] == 1  # やめていなければ確定できる
+    import dataclasses
+
+    rc.set_human([dataclasses.replace(rel, retired=True)], [pred])
+    with pytest.raises(themes.ThemeError):
+        await themes.commit_theme(_ThemeClient(), tmp_path / "b", body, at=AT)
+    got = graph_diff._Applier.check_relation(
+        None, {"key": "m", "kind": "class"}, rel.name, {"key": "p", "kind": "property"}, None
+    )
+    assert got == "retired"
+
+
+# ---- 壊れた人の項目 1 件で目録全体が落ちない ---------------------------------
+
+
+def _wipe(c, where: str) -> None:
+    c.store.update(f"DELETE WHERE {{ GRAPH <{rs.CATALOG_GRAPH}> {{ {where} }} }}")
+
+
+async def test_述語の記述が消えた項目は捨てて警告_ほかは生きる_削除できる(caplog):
+    c = _Client()
+    await rs.seed_builtin(c, at=AT)
+    ok = await _add(c, label="受ける")
+    bad = await _add(c, label="支える")
+    _wipe(c, f"<{rs.predicate_iri('u' + bad.name[2:])}> ?p ?o")
+    with caplog.at_level("WARNING"):
+        assert await rs.refresh_human(c) == 1
+    assert [r.name for r in rc.human_relations()] == [ok.name] and "u_" in caplog.text
+    assert [r["name"] for r in rc.overlay_catalog_to_json()["relations"]][-1] == ok.name
+    assert (await rs.usage(c, bad.name)) == {"lines": 0, "ledger": 0, "drafts": 0}  # 壊れていても数えられる
+    await rs.delete_relation(c, bad.name)  # 壊れた項目でも消せる
+    assert not [q for q in c.store if bad.name in str(q.subject)]
+    assert [r.name for r in (await rs.read_human(c))[0]] == [ok.name]
+
+
+async def test_英語の文だけ消えた項目は_もう片方で埋めて落ちない():
+    c = _Client()
+    rel = await _add(c, label="支える", sentence={"ja": "{s} は {o} を支える", "en": "{s} supports {o}"})
+    c.store.update(
+        f"DELETE {{ GRAPH <{rs.CATALOG_GRAPH}> {{ <{rs.relation_iri(rel.name)}> <{rs._X.sentence}> ?o }} }} "
+        f"WHERE {{ GRAPH <{rs.CATALOG_GRAPH}> {{ <{rs.relation_iri(rel.name)}> <{rs._X.sentence}> ?o . FILTER(LANG(?o) = \"en\") }} }}"
+    )
+    await rs.refresh_human(c)
+    (back,) = rc.human_relations()
+    assert back.sentence["en"] == back.sentence["ja"] == "{s} は {o} を支える"
+    assert rc.rel_sentence()["en"][rel.name]  # KeyError にならない
+
+
+async def test_壊れた項目を_API_相当の_usage_と_delete_が通る(tmp_path: Path):
+    c = _Client()
+    rel = await _add(c)
+    _wipe(c, f"<{rs.relation_iri(rel.name)}> <{rs._X.rule}> ?o")
+    await rs.refresh_human(c)
+    assert rc.human_relations() == ()
+    assert await rs.usage(c, rel.name, registry_root=tmp_path) == {"lines": 0, "ledger": 0, "drafts": 0}
+    await rs.delete_relation(c, rel.name, registry_root=tmp_path)
+    assert not [q for q in c.store if rel.name in str(q.subject)]
+
+
+# ---- 入力の規則の表・上限・排他 ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "label",
+    ["ftp:x", "a//b", "see www.x.test", "[x](http://y)", "a [b]", "SELECT x", "delete 全部", "none", "なし", "N/A", "123", "---", "！？", "isPartOf", "lowers", "Competes With"],
+)
+async def test_表示名の規則の表(label):
+    with pytest.raises((rs.RelationInputError, rs.RelationExists)):
+        await rs.add_relation(_Client(), _spec(label), at=AT)
+
+
+@pytest.mark.parametrize("key", ["https://x.test", "SELECT y", "none", "12", "[a](b)", "a\u0007b"])
+async def test_unstated_key_の規則(key):
+    with pytest.raises(rs.RelationInputError):
+        await rs.add_relation(_Client(), _spec(unstated_key=key), at=AT)
+
+
+async def test_説明は自然文なので_SQL_語や_none_は通る_URL_は断る():
+    c = _Client()
+    rel = await rs.add_relation(c, _spec(definition={"ja": "A が none でない B を select する"}), at=AT)
+    assert "select" in rel.definition["ja"]
+    with pytest.raises(rs.RelationInputError):
+        await rs.add_relation(c, _spec("別", definition={"ja": "[a](b)"}), at=AT)
+
+
+async def test_足せる数は上限まで(monkeypatch):
+    monkeypatch.setattr(rs, "MAX_HUMAN_RELATIONS", 2)
+    c = _Client()
+    await _add(c, label="あいう")
+    await _add(c, label="かきく")
+    with pytest.raises(rs.RelationLimit):
+        await rs.add_relation(c, _spec("さしす"), at=AT)
+    assert issubclass(rs.RelationLimit, rs.RelationExists)  # 口では 409
+
+
+async def test_同時に同じ名前を足しても_1_件だけ():
+    import asyncio
+
+    c = _Client()
+
+    class _Yielding:
+        async def sparql_select(self, q):
+            await asyncio.sleep(0)
+            return await c.sparql_select(q)
+
+        async def sparql_update(self, q):
+            await asyncio.sleep(0)
+            await c.sparql_update(q)
+
+    y = _Yielding()
+    out = await asyncio.gather(
+        rs.add_relation(y, _spec("同時"), at=AT), rs.add_relation(y, _spec("同時"), at=AT), return_exceptions=True
+    )
+    assert sum(isinstance(o, rs.RelationExists) for o in out) == 1
+    assert len((await rs.read_human(c))[0]) == 1
+
+
+async def test_ALIGN_RELATIONS_は差分で足し消しする_実体は同じ():
+    c = _Client()
+    align = cr.ALIGN_RELATIONS
+    before = dict(align)
+    await _add(c)
+    assert align is cr.ALIGN_RELATIONS and {k: v for k, v in align.items() if k in before} == before
+    assert list(align)[:15] == list(before) and len(align) == 16
+    rc.set_human((), ())
+    assert dict(align) == before and list(align) == list(before)

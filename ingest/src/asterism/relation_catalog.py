@@ -23,7 +23,7 @@ design.md §23.13・ADR ``docs/architecture/relation-catalog.md``。
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 #: 自前の関係の述語の名前空間（関係の述語だけ・利用者裁定 2026-11-17）。
@@ -320,11 +320,70 @@ def generation() -> int:
     return _GENERATION
 
 
+def sanitize_human(
+    relations: tuple[Relation, ...] | list[Relation],
+    predicates: tuple[Predicate, ...] | list[Predicate],
+) -> tuple[list[Relation], list[Predicate]]:
+    """壊れた人の項目 1 件で目録全体が落ちないように、重ねる前に検査する。
+
+    捨てる（警告のログ）: 名前が規則に合わない・表示名が空・規則の述語が無い／述語の記述が無い・
+    組み込みや先の項目と名前がぶつかる。文の言語が欠けているときは、もう片方の言語か表示名から作る
+    既定の文で埋める（落ちないことが目的）。"""
+    import logging
+    import re
+
+    log = logging.getLogger(__name__)
+    pred_by = {p.name: p for p in predicates}
+    builtin_r = {r.name for r in RELATIONS}
+    builtin_p = {p.name for p in PREDICATES}
+    seen_r: set[str] = set()
+    seen_p: set[str] = set()
+    out_r: list[Relation] = []
+    out_p: list[Predicate] = []
+    for r in relations:
+        why = None
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", r.name or ""):
+            why = "invalid name"
+        elif r.name in builtin_r or r.name in seen_r:
+            why = "duplicate name"
+        elif not any(v for v in r.label.values()):
+            why = "no label"
+        elif not r.predicates:
+            why = "no predicate rule"
+        else:
+            for rule in r.predicates:
+                if rule.name not in pred_by:
+                    why = f"predicate description missing: {rule.name}"
+                elif rule.name in builtin_p or rule.name in seen_p:
+                    why = f"duplicate predicate: {rule.name}"
+        if why is not None:
+            log.warning("relation_catalog: dropped a broken human relation %r (%s)", r.name, why)
+            continue
+        label = {k: v for k, v in r.label.items() if v}
+        first = next(iter(label.values()))
+        label = {"ja": label.get("ja") or first, **label}
+        sentence = dict(r.sentence)
+        for lang in ("ja", "en"):
+            if not sentence.get(lang):
+                other = sentence.get("en" if lang == "ja" else "ja")
+                sentence[lang] = other or f"{{s}} → {{o}}（{label.get(lang) or label['ja']}）"  # noqa: RUF001
+        if label != r.label or sentence != r.sentence:
+            r = replace(r, label=label, sentence=sentence)
+        seen_r.add(r.name)
+        out_r.append(r)
+        for rule in r.predicates:
+            seen_p.add(rule.name)
+            out_p.append(pred_by[rule.name])
+    return out_r, out_p
+
+
 def set_human(
     relations: tuple[Relation, ...] | list[Relation],
     predicates: tuple[Predicate, ...] | list[Predicate],
 ) -> None:
-    """人が足した関係を入れ替える（空なら組み込みだけに戻る）。組み込みと同じ名前の項目は無視する。"""
+    """人が足した関係を入れ替える（空なら組み込みだけに戻る）。組み込みと同じ名前の項目は無視する。
+    壊れた項目は :func:`sanitize_human` で捨てる。"""
+    relations, predicates = sanitize_human(relations, predicates)
     global _HUMAN_RELATIONS, _HUMAN_PREDICATES, _ALL_RELATIONS, _ALL_PREDICATES
     global _BY_NAME, _PRED_BY_NAME, _GENERATION
     builtin_r = {r.name for r in RELATIONS}
@@ -716,10 +775,11 @@ def relation_from_json(d: dict[str, Any]) -> Relation:
     rules = tuple(
         PredicateRule(
             str(p["name"]),
-            str(p["iri"]),
+            str(p.get("iri") or ""),
             (str(p["when"][0]), str(p["when"][1])) if p.get("when") else None,
         )
         for p in d.get("predicates") or []
+        if p.get("name")
     )
     return Relation(
         name=str(d["name"]),

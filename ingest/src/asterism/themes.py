@@ -1665,8 +1665,8 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         if not isinstance(raw, dict):
             raise ThemeError(f"relations[{i}] が不正です")
         rel = raw.get("rel")
-        if rel not in relation_catalog.relation_kinds():
-            kinds = relation_catalog.relation_kinds()
+        if rel not in relation_catalog.assignable_relation_kinds():
+            kinds = relation_catalog.assignable_relation_kinds()
             raise ThemeError(f"relations[{i}].rel は {kinds} のどれかです")
         subj = by_key.get(str(raw.get("from")))
         if subj is None:
