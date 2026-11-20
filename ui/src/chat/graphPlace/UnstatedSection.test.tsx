@@ -35,7 +35,8 @@ vi.mock('react-i18next', async (importOriginal) => ({
 
 import { fetchUnstated, normalizeUnstated, type UnstatedGroup } from './knowledgeRelationsApi'
 import { UnstatedRow, UnstatedSection } from './UnstatedSection'
-import { useUnstated } from './useUnstated'
+import { unstatedArgs, useUnstated } from './useUnstated'
+import { DEFAULT_FILTER } from './ledgerView'
 
 type El = ReactElement<Record<string, unknown>>
 const isEl = (n: unknown): n is El => !!n && typeof n === 'object' && 'props' in (n as object)
@@ -182,7 +183,7 @@ describe('読み直し（useUnstated）', () => {
     await Promise.resolve()
     expect(useRun([2], 'src-a', true, fetcher)).toEqual({ status: 'ok', groups: [expect.objectContaining({ label: 'src-a' })] })
   })
-  it('失敗したら error。前の群は残す', async () => {
+  it('失敗したら error で群は出さない（1 行だけ）', async () => {
     reset()
     let fail = false
     const fetcher = vi.fn(async () => { if (fail) throw new Error('x'); return { groups: [group()], totalPairs: 1 } })
@@ -191,8 +192,56 @@ describe('読み直し（useUnstated）', () => {
     fail = true
     useRun([2], undefined, true, fetcher)
     await Promise.resolve(); await Promise.resolve()
-    const r = useRun([2], undefined, true, fetcher)
-    expect(r.status).toBe('error')
-    expect(r.groups).toHaveLength(1)
+    expect(useRun([2], undefined, true, fetcher)).toEqual({ status: 'error', groups: [] })
+  })
+  it('取り込み元 A → B: B の群が来るまで A の群を見せない（読み込み中・失敗でも）。同じ取り込み元の読み直しの間は前の群を残す', async () => {
+    reset()
+    let failB = false
+    const fetcher = vi.fn(async (_l: 'ja' | 'en', s?: string) => {
+      if (s === 'b' && failB) throw new Error('x')
+      return { groups: [group({ label: `群-${s ?? 'all'}` })], totalPairs: 1 }
+    })
+    useRun([1], 'a', true, fetcher)
+    await Promise.resolve(); await Promise.resolve()
+    expect(useRun([1], 'a', true, fetcher).groups[0].label).toBe('群-a')
+    expect(useRun([2], 'a', true, fetcher).groups[0].label).toBe('群-a') // 同じ取り込み元の読み直しは残す
+    await Promise.resolve(); await Promise.resolve()
+    const toB = useRun([2], 'b', true, fetcher)
+    expect(toB).toEqual({ status: 'loading', groups: [] })
+    await Promise.resolve(); await Promise.resolve()
+    expect(useRun([2], 'b', true, fetcher).groups[0].label).toBe('群-b')
+    failB = true
+    useRun([3], 'a', true, fetcher)
+    await Promise.resolve(); await Promise.resolve()
+    useRun([3], 'b', true, fetcher)
+    await Promise.resolve(); await Promise.resolve()
+    expect(useRun([3], 'b', true, fetcher)).toEqual({ status: 'error', groups: [] })
+  })
+})
+
+describe('配線（unstatedArgs と useUnstated）', () => {
+  const api = (over: Record<string, unknown> = {}) => ({ status: 'ok' as const, ledgers: [{}] as never[], filter: DEFAULT_FILTER, ...over })
+  it('候補のタブを開いていない間・台帳が無い間は読まない。取り込み元の絞り込みが source に渡る', async () => {
+    expect(unstatedArgs(api(), 'relations')).toEqual({ source: undefined, enabled: false })
+    expect(unstatedArgs(api({ status: 'loading' }), 'candidates').enabled).toBe(false)
+    expect(unstatedArgs(api({ ledgers: [] }), 'candidates').enabled).toBe(false)
+    expect(unstatedArgs(api({ filter: { ...DEFAULT_FILTER, source: 'src-x' } }), 'candidates')).toEqual({ source: 'src-x', enabled: true })
+    cells.length = 0; effects.length = 0
+    const fetcher = vi.fn(async () => ({ groups: [], totalPairs: 0 }))
+    const ledgers = [{}] as never[]
+    const useStep = (tab: string, over: Record<string, unknown>) => {
+      cursor = 0; ecursor = 0
+      const a = unstatedArgs(api({ ledgers, ...over }), tab)
+      useUnstated(over.ledgers ?? ledgers, 'ja', a.source, a.enabled, fetcher)
+      for (const f of pending.splice(0)) f()
+    }
+    useStep('relations', {})
+    expect(fetcher).not.toHaveBeenCalled()
+    useStep('candidates', {})
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    useStep('candidates', { ledgers: [{}] }) // 台帳の読み直し
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    useStep('candidates', { ledgers: [{}], filter: { ...DEFAULT_FILTER, source: 's' } })
+    expect(fetcher).toHaveBeenLastCalledWith('ja', 's')
   })
 })

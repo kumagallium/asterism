@@ -10,7 +10,7 @@ import { useStoreText } from './storeText'
 import { ALL, filterCandidates, filterRelations, firstRows, PAGE_SIZE, relKinds, pinFirst, summarizeTerms, unconfirmedKeys, type LedgerFilter, type StatusFilter, type TermSummary } from './ledgerView'
 import { CandidateRow, RelationRow, TermRow } from './LedgerRows'
 import { UnstatedSection } from './UnstatedSection'
-import { useUnstated } from './useUnstated'
+import { unstatedArgs, useUnstated } from './useUnstated'
 import { rowId, type AssignForm } from './rowFns'
 import { writeFailureOf, type LedgersApi } from './useLedgers'
 import './graphPlace.css'
@@ -143,7 +143,15 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   const candidates = filterCandidates(api.ledgers, f)
 
   // 節は取り込み元の絞り込みだけ効く（状態・関係の種類は効かせない）。台帳を読み直したら一緒に引き直す
-  const unstated = useUnstated(api.ledgers, lang, f.source === ALL ? undefined : f.source, tab === 'candidates' && api.status === 'ok' && api.ledgers.length > 0)
+  const { source: unSource, enabled: unEnabled } = unstatedArgs(api, tab)
+  const unstated = useUnstated(api.ledgers, lang, unSource, unEnabled)
+  // 取り込み元の絞り込みを変えたら、開いている群・見せている数を戻す（描画中に前の値と比べて合わせる）
+  const [seenUnSource, setSeenUnSource] = useState(unSource)
+  if (seenUnSource !== unSource) {
+    setSeenUnSource(unSource)
+    setUnShown(UNSTATED_PAGE)
+    setUnOpen(null)
+  }
 
   const toggle = (id: string) => {
     setOpen((cur) => (cur === id ? null : id))

@@ -33,7 +33,7 @@ export function UnstatedRow({ group, lang, open, onToggle }: { group: UnstatedGr
             ))}
           </ul>
           {rest > 0 && <p className="gp-ev">{t('unstated.rest', { n: rest })}</p>}
-          {others.length > 0 && <p className="gp-ev" data-testid="gp-unstated-variants">{t('unstated.variants', { names: others.map((v) => v.label).join('、') })}</p>}
+          {others.length > 0 && <p className="gp-ev" data-testid="gp-unstated-variants">{t('unstated.variants', { names: others.map((v) => v.label).join(t('unstated.sep')) })}</p>}
         </div>
       )}
     </li>

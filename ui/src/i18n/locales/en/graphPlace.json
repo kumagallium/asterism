@@ -127,6 +127,7 @@
     "rest": "and {{n}} more pairs",
     "variants": "Other spellings: {{names}}",
     "loading": "Loading relation kinds it could not state…",
-    "failed": "Could not load the relation kinds it could not state."
+    "failed": "Could not load the relation kinds it could not state.",
+    "sep": ", "
   }
 }

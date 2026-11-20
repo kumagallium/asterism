@@ -771,3 +771,15 @@ def test_unstated_groups_route_needs_the_token(tmp_path: Path) -> None:
     env = _env(tmp_path)
     with TestClient(env.app) as client:
         assert client.get(_UNSTATED).status_code == 401
+
+
+def test_unstated_groups_route_source_filter_tells_broken_from_missing_copy(tmp_path: Path) -> None:
+    env = _Env(tmp_path, _KindAI())
+    with TestClient(env.app, headers=_AUTH) as client:
+        env.copy(client)
+        env.go(client)
+        pr.ledger_path(env.root, "broken-src").write_text("{not json", encoding="utf-8")
+        broken = client.get(_UNSTATED, params={"source": "broken-src"}).json()
+        unknown = client.get(_UNSTATED, params={"source": "nothing"}).json()
+    assert broken["skipped"] == {"broken": 1, "missing_copy": 0} and broken["groups"] == []
+    assert unknown["skipped"] == {"broken": 0, "missing_copy": 0}

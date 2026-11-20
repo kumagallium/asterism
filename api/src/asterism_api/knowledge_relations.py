@@ -552,8 +552,13 @@ def register_knowledge_relations_routes(
             else:
                 one = ledger_answer.load_source(root, source)
                 found = [(source, one[0], one[1])] if one is not None else []
-                gone = not found and pr.ledger_path(root, source).exists()
-                st = {"broken": 0, "skipped": 1 if gone else 0}
+                st = {"broken": 0, "skipped": 0}
+                lp = pr.ledger_path(root, source)
+                if not found and lp.exists():
+                    # 台帳が読めない＝壊れた・読めて写しが無い＝取り下げ・削除
+                    led = ledger_answer._read_ledger(lp)
+                    key = "broken" if led is None or led.get("source") != source else "skipped"
+                    st[key] = 1
             groups = ug.unstated_groups(found, lang=lang)
             return {
                 "groups": groups,
