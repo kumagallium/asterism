@@ -359,3 +359,25 @@ async def test_real_oxigraph_round_trip(tmp_path: Path) -> None:
         await client.aclose()
         proc.terminate()
         proc.wait(timeout=10)
+
+
+async def test_the_raw_sparql_escape_reads_the_catalog_graph_only_when_named() -> None:
+    """MCP の ``sparql_query``・``/api/sparql`` が通る生の SPARQL の検査は、目録のグラフを名前を挙げたときだけ
+    読ませる。データセットの範囲（``readable_graph_iris``・既定の FROM）には混ざらず、下書きは今までどおり断る。"""
+    from asterism import substrate
+
+    client = _Client()
+    graph = substrate.RELATION_CATALOG_GRAPH
+    assert graph not in await substrate.readable_graph_iris(client)
+    named = f"SELECT ?s FROM <{graph}> WHERE {{ ?s ?p ?o }}"
+    assert await substrate.canonical_merge_query(client, named) == named
+    named2 = f"SELECT ?s FROM NAMED <{graph}> WHERE {{ GRAPH ?g {{ ?s ?p ?o }} }}"
+    assert await substrate.canonical_merge_query(client, named2) == named2
+    with pytest.raises(ValueError):
+        await substrate.canonical_merge_query(
+            client, f"SELECT ?s FROM <{graph}/x> WHERE {{ ?s ?p ?o }}"
+        )
+    with pytest.raises(ValueError):
+        await substrate.canonical_merge_query(
+            client, "SELECT ?s FROM <https://example.org/draft> WHERE { ?s ?p ?o }"
+        )

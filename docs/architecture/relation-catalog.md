@@ -226,10 +226,10 @@ rc:predicate-competesWith-own  rdfs:label "競合する"@ja ; xw:date "2026-11-1
 `/api/sky`・`find_datasets`・名前の索引の列挙（接頭辞つき）には現れない。`readable_graph_iris` にも入れていないので、
 データセットの範囲（`FROM`）にも混ざらない。
 
-### MCP から引けるか（未対応・利用者に伺い中）
+### MCP から引けるか（利用者の裁定 2026-11-19: 許可リストに目録のグラフだけを足す）
 
-**今は引けない**。`sparql_query` の `FROM` / `FROM NAMED` は `readable_graph_iris`（canonical・ontology・共有の言葉）に
-限られ、`vocab/relations` は拒否される（実機で確認）。`readable_graph_iris` に足すと `/api/cards` など
-他の読み手の範囲にも混ざる。本体が利用者に次の 2 案を伺っている（決まったら別の PR）:
-「MCP の `sparql_query` の許可リストに目録のグラフだけを足す（推奨）」／「目録を返す道具を足す」。
-この PR では触っていない。
+**引ける**。生の SPARQL の検査（`substrate.canonical_merge_query`。`/api/sparql` と MCP の `sparql_query` が通る）が、
+`FROM <…/graph/vocab/relations>`・`FROM NAMED <…>` で名前を挙げたときだけ目録のグラフを読ませる。
+`readable_graph_iris` には入れない（データセットの範囲・`/api/cards` の範囲・既定の FROM に混ざらない）。
+目録は確認済みの関係の定義だけなので、外の AI に見せても未確認は漏れない。目録を返す専用の道具は足していない
+（AI に SPARQL を書かせない道は、`GET /api/relations` を MCP の道具にするかを、関係を足す段で改めて決める）。

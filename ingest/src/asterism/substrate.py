@@ -145,7 +145,9 @@ SHARED_VOCAB_GRAPH: str = LIFECYCLE_GRAPH_BASE + "vocab/shared"
 # The relation-catalog graph (ADR relation-catalog.md §ストアでの表し方): the built-in
 # catalog of relations / predicates, placed in the store (R0d). Like
 # :data:`SHARED_VOCAB_GRAPH` it is not canonical and is not listed by
-# :func:`readable_graph_iris` (so it never joins a dataset scope or a raw-SPARQL FROM).
+# :func:`readable_graph_iris` (so it never joins a dataset scope). The raw-SPARQL escape
+# (:func:`canonical_merge_query`, used by ``/api/sparql`` and MCP ``sparql_query``) accepts
+# it only when the caller names it in ``FROM`` / ``FROM NAMED``.
 RELATION_CATALOG_GRAPH: str = LIFECYCLE_GRAPH_BASE + "vocab/relations"
 CONTROL_GRAPH_IRI: str = LIFECYCLE_GRAPH_BASE + "control"
 # The forwarding ledger (ADR id-move-after-publish.md): when a re-design changes
@@ -2028,7 +2030,9 @@ async def canonical_merge_query(client: SupportsSparql, query: str) -> str:
             raise ValueError(
                 "unsupported FROM clause on the read escape — use explicit <IRI> graphs"
             )
-        allowed = await readable_graph_iris(client)
+        # 関係の目録のグラフは、名前を挙げたときだけ読める（利用者の裁定「MCP からも引ける」）。
+        # readable_graph_iris には入れない（データセットの範囲・カードの範囲に混ざらないように）。
+        allowed = await readable_graph_iris(client) | {RELATION_CATALOG_GRAPH}
         outside = sorted(g for g in iris if g not in allowed)
         if outside:
             raise ValueError(
