@@ -250,8 +250,9 @@ selections: {<kq_ の名前>: {mode: "knowledge", op, target_slug, target, title
 | 別名 | 名前 `u_xxxxxxxx` は ID なので AI に書かせない。1 回の呼び出しごとに機械が `x1`, `x2`, …（足した順）を振り、AI は別名で答える。検査（step0 `validate_pair_answer(obj, n, extra)`）が名前に戻す。別名を知らない値・名前の直書きは断って聞き直す |
 | 指示の節 | 末尾に `Relations added by the user (answer with the short code, e.g. "x1"):` と、1 行ずつ `x1 = 表示名: 説明 [no direction] [to is a property]`。表示名・説明は知見の言語、無ければもう片方。組み込みの説明は変えない |
 | schema | `rel` の enum に別名を足す。向きの無い関係は `from` を `a` に正す（検査側） |
-| 上限 | 40 件（足した順の先頭から）。超えた分は載せない（穴） |
+| 上限 | 40 件（足した順の先頭から）。**41 件目以降の関係は AI に載らない**（選ばれない）。画面で知らせるのは R3c（穴） |
 | 読む回数 | `run_relations` が走りの始めに 1 回読み、全部の組に同じ物を渡す。途中で足された・やめられた関係は次の走りから。台帳に書くとき、やめた関係の答えは `check_answer` が落とす |
+| note・種類への漏れ | 指示に「別名を note・unstated_kind に書かない」の 1 文を足す（足した関係があるときだけ）。漏れても検査が `note` の別名を表示名に置き換え、`unstated_kind` に別名があれば捨てる。説明の `[` `]` は載せるときだけ `(` `)` にする（保存は変えない） |
 | 聞き直さない | 台帳の指紋に足した関係の集合を入れない。関係を足しても今ある組は聞き直さない（R4 の仕事） |
 | 0 件のとき | 文面・schema・検査・台帳は 1 バイトも変えない（`propose_pair` を `extra` 無しで呼ぶ） |
 

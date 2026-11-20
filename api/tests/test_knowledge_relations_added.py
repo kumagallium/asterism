@@ -82,3 +82,48 @@ def test_zero_added_calls_propose_pair_without_extra(tmp_path: Path, monkeypatch
     assert out["asked"] > 0 and all("extra" not in kw for kw in seen)
     for kw in seen:
         assert set(kw) == {"on_call"}
+
+
+class _AliasAI:
+    """足した関係があれば、Mg2Si か Mg2Sn を含む組を別名 x1 で答える。それ以外は none。"""
+
+    model = "stub-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, system: str, user: str) -> str:
+        self.calls += 1
+        if "x1 = " in system and ("Mg2Si" in user or "Mg2Sn" in user):
+            note = "x1 と書いてある"
+            return json.dumps({"rel": "x1", "from": "a", "evidence": ["c1"], "note": note})
+        return json.dumps({"rel": "none", "from": None, "evidence": [], "note": ""})
+
+
+def test_added_relation_end_to_end(tmp_path: Path) -> None:
+    from asterism import pair_relations as pr
+    from fastapi.testclient import TestClient
+
+    from .test_ingest import _AUTH
+    from .test_knowledge_relations import _Env
+
+    ai = _AliasAI()
+    env = _Env(tmp_path, ai)
+    rel, pred = _human("u_0000cccc", "同じ表", symmetric=True)
+    with TestClient(env.app, headers=_AUTH) as client:
+        env.copy(client)
+        rc.set_human([rel], [pred])  # 起動の読み込みの後に重ねる
+        out = env.go(client)
+        assert out["failed"] == 0 and out["asked"] > 0
+        ledger = pr.load_ledger(env.root, "lab")
+        hits = [e for e in ledger["pairs"].values() if e.get("rel") == "u_0000cccc"]
+        assert hits and all(h["state"] == "relation" for h in hits)
+        rows = client.get("/api/knowledge-copies/lab/relations", headers={"X-API-Key": "test-key"})
+        rows = rows.json()["relations"]
+        row = next(r for r in rows if r.get("rel") == "u_0000cccc")
+        assert "同じ表" in row["sentence"]
+        assert "x1" not in (hits[0].get("note") or "") and "同じ表" in (hits[0].get("note") or "")
+        # 2 回目: 聞き直しは 0
+        before = ai.calls
+        again = env.go(client)
+        assert again["asked"] == 0 and ai.calls == before

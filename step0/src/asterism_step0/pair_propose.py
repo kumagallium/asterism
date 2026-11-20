@@ -60,6 +60,7 @@ _LEN_NOTE = 200
 _LEN_KIND = 20  # unstated_kind の長さの上限
 _LEN_CLAIM = 600  # prompt に載せる 1 文の長さ
 _LEN_NAME = 80
+_ALIAS_RE = re.compile(r"(?<![A-Za-z0-9])x[0-9]+(?![A-Za-z0-9])")
 _EVIDENCE_RE = re.compile(r"^c([0-9]{1,2})\Z")
 
 
@@ -144,8 +145,9 @@ def build_pair_system(aliases: dict[str, dict] | None = None, lang: str = "ja") 
     ]
     for alias, item in aliases.items():
         label = _pick_text(item.get("label"), lang)
-        desc = _pick_text(item.get("definition"), lang)
-        line = f"{alias} = {label}: {desc}"
+        # 説明の [ ] は機械の札と見分けがつかないので、載せるときだけ ( ) にする（保存は変えない）
+        desc = _pick_text(item.get("definition"), lang).replace("[", "(").replace("]", ")")
+        line = f"{alias} = {label}: {desc}" if desc else f"{alias} = {label}"
         if item.get("symmetric"):
             line += " [no direction]"
         if item.get("to_property_only"):
@@ -155,6 +157,8 @@ def build_pair_system(aliases: dict[str, dict] | None = None, lang: str = "ja") 
         '- "rel" is one of the list above or the short code of one of these added relations.'
         ' For a code marked [no direction] write "a" for "from".'
         ' Write only the short code, never any other name.'
+        " Never write the short codes in note or unstated_kind;"
+        " write the relation's name instead."
     )
     return PAIR_SYSTEM_PROMPT + "\n".join(lines) + "\n"
 
@@ -247,26 +251,36 @@ def _clean_kind(raw: Any) -> str | None:
     return kind
 
 
-def validate_pair_answer(obj: Any, n_claims: int, extra: dict[str, dict] | None = None) -> dict:
+def validate_pair_answer(
+    obj: Any, n_claims: int, aliases: dict[str, dict] | None = None, lang: str = "ja"
+) -> dict:
     """答えを正規化する → ``{rel, from, evidence, note}``（``none`` で種類があれば
     ``unstated_kind`` も）。
     形が合わなければ :class:`PairProposeError`。
 
-    ``extra``（R3b）は :func:`assign_aliases` の返り（別名 → 項目）。別名で答えた ``rel`` は
+    ``aliases``（R3b）は :func:`assign_aliases` の返り（別名 → 項目）。別名で答えた ``rel`` は
     名前（``u_…``）に戻して返す。別名を知らない値と、名前を直接書いた答えは断る。"""
     if not isinstance(obj, dict):
         raise PairProposeError("$: must be an object")
     rel = obj.get("rel")
-    extra = extra or {}
+    extra = aliases or {}
     alias_item = extra.get(rel) if isinstance(rel, str) else None
     if rel != NONE and rel not in PAIR_RELS and alias_item is None:
         raise PairProposeError(f"$.rel: must be one of {[*PAIR_RELS, *extra, NONE]}")
     note = obj.get("note")
     note = " ".join(note.split()) if isinstance(note, str) else ""
+    if extra:  # note に漏れた別名は、機械が表示名（知見の言語）に置き換える
+        note = _ALIAS_RE.sub(
+            lambda m: _pick_text(extra[m.group(0)].get("label"), lang) if m.group(0) in extra
+            else m.group(0),
+            note,
+        )
     note = "" if _CODE_LIKE.search(note) else note[:_LEN_NOTE]
     if rel == NONE:
         out = {"rel": NONE, "from": None, "evidence": [], "note": note}
         kind = _clean_kind(obj.get("unstated_kind"))
+        if kind and any(a in extra for a in _ALIAS_RE.findall(kind)):
+            kind = None  # 別名が漏れた種類は捨てる
         if kind:  # 無いときは欄ごと出さない（古い答えと同じ形）
             out["unstated_kind"] = kind
         return out
@@ -324,7 +338,9 @@ def propose_pair(
         if on_call is not None:  # complete が成功して返るたび（聞き直しの各回も）。使用量の記録用
             on_call()
         try:
-            return validate_pair_answer(_extract_json_object(text), len(claims), aliases or None)
+            return validate_pair_answer(
+                _extract_json_object(text), len(claims), aliases or None, lang
+            )
         except (PairProposeError, ThemeDraftError) as exc:
             last = exc
             problem = str(exc)

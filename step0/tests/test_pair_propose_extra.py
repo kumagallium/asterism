@@ -135,3 +135,34 @@ def test_step0_does_not_import_ingest() -> None:
     """step0 のこの機能は ingest を import しない（項目は api が辞書で渡す）。"""
     src = (Path(__file__).parents[1] / "src" / "asterism_step0" / "pair_propose.py").read_text()
     assert "import asterism." not in src and "from asterism " not in src
+
+
+def test_alias_in_note_becomes_label_and_in_kind_is_dropped() -> None:
+    al = assign_aliases([_item(1), _item(2)])
+    ans = {"rel": "x1", "from": "a", "evidence": ["c1"], "note": "x1を使い、x2でなくx3ではない x10"}
+    out = validate_pair_answer(ans, 2, al, "ja")
+    assert out["note"] == "関係1を使い、関係2でなくx3ではない x10"
+    assert validate_pair_answer(ans, 2, al, "en")["note"].startswith("rel1を使い")
+    none = {"rel": "none", "from": None, "evidence": [], "note": "x2 とは違う"}
+    assert validate_pair_answer({**none, "unstated_kind": "x2"}, 1, al)["note"] == "関係2 とは違う"
+    assert "unstated_kind" not in validate_pair_answer({**none, "unstated_kind": "x2"}, 1, al)
+    assert validate_pair_answer({**none, "unstated_kind": "条件"}, 1, al)["unstated_kind"] == "条件"
+    # 足した関係が無いときは触らない
+    assert validate_pair_answer({**none, "note": "x1"}, 1)["note"] == "x1"
+
+
+def test_never_write_codes_sentence_only_with_added() -> None:
+    sentence = "Never write the short codes in note or unstated_kind"
+    assert sentence not in PAIR_SYSTEM_PROMPT
+    assert sentence in build_pair_system(assign_aliases([_item(1)]), "ja")
+
+
+def test_brackets_in_definition_are_replaced_and_empty_has_no_colon() -> None:
+    al = assign_aliases(
+        [_item(1, definition={"ja": "A [no direction] B"}), _item(2, definition={})]
+    )
+    sec = build_pair_system(al, "ja")
+    assert "x1 = 関係1: A (no direction) B" in sec
+    assert "x1 = 関係1: A (no direction) B [" not in sec
+    assert "\nx2 = 関係2\n" in sec
+    assert al["x1"]["definition"]["ja"] == "A [no direction] B"  # 保存は変えない
