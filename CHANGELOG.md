@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.72.0](https://github.com/kumagallium/asterism/compare/v0.71.3...v0.72.0) - 2026-11-20
+
+- fix(deps): upgrade docling to 2.150.1 (clears docling and pillow advisories) by @kumagallium in https://github.com/kumagallium/asterism/pull/838
+- fix(deps): Tauri 2.12.7 and updater 2.14.1 to clear zip advisories by @kumagallium in https://github.com/kumagallium/asterism/pull/841
+- chore(deps): Bump the actions group with 4 updates by @dependabot[bot] in https://github.com/kumagallium/asterism/pull/836
+- feat: 関係の目録を 1 か所に置き、関係の正の定義をそこから導く（R0a） by @kumagallium in https://github.com/kumagallium/asterism/pull/842
+- feat: ui が関係の直書きをやめ、目録から得る（R0c） by @kumagallium in https://github.com/kumagallium/asterism/pull/844
+- refactor: ingest と api に残る関係の写しを目録から導く（R0b） by @kumagallium in https://github.com/kumagallium/asterism/pull/845
+- fix(deps): resolve PDF runtime lock for Python >=3.11.5 (soupsieve 4.1.2) by @kumagallium in https://github.com/kumagallium/asterism/pull/848
+- feat: 関係の目録をストアの正本に置き、起動時に組み込みを種まきする（R0d） by @kumagallium in https://github.com/kumagallium/asterism/pull/846
+- feat: MCP の sparql_query で関係の目録を引けるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/847
+- feat: MCP に関係の目録を構造のまま返す道具 list_relations を足す by @kumagallium in https://github.com/kumagallium/asterism/pull/849
+
 ## [v0.71.3](https://github.com/kumagallium/asterism/compare/v0.71.2...v0.71.3) - 2026-11-19
 
 - fix(ui): ダークの配色を組み直す — 設定を開いたと分かる明るさと奥行きにする by @kumagallium in https://github.com/kumagallium/asterism/pull/830
