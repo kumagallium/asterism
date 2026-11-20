@@ -199,9 +199,17 @@ selections: {<kq_ の名前>: {mode: "knowledge", op, target_slug, target, title
 - **AI への指示**（`step0/pair_propose.py`）: 答えの欄 `unstated_kind`（任意・schema の `required` に入れない・
   最大 20 文字・知見の言語）。`rel` が `none` のときだけ書く。関係が無い・分からないときは空。
   AI に値・IRI を渡さない・書かせない決まりは変えない。
-- **正規化**: 空白を詰める → コードや IRI らしいもの（`_CODE_LIKE`・`urn:`）は捨てる → 20 文字で切る →
-  文字（かな・漢字・英字）を 1 つも含まない（記号だけ・数字だけ）なら捨てる。`rel` が集合の中なら捨てる。
-  ingest の `check_answer` も、台帳に入れる前にもう一度同じ程度に絞る。
+- **正規化（規則は 1 つ・2 か所に同じ物を書く）**: step0 `_clean_kind` と ingest `pair_relations._unstated_kind`。
+  step0 は ingest を import しないので写しで、同じ入力表で同じ答えを出すことを
+  `step0/tests/test_pair_unstated_kind.py`（ingest を `importorskip`）が縛る。手順: NFKC にそろえる → 空白を詰める →
+  制御・書式の文字（Cc・Cf。ゼロ幅・RTL 上書きなど）を文字ごと取り除く。**捨てる物**（切らずに捨てる）: 空・
+  20 文字超（頭を切ると別の種類に化けるため、R2 の束ねるキーのためにも切らない）・文字が無い（記号だけ・数字だけ）・
+  1 文字の英字・「無い／分からない」の言い換え（none・null・n/a・unknown・なし・不明・分からない など。大文字小文字・
+  全角半角を無視した完全一致）・関係の短い名前と none・知見の番号の形（c1・c1, c2）・スキームで始まる物
+  （`javascript:`・`data:`・`urn:` など）・`//` を含む物・`www.` で始まる物・Markdown のリンクの形・
+  `<>{}`・バッククォート・SQL 語。`rel` が集合の中なら欄ごと付けない。
+- **最後の砦**: `load_ledger` が、`state != "none"` の件の `unstated_kind` と、規則に通らない値（型違い・長い・
+  上の捨てる物）を、欄を無いものとして扱う（件そのものは今までどおり）。手で直した台帳への備え。
 - **台帳**: `state == "none"` の件にだけ `unstated_kind`（無いときは欄ごと無い）。確認・「違う」・人が付けた関係・
   落ちた件には付けない（それらへ動かす操作は欄を外す）。`strip_unconfirmed` は今までどおり未確認の
   「言えない」の件ごと消す。
@@ -209,6 +217,7 @@ selections: {<kq_ の名前>: {mode: "knowledge", op, target_slug, target, title
 - **組の指紋は変えない**: 指紋（`pair_relations._fingerprint`）は組の入力（語と知見）と知見 id だけで、AI への
   指示の文面を含まない。文面を足しても聞き直しにならず、既存の台帳の「言えない」の件は種類なしのまま残る
   （埋めるのは R4 の判定し直しか、次に組が変わったとき）。固定するテストは `ingest/tests/test_pair_unstated_kind.py`。
+- 前の種類は、同じ組の新しい「言えない」（種類なし）で件ごと置き換わって消える（契約どおり）。
 - 束ねる規則（`term_match.merge_key` を通した形を持つか）は R2 で決める。いまは AI が書いた形だけ。
 
 ## 本物のデータで確かめたこと（2026-11-18）

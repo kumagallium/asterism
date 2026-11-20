@@ -1,3 +1,4 @@
+# ruff: noqa: RUF001
 """R1 — 「言えない」の件に、関係の種類（unstated_kind）を台帳へ残す。例は作り物。"""
 
 from __future__ import annotations
@@ -5,8 +6,33 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from asterism import pair_relations as pr
 from asterism.knowledge_bundle import KnowledgeCopy
+
+# (入力, 期待)。None は捨てる。step0 と ingest で同じ表（見張りは step0 のテスト）
+KIND_TABLE = [
+    ("条件", "条件"), ("  条件  ", "条件"), ("条　件", "条 件"), ("条件\n比較", "条件 比較"),
+    ("ＺＴ値", "ZT値"), ("🔥条件", "🔥条件"), ("a\x1bb", "ab"), ("条\x00件\x07", "条件"),
+    ("条​件", "条件"), ("‮条件", "条件"), ("‮تحليل‬", "تحليل"),
+    ("あ" * 20, "あ" * 20), ("あ" * 21, None), ("a" * 100, None), ("あ" * 19 + "👨‍👩‍👧", None),
+    ("a" * 19 + "🇯🇵", None), ("🔥🔥", None), ("​​", None), ("\x00", None),
+    ("---", None), ("123", None), ("①②", None), ("²", None), ("?!", None),
+    ("none", None), ("None", None), ("NULL", None), ("n/a", None), ("N/A", None), ("na", None),
+    ("unknown", None), ("nothing", None), ("no relation", None), ("  No  Relation ", None),
+    ("なし", None), ("無し", None), ("不明", None), ("該当なし", None), ("関係なし", None),
+    ("分からない", None), ("わからない", None), ("ＮＯＮＥ", None), ("ｎ／ａ", None),
+    ("makes", None), ("Lowers", None), ("has_property", None), ("sub", None),
+    ("c1", None), ("C12", None), ("c1, c2", None), ("c1,c2,c3", None), ("a", None), ("B", None),
+    ("<b>条件</b>", None), ("{a}", None), ("`code`", None), ("select x", None), ("where", None),
+    ("https://x.test/a", None), ("urn:a:b", None), ("javascript:alert", None),
+    ("data:text/html,abc", None), ("mailto:a@b.c", None), ("file:///etc/passwd", None),
+    ("ftp://x", None), ("//evil.com", None), ("www.evil.com", None), ("WWW.evil.com", None),
+    ("[条件](https://x.y)", None), ("[条件](javascript:alert)", None), ("[a](b)", None),
+    ("条件]", None), ("a//b", None),
+    (5, None), (None, None), (["条件"], None), ({"x": 1}, None), ("", None),
+]
 
 AT = "2026-11-20T00:00:00+00:00"
 
@@ -52,12 +78,29 @@ def test_関係の件と落ちた件には付かない():
         assert "unstated_kind" not in pr.check_answer(TASK, a, TERMS)
 
 
-def test_形の悪い種類は捨てる():
-    for bad in (5, ["条件"], "---", "42", "http://x.test/a", "urn:a:b"):
-        e = pr.check_answer(TASK, {**NONE_KIND, "unstated_kind": bad}, TERMS)
-        assert "unstated_kind" not in e
-    long = pr.check_answer(TASK, {**NONE_KIND, "unstated_kind": "あ" * 50}, TERMS)
-    assert long["unstated_kind"] == "あ" * 20
+@pytest.mark.parametrize(("raw", "want"), KIND_TABLE)
+def test_the_rule_table(raw, want):
+    assert pr._unstated_kind(raw) == want
+    e = pr.check_answer(TASK, {**NONE_KIND, "unstated_kind": raw}, TERMS)
+    assert e.get("unstated_kind") == want
+
+
+def test_最後の砦_手で直した台帳の悪い種類は欄を無いものとして読む(tmp_path: Path):
+    led = _ledger(NONE_KIND)
+    pr.save_ledger(tmp_path, led, at=AT)
+    path = pr.ledger_path(tmp_path, "s")
+    for bad in ({"x": 1}, "あ" * 500, "条\x00件\x1b" + "あ" * 30, "none", 5, "https://x.test"):
+        data = json.loads(path.read_text("utf-8"))
+        data["pairs"][KEY]["unstated_kind"] = bad
+        path.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
+        e = pr.load_ledger(tmp_path, "s")["pairs"][KEY]
+        assert e["state"] == "none" and "unstated_kind" not in e  # 件は今までどおり
+    data["pairs"][KEY]["unstated_kind"] = "条\u200b件"  # 取り除けば通る物は整えて残す
+    path.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
+    assert pr.load_ledger(tmp_path, "s")["pairs"][KEY]["unstated_kind"] == "条件"
+    data["pairs"][KEY].update(state="relation", unstated_kind="条件")  # none 以外の件には付けない
+    path.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
+    assert "unstated_kind" not in pr.load_ledger(tmp_path, "s")["pairs"][KEY]
 
 
 def test_指紋は指示の文面を含まない_入力と知見だけ():

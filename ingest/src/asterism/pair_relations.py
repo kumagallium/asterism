@@ -24,6 +24,7 @@ import json
 import math
 import os
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -217,14 +218,44 @@ def _core(task: Mapping[str, Any], state: str, **kw: Any) -> dict:
 
 _LEN_UNSTATED_KIND = 20
 
+_KIND_NONE_WORDS = frozenset(
+    {
+        "none", "null", "n/a", "na", "unknown", "nothing", "no relation",
+        "なし", "無し", "不明", "該当なし", "関係なし", "分からない", "わからない",
+    }
+)  # fmt: skip
+_KIND_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*:", re.IGNORECASE)
+_KIND_NUMBER = re.compile(r"^c\d+(?:,\s*c\d+)*\Z", re.IGNORECASE)
+_KIND_CODE = re.compile(
+    r"https?://|[<>{}`]|\b(?:SELECT|INSERT|DELETE|WHERE|PREFIX)\b", re.IGNORECASE
+)
+
 
 def _unstated_kind(raw: Any) -> str | None:
-    """「言えない」の関係の種類（短い名詞）。step0 が正規化済みだが、台帳に入れる前にもう一度
-    絞る（文字列・空白を詰める・上限・文字を含む）。使えなければ ``None``。"""
+    """``unstated_kind`` の正規化（step0 と ingest に同じ規則を 2 か所書き、見張りのテストで
+    同じ答えを縛る）。通れば整えた文字列・捨てるなら ``None``。
+
+    NFKC にそろえ・空白を詰め・制御と書式の文字（Cc・Cf）を取り除く。捨てる物: 空・20 文字超
+    （切らない）・文字が無い（記号・数字だけ）・1 文字の英字・「無い／分からない」の言い換え・
+    関係の短い名前と ``none``・知見の番号の形・スキームや URL・Markdown のリンク・
+    コードの記号と SQL 語。"""
     if not isinstance(raw, str):
         return None
-    kind = " ".join(raw.split())[:_LEN_UNSTATED_KIND].strip()
-    if not any(ch.isalpha() for ch in kind) or "://" in kind or "urn:" in kind.lower():
+    kind = unicodedata.normalize("NFKC", raw)
+    kind = " ".join(kind.split())
+    kind = "".join(ch for ch in kind if unicodedata.category(ch) not in ("Cc", "Cf")).strip()
+    if not kind or len(kind) > _LEN_UNSTATED_KIND:
+        return None
+    if not any(ch.isalpha() for ch in kind):
+        return None
+    low = kind.casefold()
+    if len(kind) == 1 and kind.isascii():
+        return None
+    if low in _KIND_NONE_WORDS or low in {*PAIR_RELATIONS, "none"} or _KIND_NUMBER.match(low):
+        return None
+    if _KIND_SCHEME.match(kind) or "//" in kind or low.startswith("www."):
+        return None
+    if "[" in kind or "]" in kind or _KIND_CODE.search(kind):
         return None
     return kind
 
@@ -554,6 +585,13 @@ def load_ledger(root: str | Path, source: str) -> dict:
     data["pairs"] = {
         k: v for k, v in data["pairs"].items() if isinstance(v, dict) and "key" in v
     }
+    for v in data["pairs"].values():  # R1 の最後の砦: 規則に通らない種類は、欄を無いものとして扱う
+        if "unstated_kind" in v:
+            kind = _unstated_kind(v["unstated_kind"]) if v.get("state") == "none" else None
+            if kind:
+                v["unstated_kind"] = kind
+            else:
+                del v["unstated_kind"]
     data["source"] = source
     data.setdefault("dataset_id", None)
     data.setdefault("origin", [])
