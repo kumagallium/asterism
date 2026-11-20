@@ -31,11 +31,14 @@ from asterism_step0.theme_propose import (
 __all__ = [
     "MAX_CLAIMS",
     "MAX_EVIDENCE",
+    "MAX_EXTRA",
     "NONE",
     "PAIR_RELS",
     "PAIR_SYSTEM_PROMPT",
     "SYMMETRIC_RELS",
     "PairProposeError",
+    "assign_aliases",
+    "build_pair_system",
     "build_pair_user",
     "pair_json_schema",
     "propose_pair",
@@ -50,12 +53,14 @@ PAIR_RELS = (
 NONE = "none"
 SYMMETRIC_RELS = ("eq", "competes")  # 向きが無い
 MAX_CLAIMS = 8
+MAX_EXTRA = 40  # 人が足した関係を AI に載せる上限（足した順の先頭から。R3b）
 MAX_EVIDENCE = 3
 _ATTEMPTS = 3
 _LEN_NOTE = 200
 _LEN_KIND = 20  # unstated_kind の長さの上限
 _LEN_CLAIM = 600  # prompt に載せる 1 文の長さ
 _LEN_NAME = 80
+_ALIAS_RE = re.compile(r"(?<![A-Za-z0-9])x[0-9]+(?![A-Za-z0-9])")
 _EVIDENCE_RE = re.compile(r"^c([0-9]{1,2})\Z")
 
 
@@ -103,14 +108,70 @@ Answer with ONE JSON object and nothing else:
 """
 
 
-def pair_json_schema() -> dict:
-    """guided decoding 用のスキーマ — 全欄必須・``rel`` と ``from`` は enum・根拠は番号。"""
+def assign_aliases(extra: Any) -> dict[str, dict]:
+    """人が足した関係（R3b）に、この呼び出しだけの別名 ``x1``, ``x2``, … を足した順に振る。
+
+    ``extra`` は ``{name, label, definition, symmetric, to_property_only}`` の並び
+    （``label``・``definition`` は ``{ja, en}`` の辞書）。
+    返りは別名 → その項目の辞書（先頭 :data:`MAX_EXTRA` 件まで・超えた分は載せない）。
+    別名は組み込みの名前・``none`` とぶつからない（``x`` + 数字）。
+    名前（``u_…``）は AI に見せない。"""
+    out: dict[str, dict] = {}
+    for item in list(extra or [])[:MAX_EXTRA]:
+        out[f"x{len(out) + 1}"] = dict(item)
+    return out
+
+
+def _pick_text(texts: Any, lang: str) -> str:
+    """知見の言語の文、無ければもう片方。改行は空白に・長さは切らない（検査済みの 1 文）。"""
+    if not isinstance(texts, dict):
+        return ""
+    code = (lang or "").strip().lower()
+    other = "en" if code == "ja" else "ja"
+    for k in (code, other):
+        v = texts.get(k)
+        if isinstance(v, str) and v.strip():
+            return " ".join(v.split())
+    return ""
+
+
+def build_pair_system(aliases: dict[str, dict] | None = None, lang: str = "ja") -> str:
+    """指示の文。足した関係が無ければ :data:`PAIR_SYSTEM_PROMPT` そのまま（1 バイトも変えない）。"""
+    if not aliases:
+        return PAIR_SYSTEM_PROMPT
+    lines = [
+        "",
+        'Relations added by the user (answer with the short code, e.g. "x1"):',
+    ]
+    for alias, item in aliases.items():
+        label = _pick_text(item.get("label"), lang)
+        # 説明の [ ] は機械の札と見分けがつかないので、載せるときだけ ( ) にする（保存は変えない）
+        desc = _pick_text(item.get("definition"), lang).replace("[", "(").replace("]", ")")
+        line = f"{alias} = {label}: {desc}" if desc else f"{alias} = {label}"
+        if item.get("symmetric"):
+            line += " [no direction]"
+        if item.get("to_property_only"):
+            line += " [to is a property]"
+        lines.append(line)
+    lines.append(
+        '- "rel" is one of the list above or the short code of one of these added relations.'
+        ' For a code marked [no direction] write "a" for "from".'
+        ' Write only the short code, never any other name.'
+        " Never write the short codes in note or unstated_kind;"
+        " write the relation's name instead."
+    )
+    return PAIR_SYSTEM_PROMPT + "\n".join(lines) + "\n"
+
+
+def pair_json_schema(aliases: dict[str, dict] | None = None) -> dict:
+    """guided decoding 用のスキーマ — 全欄必須・``rel`` と ``from`` は enum・根拠は番号。
+    ``aliases``（R3b）があれば ``rel`` の enum に別名を足す（無ければ今と同じ）。"""
     return {
         "type": "object",
         "additionalProperties": False,
         "required": ["rel", "from", "evidence", "note"],
         "properties": {
-            "rel": {"type": "string", "enum": [*PAIR_RELS, NONE]},
+            "rel": {"type": "string", "enum": [*PAIR_RELS, *(aliases or {}), NONE]},
             "from": {"type": ["string", "null"], "enum": ["a", "b", None]},
             "evidence": {
                 "type": "array",
@@ -190,26 +251,41 @@ def _clean_kind(raw: Any) -> str | None:
     return kind
 
 
-def validate_pair_answer(obj: Any, n_claims: int) -> dict:
+def validate_pair_answer(
+    obj: Any, n_claims: int, aliases: dict[str, dict] | None = None, lang: str = "ja"
+) -> dict:
     """答えを正規化する → ``{rel, from, evidence, note}``（``none`` で種類があれば
     ``unstated_kind`` も）。
-    形が合わなければ :class:`PairProposeError`。"""
+    形が合わなければ :class:`PairProposeError`。
+
+    ``aliases``（R3b）は :func:`assign_aliases` の返り（別名 → 項目）。別名で答えた ``rel`` は
+    名前（``u_…``）に戻して返す。別名を知らない値と、名前を直接書いた答えは断る。"""
     if not isinstance(obj, dict):
         raise PairProposeError("$: must be an object")
     rel = obj.get("rel")
-    if rel != NONE and rel not in PAIR_RELS:
-        raise PairProposeError(f"$.rel: must be one of {[*PAIR_RELS, NONE]}")
+    extra = aliases or {}
+    alias_item = extra.get(rel) if isinstance(rel, str) else None
+    if rel != NONE and rel not in PAIR_RELS and alias_item is None:
+        raise PairProposeError(f"$.rel: must be one of {[*PAIR_RELS, *extra, NONE]}")
     note = obj.get("note")
     note = " ".join(note.split()) if isinstance(note, str) else ""
+    if extra:  # note に漏れた別名は、機械が表示名（知見の言語）に置き換える
+        note = _ALIAS_RE.sub(
+            lambda m: _pick_text(extra[m.group(0)].get("label"), lang) if m.group(0) in extra
+            else m.group(0),
+            note,
+        )
     note = "" if _CODE_LIKE.search(note) else note[:_LEN_NOTE]
     if rel == NONE:
         out = {"rel": NONE, "from": None, "evidence": [], "note": note}
         kind = _clean_kind(obj.get("unstated_kind"))
+        if kind and any(a in extra for a in _ALIAS_RE.findall(kind)):
+            kind = None  # 別名が漏れた種類は捨てる
         if kind:  # 無いときは欄ごと出さない（古い答えと同じ形）
             out["unstated_kind"] = kind
         return out
     frm = obj.get("from")
-    if rel in SYMMETRIC_RELS:
+    if rel in SYMMETRIC_RELS or (alias_item is not None and alias_item.get("symmetric")):
         frm = "a"
     elif frm not in ("a", "b"):
         raise PairProposeError('$.from: must be "a" or "b"')
@@ -226,14 +302,24 @@ def validate_pair_answer(obj: Any, n_claims: int) -> dict:
             f"$.evidence: a relation needs one to {MAX_EVIDENCE} statement numbers"
             f" between c1 and c{n_claims}"
         )
+    if alias_item is not None:
+        rel = str(alias_item["name"])  # 別名を名前に戻す（AI は名前を書かない）
     return {"rel": rel, "from": frm, "evidence": kept[:MAX_EVIDENCE], "note": note}
 
 
 def propose_pair(
-    llm: LLMClient, pair: dict, lang: str = "ja", *, on_call: Callable[[], None] | None = None
+    llm: LLMClient,
+    pair: dict,
+    lang: str = "ja",
+    *,
+    on_call: Callable[[], None] | None = None,
+    extra: Any = None,
 ) -> dict:
     """1 組について聞く → 検査済みの ``{rel, from, evidence, note}``。読めない・検査に落ちたら
-    理由を添えて聞き直し（最初 + 2 回）、3 回とも駄目なら :class:`PairProposeError`。"""
+    理由を添えて聞き直し（最初 + 2 回）、3 回とも駄目なら :class:`PairProposeError`。
+
+    ``extra``（R3b）は人が足した関係の並び（:func:`assign_aliases`）。無い・空なら文面も schema も
+    検査も今と同じ。"""
     claims = pair.get("claims")
     if not isinstance(claims, list) or not 1 <= len(claims) <= MAX_CLAIMS:
         raise ValueError(f"claims must be 1 to {MAX_CLAIMS} statements")
@@ -241,16 +327,20 @@ def propose_pair(
         t = pair.get(k)
         if not isinstance(t, dict) or not " ".join(str(t.get("name") or "").split()):
             raise ValueError(f"term {k} needs a name")
-    schema = pair_json_schema()
+    aliases = assign_aliases(extra)
+    system = build_pair_system(aliases, lang)
+    schema = pair_json_schema(aliases) if aliases else pair_json_schema()
     base = build_pair_user(pair, lang)
     problem: str | None = None
     last: Exception | None = None
     for _ in range(_ATTEMPTS):
-        text = _complete_guided(llm, PAIR_SYSTEM_PROMPT, base + _problem_tail(problem), schema)
+        text = _complete_guided(llm, system, base + _problem_tail(problem), schema)
         if on_call is not None:  # complete が成功して返るたび（聞き直しの各回も）。使用量の記録用
             on_call()
         try:
-            return validate_pair_answer(_extract_json_object(text), len(claims))
+            return validate_pair_answer(
+                _extract_json_object(text), len(claims), aliases or None, lang
+            )
         except (PairProposeError, ThemeDraftError) as exc:
             last = exc
             problem = str(exc)
