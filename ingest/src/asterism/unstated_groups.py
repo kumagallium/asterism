@@ -26,7 +26,7 @@ EXAMPLES_MAX = 5
 def _catalog_keys() -> dict[str, str]:
     """束ねる鍵 → 目録の関係の名前（名前・日本語名・英語名のどれでも。先に載った関係が勝つ）。"""
     out: dict[str, str] = {}
-    for rel in relation_catalog.RELATIONS:
+    for rel in relation_catalog.all_relations():  # 足した関係（やめたものも）も見る
         for text in (rel.name, rel.label.get("ja"), rel.label.get("en")):
             key = merge_key(text) if isinstance(text, str) else ""
             if key:

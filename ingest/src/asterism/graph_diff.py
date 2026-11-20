@@ -240,6 +240,8 @@ class _Applier:
         obj_kind = std.kind if std is not None else str(obj["kind"])  # type: ignore[index]
         if obj_key == subj["key"]:
             return "same"
+        if relation_catalog.is_retired(rel):
+            return "retired"  # やめた関係は新しく選べない
         if rel == "quantity":
             if subj["kind"] != "property" or std is None or std.kind != "quantity":
                 return "quantity_target"
@@ -252,6 +254,8 @@ class _Applier:
             )
             if problem:
                 return problem
+        elif relation_catalog.is_human(rel):
+            pass  # 人が足した関係: 端の種別は述語の形だけで決まる
         elif obj_kind != subj["kind"]:  # sub / eq / part は同じ種別どうし
             return "mixed"
         pred = themes.relation_predicate(rel, str(subj["kind"]), obj_kind)
@@ -797,9 +801,9 @@ def dismissal_keys(
 
 #: 述語（``crosswalk`` の線の ``relation``）→ 図の関係名（``themes.relation_predicate`` の逆）。
 #: 画面に出す線はこの 15 の述語だけ（``measuresProperty`` と ``measuresMaterial`` は同じ「測る」）。
-PRED_TO_REL = relation_catalog.pred_to_rel()
+PRED_TO_REL = relation_catalog.LiveMap(relation_catalog.pred_to_rel)  # 足した関係も引く
 #: 図の関係名 → 線を言い表す文（``{s}`` = 主語の名前・``{o}`` = 目的語の名前）。
-REL_SENTENCE = relation_catalog.rel_sentence()
+REL_SENTENCE = relation_catalog.LiveMap(relation_catalog.rel_sentence)
 
 
 def ops_to_sentences(ops: list[dict], graph: dict, lang: str = "ja") -> list[str]:

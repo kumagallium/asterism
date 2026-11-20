@@ -42,11 +42,8 @@ from typing import Any
 from asterism import relation_catalog
 from asterism import shared_vocab as sv
 from asterism.crosswalk_runtime import (
-    ALIGN_RELATIONS,
     ALIGNMENT_GRAPH,
     REASON_MAX,
-    RELATION_SHAPES,
-    ROLE_RULES,
     ROLES,
     ROLES_JA,
     _check_same_shape,
@@ -141,7 +138,7 @@ SYMMETRIC_DRAFT_RELATIONS = relation_catalog.symmetric_draft_relations()
 
 def draft_rel_key(frm: str, rel: str, to: str) -> tuple[str, str, str]:
     """下書きの関係の突き合わせ用の鍵。向きの無い関係は両端を文字列順に並べる（それ以外はそのまま）。"""
-    if rel in SYMMETRIC_DRAFT_RELATIONS and to < frm:
+    if rel in relation_catalog.symmetric_draft_relations() and to < frm:
         return (to, rel, frm)
     return (frm, rel, to)
 
@@ -828,7 +825,8 @@ def relation_predicate(rel: str, kind: str, to_kind: str | None = None) -> str:
     try:
         name = relation_catalog.resolve_predicate(rel, kind, to_kind)
     except KeyError:
-        raise ThemeError(f"関係は {RELATION_KINDS} のどれかです: {rel!r}") from None
+        kinds = relation_catalog.relation_kinds()
+        raise ThemeError(f"関係は {kinds} のどれかです: {rel!r}") from None
     if name is None:
         raise ThemeError("「測る」は、相手が項目か種類かが分からないと決められません")
     return name
@@ -853,7 +851,7 @@ def experiment_relation_problem(
         pred = relation_predicate(rel, subj_kind, obj_kind)
     else:
         pred = relation_predicate(rel, subj_kind)
-    allowed_from, allowed_to = RELATION_SHAPES[pred]
+    allowed_from, allowed_to = relation_catalog.relation_shapes()[pred]
     if (allowed_from and subj_kind not in allowed_from) or (
         allowed_to and obj_kind not in allowed_to
     ):
@@ -1050,9 +1048,12 @@ def postprocess_draft(
 
     # relations — the draft's own sub / part edges (and the base's) feed the cycle check
     rels: list[dict] = []
+    symmetric_draft = relation_catalog.symmetric_draft_relations()  # 足した関係も（呼ぶたびに引く）
+    to_property_only = relation_catalog.to_property_only_relations()
+
     def rel_trip(frm: str, to: str, rel: str) -> tuple[str, str, str]:
         # 向きの無い関係（競合する）は、両端の順を問わず 1 本
-        if rel in SYMMETRIC_DRAFT_RELATIONS and to < frm:
+        if rel in symmetric_draft and to < frm:
             frm, to = to, frm
         return (frm, to, rel)
 
@@ -1100,7 +1101,7 @@ def postprocess_draft(
         elif rel == "quantity":
             if subj["kind"] != "property" or std is None or std.kind != "quantity":
                 problem = "quantity_target"
-        elif rel in _TO_PROPERTY_ONLY:
+        elif rel in to_property_only:
             if obj_kind != "property":
                 problem = "target_not_property"
         elif rel in EXPERIMENT_RELATIONS:
@@ -1111,6 +1112,8 @@ def postprocess_draft(
                 role_of(subj),
                 role_of(obj) if obj is not None else None,
             )
+        elif relation_catalog.is_human(rel):
+            problem = None  # 人が足した関係: 端の種別は述語の形（種類でも項目でも）だけで決まる
         elif obj_kind != subj["kind"]:  # sub / eq / part join the same kind of thing
             problem = "mixed"
         end = concept_end_key(obj) if std is None else std.iri  # type: ignore[arg-type]
@@ -1455,9 +1458,9 @@ def _check_line_shapes(lines: list[_Line], shapes: dict[str, set[str]]) -> None:
         try:  # 述語ごとの種別表（crosswalk_runtime.RELATION_SHAPES）
             _check_same_shape(ln.relation, ln.source, ln.target, shapes)
         except ValueError as e:
-            if ln.relation in _TO_PROPERTY_ONLY_PREDICATES:
+            if ln.relation in relation_catalog.to_property_only_predicates():
                 raise ThemeError("下げる・上げる・変えるの相手は、項目だけです") from e
-            if ln.relation in ROLE_RULES:
+            if ln.relation in relation_catalog.role_rules():
                 raise ThemeError("この関係の両端は、種類と項目の組が合いません") from e
             raise ThemeError("種類と項目は結べません") from e
 
@@ -1466,7 +1469,7 @@ def _check_line_roles(lines: list[_Line], roles: dict[str, str], labels: dict[st
     """役割の札（``roles``: IRI → 札）が合わない関係を断る（札の無い端は通す）。
     どの語かが分かる文で断る（``labels``: IRI → 表示名）。"""
     for ln in lines:
-        if ln.relation not in ROLE_RULES:
+        if ln.relation not in relation_catalog.role_rules():
             continue
         for iri, ends in ((ln.source, (True, False)), (ln.target, (False, True))):
             role = roles.get(iri)
@@ -1662,8 +1665,9 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
         if not isinstance(raw, dict):
             raise ThemeError(f"relations[{i}] が不正です")
         rel = raw.get("rel")
-        if rel not in RELATION_KINDS:
-            raise ThemeError(f"relations[{i}].rel は {RELATION_KINDS} のどれかです")
+        if rel not in relation_catalog.assignable_relation_kinds():
+            kinds = relation_catalog.assignable_relation_kinds()
+            raise ThemeError(f"relations[{i}].rel は {kinds} のどれかです")
         subj = by_key.get(str(raw.get("from")))
         if subj is None:
             raise ThemeError(f"relations[{i}] の from が概念にありません")
@@ -1993,8 +1997,8 @@ async def _plan_commit(client: Any, root: Path | str, body: dict, *, at: str) ->
 async def _line_exists(client: Any, ln: _Line) -> bool:
     return await sv._ask(
         client,
-        f"ASK {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{ln.source}> <{ALIGN_RELATIONS[ln.relation]}> "
-        f"<{ln.target}> }} }}",
+        f"ASK {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{ln.source}> "
+        f"<{relation_catalog.align_relations()[ln.relation]}> <{ln.target}> }} }}",
     )
 
 

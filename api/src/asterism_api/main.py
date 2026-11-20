@@ -6137,6 +6137,14 @@ def build_app(
                 logger.info("relation catalog: seeded the built-in entries into the store")
         except Exception:
             logger.warning("relation catalog seeding failed (continuing)", exc_info=True)
+        # 人が足した関係をストアから読んで、重ねた目録に入れる（R3a）。失敗しても止めない
+        # （足した関係 0 件として動く）。
+        try:
+            from asterism import relation_store
+
+            await relation_store.refresh_human(client, startup=True)
+        except Exception:
+            logger.warning("human relations load failed (continuing)", exc_info=True)
         stop = asyncio.Event()
         task: asyncio.Task[None] | None = None
         if start_watcher:
@@ -12423,7 +12431,7 @@ def build_app(
     register_sky_suggestions(app, cfg, write_auth=_write_auth)  # 公開のあとの「結べそうな線」
     register_chat(app, cfg, _resolve_llm, write_auth=_write_auth)  # 話（チャット）の API
     register_ai(app, cfg, _resolve_llm, write_auth=_write_auth)  # AI の適性検査
-    register_relations(app)  # 関係の目録（読み取りのみ・認証なし）
+    register_relations(app, cfg, write_auth=_write_auth)  # 関係の目録（書きは write_auth）
     register_export(app, cfg)
     register_handles(app, cfg)  # 契約メモ contract_pr_f15.md §1.1（担当 api-handles）
     register_dataset_summary(app, cfg)  # 契約メモ contract_pr_f2.md §5（担当 api）

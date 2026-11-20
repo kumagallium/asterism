@@ -773,6 +773,18 @@ _XSD = "http://www.w3.org/2001/XMLSchema#"
 #: 値は目録（:mod:`asterism.relation_catalog`）から導く。
 ALIGN_RELATIONS: dict[str, str] = relation_catalog.align_relations()
 
+
+def _sync_align_relations() -> None:
+    """足した関係が入れ替わったら、同じ dict を作り直す（``from … import ALIGN_RELATIONS`` で
+    束ねた読み手にも届くように、実体は入れ替えず中身だけ）。"""
+    new = relation_catalog.align_relations()
+    for key in [k for k in ALIGN_RELATIONS if k not in new]:
+        del ALIGN_RELATIONS[key]  # 差分で足す・消す（空の辞書が見える窓を作らない）
+    ALIGN_RELATIONS.update(new)
+
+
+relation_catalog.on_change(_sync_align_relations)
+
 #: 人が確定する「知識の関係」。データの宣言（``wired.json``）には数えず、``knowledge.json``
 #: に数える（孤立の定義の改訂・利用者裁定 2026-10-20）。
 KNOWLEDGE_RELATIONS: tuple[str, ...] = relation_catalog.knowledge_relations()
@@ -787,18 +799,20 @@ NO_SELF_RELATIONS = relation_catalog.no_self_predicates()
 ROLES = ("material", "method", "concept", "other")
 ROLES_JA = {"material": "材料", "method": "手法", "concept": "概念", "other": "そのほか"}
 #: 確定側の関係名 → ``(from の許す役割, to の許す役割)``。表に無い関係（既存の 9 つ）は検査しない。
-ROLE_RULES: dict[str, tuple[frozenset[str], frozenset[str]]] = relation_catalog.role_rules()
+ROLE_RULES: Mapping[str, tuple[frozenset[str], frozenset[str]]] = relation_catalog.LiveMap(
+    relation_catalog.role_rules
+)
 
 #: 自前の述語の記録（ADR relations-for-experiments.md §3）。自前にするのは、標準を探して
 #: 無かったものだけ。``searched`` = 探した語彙（ラベル・定義とも該当なし）、``date`` = 探した日。
 #: 後で標準が見つかれば ``owl:equivalentProperty`` で結ぶ（IRI は変えない）。
-OWN_RELATIONS: dict[str, dict] = relation_catalog.own_relations()
+OWN_RELATIONS: Mapping[str, dict] = relation_catalog.LiveMap(relation_catalog.own_relations)
 
 
 def canonical_ends(relation: str, source: str, target: str) -> tuple[str, str]:
     """向きの無い関係（:data:`SYMMETRIC_RELATIONS`）は IRI の文字列順に並べ替える。
     それ以外はそのまま返す。"""
-    if relation in SYMMETRIC_RELATIONS and target < source:
+    if relation in relation_catalog.symmetric_predicates() and target < source:
         return target, source
     return source, target
 
@@ -806,7 +820,7 @@ def canonical_ends(relation: str, source: str, target: str) -> tuple[str, str]:
 def check_roles(relation: str, from_role: str | None, to_role: str | None) -> None:
     """役割の札が合わなければ ``ValueError``。札の無い端（``None``）と、表で「—」の端は検査しない。
     :data:`ROLE_RULES` に無い関係は何もしない。"""
-    rule = ROLE_RULES.get(relation)
+    rule = relation_catalog.role_rules().get(relation)
     if rule is None:
         return
     for end, role, allowed in (("from", from_role, rule[0]), ("to", to_role, rule[1])):
@@ -913,7 +927,9 @@ _SHAPES_ORDER = (
     "competesWith",
     "hasProperty",
 )
-RELATION_SHAPES = relation_catalog.relation_shapes(order=_SHAPES_ORDER)
+RELATION_SHAPES = relation_catalog.LiveMap(
+    lambda: relation_catalog.relation_shapes(order=_SHAPES_ORDER)
+)
 SAME_SHAPE_RELATIONS = relation_catalog.same_shape_predicates()
 assert set(RELATION_SHAPES) == set(ALIGN_RELATIONS)  # 述語を足したら表も足す
 
@@ -925,13 +941,13 @@ def _check_same_shape(relation: str, source: str, target: str, shapes: dict[str,
     allows is refused; an end declared as both, or nowhere, passes (undecidable).
     ``isPartOf`` additionally refuses a class joined to a property when both ends are
     declared."""
-    allowed_from, allowed_to = RELATION_SHAPES[relation]
+    allowed_from, allowed_to = relation_catalog.relation_shapes()[relation]
     for iri, allowed in ((source, allowed_from), (target, allowed_to)):
         declared = shapes.get(iri)
         if allowed and declared and not (declared & allowed):
             kind = "/".join(sorted(declared))
             raise ValueError(f"kind mismatch: {relation} cannot join {iri} (a {kind})")
-    if relation in SAME_SHAPE_RELATIONS:
+    if relation in relation_catalog.same_shape_predicates():
         s_decl, t_decl = shapes.get(source), shapes.get(target)
         if s_decl and t_decl and not (s_decl & t_decl):
             raise ValueError(f"kind mismatch: {relation} joins a class to a property")
@@ -1017,8 +1033,11 @@ async def assert_alignment(
     ``evidence`` (12b) = absolute IRIs of the sentences (``doco:Sentence``) the line was read from;
     each is written on the provenance node as ``prov:wasDerivedFrom`` (a paper's quoted
     sentence, drawn from the store by the machine — never a string the model wrote)."""
-    if relation not in ALIGN_RELATIONS:
-        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if relation not in relation_catalog.align_relations():
+        names = sorted(relation_catalog.align_relations())
+        raise ValueError(f"relation must be one of {names}, got {relation!r}")
+    if relation not in relation_catalog.assignable_predicates():
+        raise ValueError(f"retired relation: {relation}")  # やめた関係は新しく置かない
     source, target = canonical_ends(relation, source, target)
     if drafted_by not in DRAFTED_BY:
         raise ValueError(f"drafted_by must be one of {DRAFTED_BY}, got {drafted_by!r}")
@@ -1038,17 +1057,17 @@ async def assert_alignment(
     t_kind, t_dataset = _kind_of(target, ctx)
     if "shared_unminted" in (s_kind, t_kind):
         raise ValueError("unminted shared term")
-    if relation in NO_SELF_RELATIONS and source == target:
+    if relation in relation_catalog.no_self_predicates() and source == target:
         raise ValueError("self relation")
     _check_same_shape(relation, source, target, await _declared_shapes(client, [source, target]))
-    if relation in ROLE_RULES:
+    if relation in relation_catalog.role_rules():
         roles = await _declared_roles(client, [source, target])
         check_roles(relation, roles.get(source), roles.get(target))
-    if relation in _SUBSUMPTION and (
+    if relation in relation_catalog.subsumption_predicates() and (
         source == target or await _upper_path_reaches(client, relation, target, source)
     ):
         raise ValueError("cycle")
-    rel_iri = ALIGN_RELATIONS[relation]
+    rel_iri = relation_catalog.align_relations()[relation]
     align_iri = _alignment_iri(source, relation, target)
     extra = f'<{XW}alignSourceKind> "{s_kind}" ; <{XW}alignTargetKind> "{t_kind}" ; '
     if s_dataset:
@@ -1236,12 +1255,13 @@ async def list_alignments(
 async def remove_alignment(client, source: str, target: str, relation: str) -> None:
     """Withdraw a previously asserted alignment (the semantic triple + its provenance
     node). Reversible counterpart of :func:`assert_alignment`."""
-    if relation not in ALIGN_RELATIONS:
-        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if relation not in relation_catalog.align_relations():
+        names = sorted(relation_catalog.align_relations())
+        raise ValueError(f"relation must be one of {names}, got {relation!r}")
     source, target = canonical_ends(relation, source, target)
     _check_iri(source)
     _check_iri(target)
-    rel_iri = ALIGN_RELATIONS[relation]
+    rel_iri = relation_catalog.align_relations()[relation]
     align_iri = _alignment_iri(source, relation, target)
     await client.sparql_update(
         f"DELETE DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{source}> <{rel_iri}> <{target}> }} }} ;"
@@ -1269,8 +1289,9 @@ async def add_evidence(
     """既にある線の来歴ノードに ``prov:wasDerivedFrom`` を **足すだけ**（13a）。
     ``draftedBy`` / ``batch`` / ``at`` / ``reason`` は変えない。既に付いている IRI は数えない。
     返り = 新しく付いた数。来歴ノードが無ければ 0（何も書かない）。"""
-    if relation not in ALIGN_RELATIONS:
-        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if relation not in relation_catalog.align_relations():
+        names = sorted(relation_catalog.align_relations())
+        raise ValueError(f"relation must be one of {names}, got {relation!r}")
     source, target = canonical_ends(relation, source, target)
     _check_iri(source)
     _check_iri(target)
@@ -1298,8 +1319,9 @@ async def remove_evidence(
     client, source: str, target: str, relation: str, evidence: list[str]
 ) -> None:
     """指定の ``prov:wasDerivedFrom`` だけを来歴ノードから外す（線そのものは残す）。"""
-    if relation not in ALIGN_RELATIONS:
-        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if relation not in relation_catalog.align_relations():
+        names = sorted(relation_catalog.align_relations())
+        raise ValueError(f"relation must be one of {names}, got {relation!r}")
     source, target = canonical_ends(relation, source, target)
     _check_iri(source)
     _check_iri(target)
@@ -1326,8 +1348,9 @@ async def move_provenance(
     ``drafted_by`` / ``at`` が ``None`` なら今の値を変えない。``reason`` は足した手番のものなので
     外す。根拠（``wasDerivedFrom``）・3 つ組・種類の記録はそのまま。来歴ノードが無ければ
     ``False``（何も書かない）。"""
-    if relation not in ALIGN_RELATIONS:
-        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    if relation not in relation_catalog.align_relations():
+        names = sorted(relation_catalog.align_relations())
+        raise ValueError(f"relation must be one of {names}, got {relation!r}")
     if drafted_by is not None and drafted_by not in DRAFTED_BY:
         raise ValueError(f"drafted_by must be one of {DRAFTED_BY}, got {drafted_by!r}")
     batch_text = (batch or "").strip()
