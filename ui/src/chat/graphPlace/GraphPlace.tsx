@@ -9,11 +9,16 @@ import { KnowledgeApiError, type ReviewAction, type ReviewResult, type StoreRepo
 import { useStoreText } from './storeText'
 import { ALL, filterCandidates, filterRelations, firstRows, PAGE_SIZE, relKinds, pinFirst, summarizeTerms, unconfirmedKeys, type LedgerFilter, type StatusFilter, type TermSummary } from './ledgerView'
 import { CandidateRow, RelationRow, TermRow } from './LedgerRows'
+import { UnstatedSection } from './UnstatedSection'
+import { useUnstated } from './useUnstated'
 import { rowId, type AssignForm } from './rowFns'
 import { writeFailureOf, type LedgersApi } from './useLedgers'
 import './graphPlace.css'
 
 type Lang = 'ja' | 'en'
+
+/** 「言えなかった関係の種類」を 1 度に出す群の数（「もっと見る」で増やす）。 */
+const UNSTATED_PAGE = 10
 
 const STATUSES: StatusFilter[] = ['all', 'unconfirmed', 'confirmed', 'rejected']
 
@@ -115,6 +120,9 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   const [tab, setTab] = useState<Tab>('relations')
   const [open, setOpen] = useState<string | null>(null)
   const [shown, setShown] = useState<Record<Tab, number>>({ relations: PAGE_SIZE, terms: PAGE_SIZE, candidates: PAGE_SIZE })
+  /** 「言えなかった関係の種類」の節: 開いている群・見せている群の数（候補の行の開閉とは別に持つ）。 */
+  const [unOpen, setUnOpen] = useState<string | null>(null)
+  const [unShown, setUnShown] = useState(UNSTATED_PAGE)
   const [pending, setPending] = useState(false)
   const [msg, setMsg] = useState<{ id: string; text: string } | null>(null)
   /** 確認の返りの `store` が「置けなかった」「置く段が落ちた」を言うとき、その場の 1 行（次の操作で消える）。 */
@@ -133,6 +141,9 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   // 図で押した語は先頭に（上の 1 枚のすぐ下で開いて見える。並びはそのほかは変えない）
   const terms = pinFirst(summarizeTerms(relations), focus ? `${focus.source}|${focus.termId}` : null)
   const candidates = filterCandidates(api.ledgers, f)
+
+  // 節は取り込み元の絞り込みだけ効く（状態・関係の種類は効かせない）。台帳を読み直したら一緒に引き直す
+  const unstated = useUnstated(api.ledgers, lang, f.source === ALL ? undefined : f.source, tab === 'candidates' && api.status === 'ok' && api.ledgers.length > 0)
 
   const toggle = (id: string) => {
     setOpen((cur) => (cur === id ? null : id))
@@ -249,11 +260,18 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
         </>
       )
   } else {
+    const section = (
+      <UnstatedSection load={unstated} lang={lang} openKey={unOpen} onToggle={(k) => setUnOpen((cur) => (cur === k ? null : k))} shown={unShown} onMore={() => setUnShown((n) => n + UNSTATED_PAGE)} />
+    )
     body =
       candidates.length === 0 ? (
-        <p className="gp-note">{t('state.none')}</p>
+        <>
+          {section}
+          <p className="gp-note">{t('state.none')}</p>
+        </>
       ) : (
         <>
+          {section}
           <p className="gp-note">{t('candidates.note')}</p>
           <ul className="gp-list" data-testid="gp-candidates">
             {firstRows(candidates, shown.candidates).map((r) => {

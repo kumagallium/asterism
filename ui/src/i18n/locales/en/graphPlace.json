@@ -117,5 +117,16 @@
       "self": "it would relate a term to itself",
       "error": "an error occurred while placing it"
     }
+  },
+  "unstated": {
+    "title": "Relation kinds it could not state",
+    "note": "Kinds of relation the AI named that are not in the set. Whether to add them as relations is decided in a later step.",
+    "count": "{{n}} pairs",
+    "inCatalog": "Already a relation ({{name}})",
+    "examples": "Example pairs",
+    "rest": "and {{n}} more pairs",
+    "variants": "Other spellings: {{names}}",
+    "loading": "Loading relation kinds it could not state…",
+    "failed": "Could not load the relation kinds it could not state."
   }
 }

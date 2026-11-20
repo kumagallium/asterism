@@ -267,3 +267,68 @@ export async function postAssign(source: string, key: string, rel: string, subje
   const body = await post(`/api/knowledge-copies/${encodeURIComponent(source)}/relations/assign`, { key, rel, subject, ...(lang ? { lang } : {}) })
   return normalizeStoreReport(isObj(body) ? body.store : null)
 }
+
+/** 言えなかった関係の種類（`GET /api/relations/unstated`・R2）。AI が「関係は言えない」と答えた組を、書かれた種類の名前で束ねたもの。 */
+export interface UnstatedExample {
+  source: string
+  pair: string
+  a: { id: string; name: string }
+  b: { id: string; name: string }
+  note: string | null
+}
+
+export interface UnstatedGroup {
+  key: string
+  label: string
+  /** 組の数。 */
+  count: number
+  variants: { label: string; count: number }[]
+  examples: UnstatedExample[]
+  /** 集合にある関係と同じ種類だった（関係の名前）。無ければ null。 */
+  inCatalog: string | null
+}
+
+export interface UnstatedResult {
+  groups: UnstatedGroup[]
+  totalPairs: number
+}
+
+const unstatedTerm = (x: unknown): { id: string; name: string } | null => {
+  if (!isObj(x) || typeof x.id !== 'string') return null
+  return { id: x.id, name: str(x.name) ?? x.id }
+}
+
+/** 返りを正す。形が壊れた群・例は捨てる（群の名前か組の数が無い群は群ごと捨てる）。 */
+export function normalizeUnstated(body: unknown): UnstatedResult {
+  const o = isObj(body) ? body : {}
+  const groups: UnstatedGroup[] = []
+  for (const g of Array.isArray(o.groups) ? o.groups : []) {
+    if (!isObj(g)) continue
+    const key = str(g.key)
+    const label = str(g.label)
+    const count = num(g.count)
+    if (!key || !label || count <= 0) continue
+    const examples: UnstatedExample[] = []
+    for (const e of Array.isArray(g.examples) ? g.examples : []) {
+      if (!isObj(e)) continue
+      const a = unstatedTerm(e.a)
+      const b = unstatedTerm(e.b)
+      if (!a || !b) continue
+      examples.push({ source: str(e.source) ?? '', pair: str(e.pair) ?? [a.id, b.id].sort().join('|'), a, b, note: str(e.note) })
+    }
+    const variants = (Array.isArray(g.variants) ? g.variants : []).filter(isObj).flatMap((v) => {
+      const l = str(v.label)
+      return l ? [{ label: l, count: num(v.count) }] : []
+    })
+    groups.push({ key, label, count, variants, examples, inCatalog: str(g.in_catalog) })
+  }
+  return { groups, totalPairs: num(o.total_pairs) }
+}
+
+/** 言えなかった関係の種類を読む。`source` を付ければその取り込み元だけ。 */
+export async function fetchUnstated(lang: 'ja' | 'en', source?: string): Promise<UnstatedResult> {
+  const q = `lang=${lang}${source ? `&source=${encodeURIComponent(source)}` : ''}`
+  const body = await get(`/api/relations/unstated?${q}`)
+  if (!isObj(body) || !Array.isArray(body.groups)) throw new KnowledgeApiError(0, 'bad shape')
+  return normalizeUnstated(body)
+}

@@ -307,3 +307,23 @@
   flex-wrap: wrap;
   gap: 0 16px;
 }
+
+/* 候補のタブの先頭の節「言えなかった関係の種類」 */
+.gp-un {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.gp-un-h {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.gp-un > .gp-note {
+  margin: 0;
+}
