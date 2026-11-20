@@ -21,7 +21,9 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 from asterism import knowledge_bundle as kb
+from asterism import ledger_answer
 from asterism import pair_relations as pr
+from asterism import unstated_groups as ug
 from asterism.graph_diff import REL_SENTENCE
 from asterism.shared_vocab import term_iri
 from asterism_step0.pair_propose import propose_pair
@@ -533,3 +535,36 @@ def register_knowledge_relations_routes(
         ledger = _ledger_or_409(source)
         rows, origin = build_rows(ledger, copy, state=state, lang=lang)
         return {"summary": pr.summarize(ledger), "relations": rows, "origin": origin}
+
+    @app.get("/api/relations/unstated", dependencies=deps)
+    async def relations_unstated(
+        lang: str = Query("ja"), source: str | None = Query(None)
+    ) -> dict[str, Any]:
+        """全部の取り込み元の台帳の「言えなかった関係の種類」を束ねて返す（R2）。読むだけ
+        （台帳は書き換えない・走っている作業があっても読める）。取り下げ・削除した写しの取り込み元は
+        飛ばして ``skipped.missing_copy`` に、壊れた台帳は ``skipped.broken`` に数える。"""
+        lang = "en" if lang == "en" else "ja"
+
+        def work() -> dict[str, Any]:
+            st: dict[str, int] = {}
+            if source is None:
+                found = ledger_answer.find_ledgers(root, stats=st)
+            else:
+                one = ledger_answer.load_source(root, source)
+                found = [(source, one[0], one[1])] if one is not None else []
+                st = {"broken": 0, "skipped": 0}
+                lp = pr.ledger_path(root, source)
+                if not found and lp.exists():
+                    # 台帳が読めない＝壊れた・読めて写しが無い＝取り下げ・削除
+                    led = ledger_answer._read_ledger(lp)
+                    key = "broken" if led is None or led.get("source") != source else "skipped"
+                    st[key] = 1
+            groups = ug.unstated_groups(found, lang=lang)
+            return {
+                "groups": groups,
+                "total_pairs": sum(g["count"] for g in groups),
+                "sources": [name for name, _l, _c in found],
+                "skipped": {"broken": st.get("broken", 0), "missing_copy": st.get("skipped", 0)},
+            }
+
+        return await asyncio.to_thread(work)

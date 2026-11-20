@@ -218,7 +218,28 @@ selections: {<kq_ の名前>: {mode: "knowledge", op, target_slug, target, title
   指示の文面を含まない。文面を足しても聞き直しにならず、既存の台帳の「言えない」の件は種類なしのまま残る
   （埋めるのは R4 の判定し直しか、次に組が変わったとき）。固定するテストは `ingest/tests/test_pair_unstated_kind.py`。
 - 前の種類は、同じ組の新しい「言えない」（種類なし）で件ごと置き換わって消える（契約どおり）。
-- 束ねる規則（`term_match.merge_key` を通した形を持つか）は R2 で決める。いまは AI が書いた形だけ。
+- 束ねる規則は次の節（R2）。
+
+## 束ねる（R2・design §23.13 ②）
+
+台帳の `state == "none"` の件の `unstated_kind` を、**種類ごとに束ねて数える**。画面（知識グラフの候補のタブの
+節「言えなかった関係の種類」）が読む。関係として足す画面（R3）・判定し直し（R4）はこの PR の外。AI は呼ばない。
+
+- **束ねる鍵**: `term_match.merge_key(unstated_kind)`（表記ゆれ・空白・括弧・中黒・英語の単数化）。鍵が空なら捨てる。
+  元の値は R1 の規則を通った物だけだが、読むときにもう一度同じ規則（`pair_relations._unstated_kind`）に通す。
+- **入れる件**: `state == "none"`・種類あり・`orphan` でない・両端の語が写しにある。確認済み・「違う」・人が付けた件は
+  元から欄が無いので入らない。数える単位は「取り込み元＋組の鍵」（同じ組が別の取り込み元に出れば 2 組）。
+- **純関数**: `asterism.unstated_groups.unstated_groups(ledgers, *, lang, examples=5)`。
+  群 `{key, label, count, sources, variants, examples[, in_catalog]}`。`label` は群で最も多い書き方（同数は文字の順）・
+  `variants` は群の全部の書き方と数（`label` も含む。画面は `label` と同じ物を除く）・`examples` は 取り込み元 → 組の鍵 の順で最大 `examples` 件
+  `{source, pair, a:{id,name}, b:{id,name}, note}`。並びは `count` の多い順 → `label`。
+- **`in_catalog`**: 群の鍵が目録の関係の名前・日本語名・英語名と同じとき、その関係の名前（AI が集合にある関係を
+  「言えない」と書いた印。R3 で「既にある関係です」と見せる）。無ければ欄なし。
+- **読む口**: `GET /api/relations/unstated?lang=&source=` → `{groups, total_pairs, sources, skipped: {broken, missing_copy}}`。
+  認証は `GET /api/knowledge-copies/{source}/relations` と同じ（書き込みの token）。全部の台帳を
+  `ledger_answer.find_ledgers`（取り下げ・削除した写しは `missing_copy`・壊れた台帳は `broken`）で読み、
+  `source` を付ければその取り込み元だけ。台帳は書き換えない（取り込み元の作業が走っていても読める）。
+  `lang` は今は結果を変えない（口を揃えるため）。
 
 ## 本物のデータで確かめたこと（2026-11-18）
 
@@ -287,3 +308,4 @@ selections: {<kq_ の名前>: {mode: "knowledge", op, target_slug, target, title
 - 2026-11-18: 確認・「違う」・人が付ける口を追記（PR 14e-1・§6）。
 - 2026-11-18: 確認済みを正本に置く（PR 14e-1b・§7）。
 - 2026-11-20: 「言えない」の種類 `unstated_kind` を台帳と読む口に（R1・上の節）。
+- 2026-11-20: 「言えなかった関係の種類」を束ねる口 `GET /api/relations/unstated`（R2・上の節）。

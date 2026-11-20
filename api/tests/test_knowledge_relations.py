@@ -712,3 +712,74 @@ def test_a_none_row_without_a_kind_has_no_field(tmp_path: Path) -> None:
         env.go(client)
         none = client.get("/api/knowledge-copies/lab/relations", params={"state": "none"}).json()
     assert none["relations"] and all("unstated_kind" not in r for r in none["relations"])
+
+
+# ---- R2: 言えなかった関係の種類を束ねる口 ----
+
+_UNSTATED = "/api/relations/unstated"
+
+
+def test_unstated_groups_route_shape_and_source_filter(tmp_path: Path) -> None:
+    env = _Env(tmp_path, _KindAI())
+    with TestClient(env.app, headers=_AUTH) as client:
+        env.copy(client)
+        env.go(client)
+        body = client.get(_UNSTATED).json()
+        one = client.get(_UNSTATED, params={"source": "lab", "lang": "en"}).json()
+        other = client.get(_UNSTATED, params={"source": "nope"}).json()
+    assert set(body) == {"groups", "total_pairs", "sources", "skipped"}
+    assert body["sources"] == ["lab"] and body["skipped"] == {"broken": 0, "missing_copy": 0}
+    assert body["groups"] and body["groups"][0]["label"] == "併用"
+    g = body["groups"][0]
+    assert {"key", "label", "count", "sources", "variants", "examples"} <= set(g)
+    assert g["sources"] == {"lab": g["count"]} and body["total_pairs"] == g["count"]
+    ex = g["examples"][0]
+    assert set(ex) == {"source", "pair", "a", "b", "note"} and ex["a"]["name"]
+    assert one["groups"] == body["groups"]
+    assert other == {"groups": [], "total_pairs": 0, "sources": [],
+                     "skipped": {"broken": 0, "missing_copy": 0}}
+
+
+def test_unstated_groups_route_is_empty_without_kinds(tmp_path: Path) -> None:
+    env = _env(tmp_path)
+    with TestClient(env.app, headers=_AUTH) as client:
+        env.copy(client)
+        env.go(client)
+        body = client.get(_UNSTATED).json()
+    assert body["groups"] == [] and body["total_pairs"] == 0 and body["sources"] == ["lab"]
+
+
+def test_unstated_groups_route_skips_retracted_and_broken(tmp_path: Path) -> None:
+    env = _Env(tmp_path, _KindAI())
+    with TestClient(env.app, headers=_AUTH) as client:
+        first = env.copy(client)
+        env.go(client)
+        bad = pr.ledger_path(env.root, "broken-src")
+        bad.write_text("{not json", encoding="utf-8")
+        body = client.get(_UNSTATED).json()
+        assert body["skipped"]["broken"] == 1 and body["sources"] == ["lab"]
+        registry.update_meta_atomic(env.root, first["dataset_id"], {"status": "retracted"})
+        gone = client.get(_UNSTATED).json()
+        gone_one = client.get(_UNSTATED, params={"source": "lab"}).json()
+    assert gone["groups"] == [] and gone["sources"] == []
+    assert gone["skipped"] == {"broken": 1, "missing_copy": 1}
+    assert gone_one["skipped"]["missing_copy"] == 1 and gone_one["groups"] == []
+    assert pr.ledger_path(env.root, "lab").exists()  # 台帳は触らない
+
+
+def test_unstated_groups_route_needs_the_token(tmp_path: Path) -> None:
+    env = _env(tmp_path)
+    with TestClient(env.app) as client:
+        assert client.get(_UNSTATED).status_code == 401
+
+
+def test_unstated_groups_route_source_filter_tells_broken_from_missing_copy(tmp_path: Path) -> None:
+    env = _Env(tmp_path, _KindAI())
+    with TestClient(env.app, headers=_AUTH) as client:
+        env.copy(client)
+        env.go(client)
+        pr.ledger_path(env.root, "broken-src").write_text("{not json", encoding="utf-8")
+        broken = client.get(_UNSTATED, params={"source": "broken-src"}).json()
+        unknown = client.get(_UNSTATED, params={"source": "nothing"}).json()
+    assert broken["skipped"] == {"broken": 1, "missing_copy": 0} and broken["groups"] == []
+    assert unknown["skipped"] == {"broken": 0, "missing_copy": 0}
