@@ -680,3 +680,35 @@ def test_a_failed_call_that_keeps_the_old_entry_counts_as_kept_stale(tmp_path: P
     assert out["asked"] == 1 and out["failed"] == 0 and out["kept_stale"] == 1
     assert out["summary"]["failed"] == 0
     assert any(r["rel"] == "affects" and r["to"]["name"] == "熱伝導率" for r in rel["relations"])
+
+
+class _KindAI(_StubAI):
+    """「言えない」のとき、関係の種類（unstated_kind）も返す代役（R1）。"""
+
+    def complete(self, system: str, user: str) -> str:
+        obj = json.loads(super().complete(system, user))
+        if obj["rel"] == "none":
+            obj["unstated_kind"] = "併用"
+        return json.dumps(obj)
+
+
+def test_a_none_row_carries_the_unstated_kind(tmp_path: Path) -> None:
+    env = _Env(tmp_path, _KindAI())
+    with TestClient(env.app, headers=_AUTH) as client:
+        env.copy(client)
+        env.go(client)
+        none = client.get("/api/knowledge-copies/lab/relations", params={"state": "none"}).json()
+        rel = client.get("/api/knowledge-copies/lab/relations").json()
+    assert none["relations"] and all(r["unstated_kind"] == "併用" for r in none["relations"])
+    assert all("unstated_kind" not in r for r in rel["relations"])  # 関係の行には付かない
+    ledger = pr.load_ledger(env.root, "lab")
+    assert any(e.get("unstated_kind") == "併用" for e in ledger["pairs"].values())
+
+
+def test_a_none_row_without_a_kind_has_no_field(tmp_path: Path) -> None:
+    env = _env(tmp_path)  # 種類を返さない（古いモデル）
+    with TestClient(env.app, headers=_AUTH) as client:
+        env.copy(client)
+        env.go(client)
+        none = client.get("/api/knowledge-copies/lab/relations", params={"state": "none"}).json()
+    assert none["relations"] and all("unstated_kind" not in r for r in none["relations"])

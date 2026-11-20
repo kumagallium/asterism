@@ -365,6 +365,8 @@ def build_rows(
             "confirmed": True if e.get("confirmed") else None,
             "rejected": e.get("state") == "dropped" and e.get("reason") == "rejected",
         }
+        if e.get("state") == "none" and e.get("unstated_kind"):  # R1: 無いときは欄ごと出さない
+            row["unstated_kind"] = e["unstated_kind"]
         if (store := _store_of(e)) is not None:  # 無いときは欄ごと出さない（既存の行の形のまま）
             row["store"] = store
         if e.get("state") == "relation" and key in agreed:

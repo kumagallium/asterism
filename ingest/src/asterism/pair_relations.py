@@ -215,6 +215,20 @@ def _core(task: Mapping[str, Any], state: str, **kw: Any) -> dict:
     return out
 
 
+_LEN_UNSTATED_KIND = 20
+
+
+def _unstated_kind(raw: Any) -> str | None:
+    """「言えない」の関係の種類（短い名詞）。step0 が正規化済みだが、台帳に入れる前にもう一度
+    絞る（文字列・空白を詰める・上限・文字を含む）。使えなければ ``None``。"""
+    if not isinstance(raw, str):
+        return None
+    kind = " ".join(raw.split())[:_LEN_UNSTATED_KIND].strip()
+    if not any(ch.isalpha() for ch in kind) or "://" in kind or "urn:" in kind.lower():
+        return None
+    return kind
+
+
 def check_answer(
     task: Mapping[str, Any],
     answer: Mapping[str, Any],
@@ -236,7 +250,9 @@ def check_answer(
     rel = answer.get("rel")
     note = str(answer.get("note") or "").strip() or None
     if rel == _NONE:
-        return _core(task, "none", note=note)
+        kind = _unstated_kind(answer.get("unstated_kind"))
+        extra = {"unstated_kind": kind} if kind else {}  # 無いときは欄ごと出さない
+        return _core(task, "none", note=note, **extra)
     if rel not in PAIR_RELATIONS:
         return _core(task, "dropped", reason="relation", note=note)
     rel = str(rel)
@@ -1032,6 +1048,7 @@ def _confirmation(rel: Any, frm: Any, to: Any, evidence: Any, at: str) -> dict:
 def _strip_annotations(e: dict) -> None:
     for k in _ANNOTATED:
         e.pop(k, None)
+    e.pop("unstated_kind", None)  # R1: 「言えない」の種類は、関係・確認・「違う」の件には付けない
 
 
 def _would_cycle(ledger: Mapping[str, Any], key: str, rel: str, frm: str, to: str) -> bool:

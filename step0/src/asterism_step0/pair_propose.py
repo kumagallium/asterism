@@ -5,6 +5,7 @@
 
     {"rel": "makes", "from": "a", "evidence": ["c1"], "note": "理由 1 行"}
 
+``none`` のときだけ、任意の欄 ``unstated_kind``（言えなかった関係の種類を短い名詞で）も返せる。
 関係は ``PAIR_RELS`` の 11 個か ``none``（言えない）。根拠は番号だけ（引用文は書かせない）。
 1 回の仕事は 1 組だけ。検査に落ちたら理由を添えて聞き直す（最初 + 2 回）。
 やらないこと: 確からしさ・文脈の語・台帳への保存（ingest の仕事）。id・IRI・コードも書かせない。
@@ -51,6 +52,7 @@ MAX_CLAIMS = 8
 MAX_EVIDENCE = 3
 _ATTEMPTS = 3
 _LEN_NOTE = 200
+_LEN_KIND = 20  # unstated_kind の長さの上限
 _LEN_CLAIM = 600  # prompt に載せる 1 文の長さ
 _LEN_NAME = 80
 _EVIDENCE_RE = re.compile(r"^c([0-9]{1,2})\Z")
@@ -91,6 +93,11 @@ Answer with ONE JSON object and nothing else:
   knowledge instead of what the statements say.
 - Use eq only when a statement says the two are the same thing (not merely similar, and not
   because their abbreviations look alike).
+- Only for none: "unstated_kind" (optional) is a short noun naming the kind of relation the
+  statements express between the two terms when it is not in the list (e.g. condition,
+  comparison, co-use, no effect, purpose), in the language of the statements, at most 20
+  characters. Leave it empty when there is no relation or you cannot tell. Omit it for every
+  other rel.
 - Do NOT write ids, keys, IRIs, SPARQL or code.
 """
 
@@ -110,6 +117,8 @@ def pair_json_schema() -> dict:
                 "items": {"type": "string", "pattern": "^c[0-9]{1,2}$"},
             },
             "note": {"type": "string", "maxLength": _LEN_NOTE},
+            # 任意（required に入れない）。rel が none のときだけ意味を持つ
+            "unstated_kind": {"type": "string", "maxLength": _LEN_KIND},
         },
     }
 
@@ -138,8 +147,24 @@ def build_pair_user(pair: dict, lang: str = "ja") -> str:
     return "\n".join(parts)
 
 
+def _clean_kind(raw: Any) -> str:
+    """``unstated_kind`` の正規化: 空白を詰める・コード/IRI らしいものと、記号だけ・数字だけは
+    捨てる・上限で切る。"""
+    if not isinstance(raw, str):
+        return ""
+    kind = " ".join(raw.split())
+    if not kind or _CODE_LIKE.search(kind) or "urn:" in kind.lower():
+        return ""
+    kind = kind[:_LEN_KIND].strip()
+    # 文字（かな・漢字・英字）を 1 つも含まない（記号だけ・数字だけ）なら捨てる
+    if not any(ch.isalpha() for ch in kind):
+        return ""
+    return kind
+
+
 def validate_pair_answer(obj: Any, n_claims: int) -> dict:
-    """答えを正規化する → ``{rel, from, evidence, note}``。
+    """答えを正規化する → ``{rel, from, evidence, note}``（``none`` で種類があれば
+    ``unstated_kind`` も）。
     形が合わなければ :class:`PairProposeError`。"""
     if not isinstance(obj, dict):
         raise PairProposeError("$: must be an object")
@@ -150,7 +175,11 @@ def validate_pair_answer(obj: Any, n_claims: int) -> dict:
     note = " ".join(note.split()) if isinstance(note, str) else ""
     note = "" if _CODE_LIKE.search(note) else note[:_LEN_NOTE]
     if rel == NONE:
-        return {"rel": NONE, "from": None, "evidence": [], "note": note}
+        out = {"rel": NONE, "from": None, "evidence": [], "note": note}
+        kind = _clean_kind(obj.get("unstated_kind"))
+        if kind:  # 無いときは欄ごと出さない（古い答えと同じ形）
+            out["unstated_kind"] = kind
+        return out
     frm = obj.get("from")
     if rel in SYMMETRIC_RELS:
         frm = "a"
