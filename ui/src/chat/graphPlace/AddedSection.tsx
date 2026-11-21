@@ -2,10 +2,9 @@
 // 組み込みの 12 種はここには出さない。開閉・入力欄・確かめは節の中で持ち、書いたあとは親へ知らせる（目録と一覧の読み直し）。
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AI_LIMIT, addFailureOf, deleteRelation, nameOf, patchRelation, retireRelation, type AddedRelation } from './relationAddApi'
-import { buildPatch, valuesOf, type RelationFormValues } from './relationFormModel'
+import { AI_LIMIT, addFailureOf, deleteRelation, failureText, nameOf, patchRelation, retireRelation, type AddedRelation } from './relationAddApi'
+import { buildPatch, editOptional, otherLangHint, valuesOf, type RelationFormValues } from './relationFormModel'
 import { RelationForm } from './RelationForm'
-import { KnowledgeApiError } from './knowledgeRelationsApi'
 import type { AddedLoad } from './useAddedRelations'
 
 type Lang = 'ja' | 'en'
@@ -14,7 +13,7 @@ const dateOf = (iso: string | null): string => (iso ? iso.slice(0, 10) : '')
 export function UsageTag({ r }: { r: AddedRelation }) {
   const { t } = useTranslation('graphPlace')
   if (r.retired) return <em className="gp-tag gp-tag--retired" data-testid="gp-added-retired">{t('added.retired')}</em>
-  if (r.used === null) return null
+  if (r.used === null) return <span className="gp-ev" data-testid="gp-added-usage-unknown">{t('added.usageUnknown')}</span>
   return r.used === 0 ? <span className="gp-ev" data-testid="gp-added-usage">{t('added.unused')}</span> : <span className="gp-ev" data-testid="gp-added-usage">{t('added.used', { n: r.used })}</span>
 }
 
@@ -25,19 +24,26 @@ export interface AddedRowProps {
   lang: Lang
   open: boolean
   onToggle: () => void
-  /** 書いた（直す・やめる・削除）あとに親へ。 */
-  onChanged: () => void
+  /** 書いた（直す・やめる・削除）あと、または 404/409 で一覧が古いと分かったときに親へ（目録と一覧の読み直し）。`msg` は親の 1 行に出す文。 */
+  onChanged: (msg?: string) => void
+  /** 操作の始まり（親の知らせを消す）。 */
+  onStart?: () => void
+  /** 読み直しの途中。ボタンを無効にする。 */
+  busy?: boolean
 }
 
-export function AddedRow({ r, lang, open, onToggle, onChanged }: AddedRowProps) {
+export function AddedRow({ r, lang, open, onToggle, onChanged, onStart, busy = false }: AddedRowProps) {
   const { t } = useTranslation('graphPlace')
   const [editing, setEditing] = useState<RelationFormValues | null>(null)
   const [confirm, setConfirm] = useState<Confirm>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const unused = r.used === 0
+  const locked = pending || busy
 
-  const run = async (job: () => Promise<unknown>, after: () => void) => {
+  /** `ctx`: 409 の意味（削除＝使用中）。404・409 は一覧が古いので、確かめを閉じて読み直す（使用中なら [使うのをやめる] 側の行になる）。 */
+  const run = async (job: () => Promise<unknown>, after: () => void, ctx: 'add' | 'delete' | 'other') => {
+    onStart?.()
     setPending(true)
     setError(null)
     try {
@@ -45,10 +51,13 @@ export function AddedRow({ r, lang, open, onToggle, onChanged }: AddedRowProps) 
       after()
       onChanged()
     } catch (e) {
-      const f = addFailureOf(e)
-      // 削除は、確かめている間に使われた（409）。やめるを勧める
-      if (e instanceof KnowledgeApiError && e.status === 409 && confirm === 'delete') setError(t('added.inUse'))
-      else setError(f.kind === 'unavailable' ? t('added.unavailable') : f.message)
+      const f = addFailureOf(e, ctx)
+      const text = failureText(t, f)
+      setError(text)
+      if (f.kind === 'notFound' || f.kind === 'inUse') {
+        setConfirm(null)
+        onChanged(f.kind === 'notFound' ? text : undefined)
+      }
     } finally {
       setPending(false)
     }
@@ -73,11 +82,13 @@ export function AddedRow({ r, lang, open, onToggle, onChanged }: AddedRowProps) 
               values={editing}
               onChange={setEditing}
               editing
-              pending={pending}
+              optional={editOptional(r, lang)}
+              hints={otherLangHint(r, lang)}
+              pending={locked}
               error={error}
               submitLabel={t('act.save')}
               onCancel={() => { setEditing(null); setError(null) }}
-              onSubmit={() => void run(() => patchRelation(r.name, buildPatch(editing, lang)), () => setEditing(null))}
+              onSubmit={() => void run(() => patchRelation(r.name, buildPatch(editing, lang, r)), () => setEditing(null), 'add')}
             />
           ) : (
             <>
@@ -91,15 +102,15 @@ export function AddedRow({ r, lang, open, onToggle, onChanged }: AddedRowProps) 
                 <div className="gp-confirm" data-testid="gp-added-confirm" role="group">
                   <p className="gp-warn">{confirm === 'delete' ? t('added.confirmDelete') : t('added.confirmRetire')}</p>
                   <div className="gp-acts">
-                    <button type="button" className="btn btn--sm btn--accent" disabled={pending} data-testid="gp-added-yes" onClick={() => void run(() => (confirm === 'delete' ? deleteRelation(r.name) : retireRelation(r.name)), () => setConfirm(null))}>{t('act.yes')}</button>
+                    <button type="button" className="btn btn--sm btn--accent" disabled={locked} data-testid="gp-added-yes" onClick={() => void run(() => (confirm === 'delete' ? deleteRelation(r.name) : retireRelation(r.name)), () => setConfirm(null), confirm === 'delete' ? 'delete' : 'other')}>{t('act.yes')}</button>
                     <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-no" onClick={() => { setConfirm(null); setError(null) }}>{t('act.keep')}</button>
                   </div>
                 </div>
               ) : (
                 <div className="gp-acts">
-                  <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-edit" onClick={() => { setEditing(valuesOf(r, lang)); setError(null) }}>{t('act.edit')}</button>
-                  {!r.retired && unused && <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-delete" onClick={() => setConfirm('delete')}>{t('act.delete')}</button>}
-                  {!r.retired && !unused && <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-retire" onClick={() => setConfirm('retire')}>{t('act.retire')}</button>}
+                  <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-edit" disabled={locked} onClick={() => { setEditing(valuesOf(r, lang)); setError(null) }}>{t('act.edit')}</button>
+                  {!r.retired && unused && <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-delete" disabled={locked} onClick={() => setConfirm('delete')}>{t('act.delete')}</button>}
+                  {!r.retired && !unused && <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-retire" disabled={locked} onClick={() => setConfirm('retire')}>{t('act.retire')}</button>}
                 </div>
               )}
               {error && !editing && <p className="gp-err" role="alert" data-testid="gp-added-error">{error}</p>}
@@ -116,7 +127,8 @@ export interface AddedSectionProps {
   lang: Lang
   openName: string | null
   onToggle: (name: string) => void
-  onChanged: () => void
+  onChanged: (msg?: string) => void
+  onStart?: () => void
   /** 空の入力欄（「関係を足す」）を出す部品。親が持つ（種類の行からの入力欄と同じ作り）。 */
   adder: ReactNode
   adding: boolean
@@ -124,7 +136,7 @@ export interface AddedSectionProps {
 }
 
 /** 0 件でも見出しと「関係を足す」は出す。読み込み中・失敗は 1 行。 */
-export function AddedSection({ load, lang, openName, onToggle, onChanged, adder, adding, onAdd }: AddedSectionProps) {
+export function AddedSection({ load, lang, openName, onToggle, onChanged, onStart, adder, adding, onAdd }: AddedSectionProps) {
   const { t } = useTranslation('graphPlace')
   const { status, relations, unavailable } = load
   const active = relations.filter((r) => !r.retired).length
@@ -137,14 +149,14 @@ export function AddedSection({ load, lang, openName, onToggle, onChanged, adder,
       {relations.length > 0 && (
         <ul className="gp-list" data-testid="gp-added-list">
           {relations.map((r) => (
-            <AddedRow key={r.name} r={r} lang={lang} open={openName === r.name} onToggle={() => onToggle(r.name)} onChanged={onChanged} />
+            <AddedRow key={r.name} r={r} lang={lang} open={openName === r.name} onToggle={() => onToggle(r.name)} onChanged={onChanged} onStart={onStart} busy={load.busy} />
           ))}
         </ul>
       )}
       {status === 'ok' && relations.length === 0 && <p className="gp-note" data-testid="gp-added-empty">{t('added.empty')}</p>}
       {adding ? adder : !unavailable && (
         <div className="gp-acts">
-          <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-add" onClick={onAdd}>{t('act.addRelation')}</button>
+          <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-added-add" disabled={load.busy} onClick={onAdd}>{t('act.addRelation')}</button>
         </div>
       )}
     </section>

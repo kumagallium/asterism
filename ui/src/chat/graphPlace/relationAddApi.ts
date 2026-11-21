@@ -28,7 +28,7 @@ export interface AddedRelation {
   exactMatch: string | null
   retired: boolean
   addedAt: string | null
-  /** 使われ方の合計。数えていない（`usage` が無い）ときは null。 */
+  /** 使われ方の合計。`usage` が無い・欄が足りない・数でないときは null（使われ方が分からない）。 */
   used: number | null
 }
 
@@ -44,6 +44,9 @@ export function normalizeAdded(body: unknown): AddedRelation[] {
   for (const r of rels) {
     if (!isObj(r) || r.builtin !== false || typeof r.name !== 'string' || !r.name) continue
     const u = isObj(r.usage) ? r.usage : null
+    // 3 つの欄がすべて 0 以上の数のときだけ合計する。1 つでも欠ける・数でないなら「分からない」
+    const counts = u ? [u.lines, u.ledger, u.drafts] : null
+    const known = u !== null && counts !== null && counts.every((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0)
     out.push({
       name: r.name,
       label: pair(r.label),
@@ -53,7 +56,7 @@ export function normalizeAdded(body: unknown): AddedRelation[] {
       exactMatch: str(r.exact_match) || null,
       retired: r.retired === true,
       addedAt: str(r.added_at) || null,
-      used: u ? num(u.lines) + num(u.ledger) + num(u.drafts) : null,
+      used: u !== null && known ? num(u.lines) + num(u.ledger) + num(u.drafts) : null,
     })
   }
   return out
@@ -109,16 +112,58 @@ export const patchRelation = (name: string, body: PatchBody) => send('PATCH', `/
 export const retireRelation = (name: string) => send('POST', `/api/relations/${encodeURIComponent(name)}/retire`, {})
 export const deleteRelation = (name: string) => send('DELETE', `/api/relations/${encodeURIComponent(name)}`)
 
-/** 書き込みの失敗を 3 つに分ける: 認証・ストアが無い（401/503）＝この環境では足せない／それ以外は 1 行の文。 */
-export function addFailureOf(e: unknown): { kind: 'unavailable' } | { kind: 'message'; message: string } {
-  if (e instanceof KnowledgeApiError) {
-    if (e.status === 401 || e.status === 503) return { kind: 'unavailable' }
-    return { kind: 'message', message: e.message }
+/** 書き込みの失敗の分類。画面は分類ごとの文言（ja/en）を出す（サーバの文はそのまま出さない）。
+ *  `ctx`: 409 の意味が操作で違う（足す＝既にある・上限／削除＝使用中）。 */
+export type AddFailure =
+  | { kind: 'unavailable' }
+  | { kind: 'input' }
+  | { kind: 'exists'; name: string | null }
+  | { kind: 'limit' }
+  | { kind: 'inUse' }
+  | { kind: 'notFound' }
+  | { kind: 'failed' }
+
+export function addFailureOf(e: unknown, ctx: 'add' | 'delete' | 'other' = 'add'): AddFailure {
+  if (!(e instanceof KnowledgeApiError)) return { kind: 'failed' } // ネットワーク・想定外
+  const st = e.status
+  if (st === 401 || st === 503) return { kind: 'unavailable' }
+  if (st === 400) return { kind: 'input' }
+  if (st === 404) return { kind: 'notFound' }
+  if (st === 409) {
+    if (ctx === 'delete') return { kind: 'inUse' }
+    if (/足せる関係は/.test(e.message)) return { kind: 'limit' }
+    if (/既にある関係/.test(e.message)) {
+      const m = /既にある関係（(.+)）/.exec(e.message)
+      return { kind: 'exists', name: m ? m[1] : null }
+    }
+    return { kind: 'failed' }
   }
-  return { kind: 'message', message: e instanceof Error ? e.message : String(e) }
+  return { kind: 'failed' } // 502 など
 }
 
 /** AI に渡すのは先に足した 40 件まで（やめた物は数えない）。 */
 export const AI_LIMIT = 40
 
 export const nameOf = (r: AddedRelation, lang: Lang): string => r.label[lang] || r.label.ja || r.label.en || r.name
+
+type T = (key: string, opts?: Record<string, unknown>) => string
+
+/** 分類 → 画面の文言（`graphPlace.json` の `error.rel.*`）。 */
+export function failureText(t: T, f: AddFailure): string {
+  switch (f.kind) {
+    case 'unavailable':
+      return t('added.unavailable')
+    case 'input':
+      return t('error.rel.input', { label: 40, definition: 200 })
+    case 'exists':
+      return f.name ? t('error.rel.exists', { name: f.name }) : t('error.rel.existsPlain')
+    case 'limit':
+      return t('error.rel.limit', { n: 500 })
+    case 'inUse':
+      return t('added.inUse')
+    case 'notFound':
+      return t('error.rel.notFound')
+    default:
+      return t('error.rel.failed')
+  }
+}

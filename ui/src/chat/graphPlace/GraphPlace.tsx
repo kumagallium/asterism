@@ -14,7 +14,7 @@ import { unstatedArgs, useUnstated } from './useUnstated'
 import { AddedSection } from './AddedSection'
 import { AddRelation } from './AddRelation'
 import { useAddedRelations } from './useAddedRelations'
-import { rowId, type AssignForm } from './rowFns'
+import { assignRels, rowId, type AssignForm } from './rowFns'
 import { writeFailureOf, type LedgersApi } from './useLedgers'
 import './graphPlace.css'
 
@@ -156,10 +156,20 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   const added = useAddedRelations(unTrigger, tab === 'candidates')
   const [adding, setAdding] = useState<string | null>(null) // 入力欄を開いている種類の鍵。空の入力欄は NEW_KEY
   const [addedOpen, setAddedOpen] = useState<string | null>(null)
-  const [relNotice, setRelNotice] = useState<string | null>(null)
-  const relationsChanged = () => {
-    void reloadRelationCatalog().then(() => setRelVersion((v) => v + 1))
+  // 知らせは言語つきで持つ（言語を切り替えたら出さない）。次の操作・タブの切り替えでも消す
+  const [relNoticeRaw, setRelNoticeRaw] = useState<{ text: string; lang: Lang } | null>(null)
+  const relNotice = relNoticeRaw && relNoticeRaw.lang === lang ? relNoticeRaw.text : null
+  const setRelNotice = (text: string | null) => setRelNoticeRaw(text ? { text, lang } : null)
+  /** 書いたあと: 目録を読み直し、一覧も引き直す。目録の読み直しに失敗したら知らせを「反映に失敗」に変える。 */
+  const relationsChanged = (opts: { done?: string; msg?: string } = {}) => {
+    void reloadRelationCatalog().then((ok) => {
+      if (!ok) setRelNotice(opts.done ? t('added.doneReflectFailed', { name: opts.done }) : t('added.reflectFailed'))
+      else if (opts.msg) setRelNotice(opts.msg)
+      setRelVersion((v) => v + 1)
+    })
   }
+  // やめられた関係を選んでいたら、選びを外す（[付ける] は関係を選ぶまで押せない）
+  if (form.rel && !assignRels().includes(form.rel)) setForm({ ...form, rel: '' })
   // 取り込み元の絞り込みを変えたら、開いている群・見せている数を戻す（描画中に前の値と比べて合わせる）
   const [seenUnSource, setSeenUnSource] = useState(unSource)
   if (seenUnSource !== unSource) {
@@ -286,7 +296,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
     const onAdded = (label: string) => {
       setAdding(null)
       setRelNotice(t('added.done', { name: label }))
-      relationsChanged()
+      relationsChanged({ done: label })
     }
     const section = (
       <>
@@ -295,11 +305,12 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
           load={unstated}
           lang={lang}
           openKey={unOpen}
-          onToggle={(k) => setUnOpen((cur) => (cur === k ? null : k))}
+          onToggle={(k) => { setRelNotice(null); setUnOpen((cur) => (cur === k ? null : k)) }}
           shown={unShown}
           onMore={() => setUnShown((n) => n + UNSTATED_PAGE)}
           add={{
             adding,
+            busy: added.busy,
             onAdd: (k) => { setAdding(k); setRelNotice(null) },
             adder: (g) => <AddRelation group={g} lang={lang} onAdded={onAdded} onCancel={() => setAdding(null)} />,
           }}
@@ -308,8 +319,9 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
           load={added}
           lang={lang}
           openName={addedOpen}
-          onToggle={(n) => setAddedOpen((cur) => (cur === n ? null : n))}
-          onChanged={relationsChanged}
+          onToggle={(n) => { setRelNotice(null); setAddedOpen((cur) => (cur === n ? null : n)) }}
+          onStart={() => setRelNotice(null)}
+          onChanged={(msg) => relationsChanged({ msg })}
           adding={adding === NEW_KEY}
           onAdd={() => { setAdding(NEW_KEY); setRelNotice(null) }}
           adder={<AddRelation group={null} lang={lang} onAdded={onAdded} onCancel={() => setAdding(null)} />}
@@ -356,7 +368,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   }
 
   const tabBtn = (id: Tab, n: number) => (
-    <button type="button" role="tab" data-testid={`gp-tab-${id}`} aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => { setTab(id); setOpen(null); setMsg(null) }}>
+    <button type="button" role="tab" data-testid={`gp-tab-${id}`} aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => { setTab(id); setOpen(null); setMsg(null); setRelNotice(null) }}>
       {t(`tab.${id}`, { n })}
     </button>
   )

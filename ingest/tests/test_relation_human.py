@@ -583,3 +583,42 @@ async def test_ALIGN_RELATIONS_は差分で足し消しする_実体は同じ():
     assert list(align)[:15] == list(before) and len(align) == 16
     rc.set_human((), ())
     assert dict(align) == before and list(align) == list(before)
+
+
+async def test_英語だけで足す_直す_表示名は_ja_か_en_のどちらかで足りる():
+    c = _Client()
+    await rs.seed_builtin(c, at=AT)
+    rel = await _add(c, label={"en": "Condition"}, definition={"en": "B is a condition of A"})
+    assert rel.label == {"en": "Condition"}
+    # 読み戻しでは ja が埋まり、文は両言語がそろう（落ちない）
+    (back,), (pred,) = await rs.read_human(c)
+    assert back.label["en"] == "Condition" and back.label["ja"] and back.sentence["en"] == "{s} → {o} (Condition)"
+    assert rc.own_relations()[pred.name]["label_ja"] and rc.own_relations()[pred.name]["label_en"] == "Condition"
+    # 英語だけの直し（画面の言語の欄だけ）
+    new = await rs.update_relation(c, rel.name, label={"en": "Condition 2"}, definition={"en": "B conditions A"})
+    assert new.label == {"en": "Condition 2"} and new.definition == {"en": "B conditions A"}
+    await rs.refresh_human(c)
+    assert [r.label["en"] for r in rc.human_relations()] == ["Condition 2"]
+    # 同じ名前の検査は英語の表示名でも効く
+    with pytest.raises(rs.RelationExists):
+        await rs.add_relation(c, _spec(label={"en": "condition 2"}), at=AT)
+    # 表示名が空なら断る
+    with pytest.raises(rs.RelationInputError, match="label"):
+        await rs.add_relation(c, _spec(label={}), at=AT)
+    with pytest.raises(rs.RelationInputError, match="label"):
+        await rs.update_relation(c, rel.name, label={"ja": " "})
+
+
+async def test_画面が送る形が_検査を通る_足す_直す_英語だけ_元の言語を残す():
+    """ui（relationFormModel の buildAdd／buildPatch）が送る形をそのまま通す往復。"""
+    c = _Client()
+    await rs.seed_builtin(c, at=AT)
+    rel = await rs.add_relation(
+        c, {"label": {"en": "Condition"}, "definition": {"en": "B is a condition of A"}, "symmetric": False, "to_property_only": True, "unstated_key": "条件"}, at=AT
+    )
+    # ja の画面で直す: ja は入力値・en は元の値をそのまま
+    new = await rs.update_relation(c, rel.name, label={"en": "Condition", "ja": "条件"}, definition={"en": "B is a condition of A", "ja": "B は A の条件"}, exact_match=None)
+    assert new.label == {"en": "Condition", "ja": "条件"} and new.definition["ja"] == "B は A の条件"
+    # 触っていない言語を送らない形（片方だけ）も通る
+    again = await rs.update_relation(c, rel.name, label={"ja": "条件"}, definition={"ja": "B は A の条件"}, exact_match=None)
+    assert again.label == {"ja": "条件"}

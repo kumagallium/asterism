@@ -10,9 +10,9 @@ vi.mock('react-i18next', async (importOriginal) => ({
 import { BUILTIN, getCatalog, reloadRelationCatalog, resetCatalogForTest } from '../../relations/catalog'
 import { assignableRelations } from '../../relations/relationFns'
 import { AddedRow, AddedSection } from './AddedSection'
-import { KnowledgeApiError, type UnstatedGroup } from './knowledgeRelationsApi'
-import { addFailureOf, addRelation, deleteRelation, fetchAdded, normalizeAdded, patchRelation, retireRelation, type AddedRelation } from './relationAddApi'
-import { buildAdd, buildPatch, draftFor, exampleNotes, problemsOf, valuesOf } from './relationFormModel'
+import { type UnstatedGroup } from './knowledgeRelationsApi'
+import { addFailureOf, addRelation, deleteRelation, failureText, fetchAdded, normalizeAdded, patchRelation, retireRelation, type AddedRelation } from './relationAddApi'
+import { buildAdd, buildPatch, draftFor, editOptional, exampleNotes, otherLangHint, problemsOf, valuesOf } from './relationFormModel'
 import { UnstatedRow } from './UnstatedSection'
 import type { AddedLoad } from './useAddedRelations'
 
@@ -78,11 +78,25 @@ describe('入力欄の純関数', () => {
     expect(buildAdd(v, 'en')).toEqual({ label: { en: '条件' }, definition: { en: '説明' }, symmetric: true, to_property_only: false })
     expect(buildAdd({ ...v, exactMatch: ' https://x.example/p ' }, 'ja').exact_match).toBe('https://x.example/p')
   })
-  it('直す: 表示名・説明・標準の述語だけ（向き・項目に限るは送らない）', () => {
-    const p = buildPatch(valuesOf(added({ exactMatch: 'https://x.example/p' }), 'ja'), 'ja')
-    expect(p).toEqual({ label: { ja: '条件' }, definition: { ja: '後ろの語が前の語の条件になっている' }, exact_match: 'https://x.example/p' })
-    expect(Object.keys(buildPatch(valuesOf(added(), 'en'), 'en')).sort()).toEqual(['definition', 'exact_match', 'label'])
-    expect(buildPatch(valuesOf(added(), 'ja'), 'ja').exact_match).toBeNull()
+  it('直す: 表示名・説明・標準の述語だけ。画面の言語の欄は入力値・もう片方は元の値をそのまま（写しを送らない）', () => {
+    const r = added({ exactMatch: 'https://x.example/p', definition: { ja: '後ろの語が前の語の条件になっている', en: '' } })
+    expect(buildPatch(valuesOf(r, 'ja'), 'ja', r)).toEqual({ label: { en: 'Condition', ja: '条件' }, definition: { ja: '後ろの語が前の語の条件になっている' }, exact_match: 'https://x.example/p' })
+    expect(Object.keys(buildPatch(valuesOf(added(), 'en'), 'en', added())).sort()).toEqual(['definition', 'exact_match', 'label'])
+    expect(buildPatch(valuesOf(added(), 'ja'), 'ja', added()).exact_match).toBeNull()
+  })
+  it('ja だけの関係を英語の画面で直す: 初期値は空（ja を en の欄に写さない）・説明を英語で入れると ja は元のまま残して送る', () => {
+    const r = added({ label: { ja: '条件', en: '' }, definition: { ja: '説明です', en: '' } })
+    const v = valuesOf(r, 'en')
+    expect(v.label).toBe('')
+    expect(v.definition).toBe('')
+    expect(editOptional(r, 'en')).toEqual({ label: true, definition: true })
+    expect(problemsOf(v, editOptional(r, 'en'))).toEqual([])
+    expect(problemsOf(v)).toContain('labelEmpty')
+    expect(otherLangHint(r, 'en')).toEqual({ label: '条件', definition: '説明です' })
+    // 触らなければ元の値だけ（en の欄は送らない）
+    expect(buildPatch(v, 'en', r)).toEqual({ label: { ja: '条件' }, definition: { ja: '説明です' }, exact_match: null })
+    // 英語で入れれば en は入力値・ja は元の値
+    expect(buildPatch({ ...v, label: 'Condition', definition: 'B conditions A' }, 'en', r)).toEqual({ label: { ja: '条件', en: 'Condition' }, definition: { ja: '説明です', en: 'B conditions A' }, exact_match: null })
   })
 })
 
@@ -115,18 +129,46 @@ describe('API', () => {
     expect(calls.map(([u, i]) => `${i.method} ${u}`)).toEqual(['POST /api/relations', 'PATCH /api/relations/u_1', 'POST /api/relations/u_1/retire', 'DELETE /api/relations/u_1'])
     expect(JSON.parse(String(calls[0][1].body))).toMatchObject({ unstated_key: 'k', label: { ja: 'a' } })
   })
-  it('失敗: 400・409 は文をそのまま・409（使用中）は detail の入れ子も読む・401/503 は「足せない」', async () => {
-    stub(409, { detail: '既にある関係（条件）' })
-    const e = await addRelation({ label: {}, definition: {}, symmetric: false, to_property_only: false }).catch((x: unknown) => x)
-    expect(addFailureOf(e)).toEqual({ kind: 'message', message: '既にある関係（条件）' })
+  it('失敗の分類: 400 入力・409 既にある（名前を取る）・409 上限・削除の 409 は使用中・404・502 とネットワーク・401/503', async () => {
+    const add = () => addRelation({ label: {}, definition: {}, symmetric: false, to_property_only: false }).catch((x: unknown) => x)
     stub(400, { detail: '表示名は 40 文字までです' })
-    expect(addFailureOf(await retireRelation('u').catch((x: unknown) => x))).toEqual({ kind: 'message', message: '表示名は 40 文字までです' })
+    expect(addFailureOf(await add())).toEqual({ kind: 'input' })
+    stub(409, { detail: '既にある関係（条件）' })
+    expect(addFailureOf(await add())).toEqual({ kind: 'exists', name: '条件' })
+    stub(409, { detail: '既にある関係' })
+    expect(addFailureOf(await add())).toEqual({ kind: 'exists', name: null })
+    stub(409, { detail: '足せる関係は 500 件までです' })
+    expect(addFailureOf(await add())).toEqual({ kind: 'limit' })
     stub(409, { detail: { detail: 'relation is in use', usage: { lines: 1 } } })
-    expect((await deleteRelation('u').catch((x: unknown) => x) as KnowledgeApiError).message).toBe('relation is in use')
+    expect(addFailureOf(await deleteRelation('u').catch((x: unknown) => x), 'delete')).toEqual({ kind: 'inUse' })
+    stub(404, { detail: 'relation not found: u' })
+    expect(addFailureOf(await deleteRelation('u').catch((x: unknown) => x), 'delete')).toEqual({ kind: 'notFound' })
+    stub(502, { detail: 'x' })
+    expect(addFailureOf(await add())).toEqual({ kind: 'failed' })
+    expect(addFailureOf(new TypeError('Failed to fetch'))).toEqual({ kind: 'failed' })
     for (const st of [401, 503]) {
       stub(st, { detail: 'x' })
-      expect(addFailureOf(await addRelation({ label: {}, definition: {}, symmetric: false, to_property_only: false }).catch((x: unknown) => x))).toEqual({ kind: 'unavailable' })
+      expect(addFailureOf(await add())).toEqual({ kind: 'unavailable' })
     }
+  })
+  it('画面の文言に直す（サーバの文は出さない）', () => {
+    const t = (k: string, o?: Record<string, unknown>) => (o ? `${k}${JSON.stringify(o)}` : k)
+    expect(failureText(t, { kind: 'exists', name: '条件' })).toBe('error.rel.exists{"name":"条件"}')
+    expect(failureText(t, { kind: 'exists', name: null })).toBe('error.rel.existsPlain')
+    expect(failureText(t, { kind: 'limit' })).toContain('error.rel.limit')
+    expect(failureText(t, { kind: 'inUse' })).toBe('added.inUse')
+    expect(failureText(t, { kind: 'notFound' })).toBe('error.rel.notFound')
+    expect(failureText(t, { kind: 'failed' })).toBe('error.rel.failed')
+    expect(failureText(t, { kind: 'input' })).toContain('error.rel.input')
+  })
+  it('使われ方の形が壊れていれば「分からない」（null）', () => {
+    const one = (usage: unknown) => normalizeAdded({ relations: [{ name: 'u_1', builtin: false, usage }] })[0].used
+    expect(one({ lines: 0, ledger: 0, drafts: 0 })).toBe(0)
+    expect(one({ lines: 0, ledger: 0 })).toBeNull()
+    expect(one({ lines: 0, ledger: '0', drafts: 0 })).toBeNull()
+    expect(one({ lines: -1, ledger: 0, drafts: 0 })).toBeNull()
+    expect(one({ lines: NaN, ledger: 0, drafts: 0 })).toBeNull()
+    expect(one('x')).toBeNull()
   })
 })
 
@@ -175,6 +217,20 @@ describe('節「足した関係 N」', () => {
     expect(un).not.toContain('gp-added-exact')
     expect(open(added({ exactMatch: 'https://x.example/p' }))).toContain('gp-added-exact')
   })
+  it('使われ方が分からない行: 削除は出さず、[使うのをやめる] を出す', () => {
+    const h = renderToStaticMarkup(<AddedRow r={added({ used: null })} lang="ja" open onToggle={() => {}} onChanged={() => {}} />)
+    expect(h).toContain('gp-added-usage-unknown')
+    expect(h).not.toContain('data-testid="gp-added-delete"')
+    expect(h).toContain('data-testid="gp-added-retire"')
+  })
+  it('読み直しの途中は書き込みのボタンが無効（古い行で直す・消す・やめるを押させない）', () => {
+    const h = renderToStaticMarkup(<AddedRow r={added()} lang="ja" open onToggle={() => {}} onChanged={() => {}} busy />)
+    expect(h).toMatch(/<button[^>]*disabled=""[^>]*data-testid="gp-added-edit"|<button[^>]*data-testid="gp-added-edit"[^>]*disabled=""/)
+    expect(h).toMatch(/<button[^>]*data-testid="gp-added-delete"[^>]*disabled=""|<button[^>]*disabled=""[^>]*data-testid="gp-added-delete"/)
+    const sec = section(load([added()], { busy: true }))
+    expect(sec).toMatch(/<button[^>]*data-testid="gp-added-add"[^>]*disabled=""|<button[^>]*disabled=""[^>]*data-testid="gp-added-add"/)
+    expect(section(load([added()]))).not.toMatch(/data-testid="gp-added-add"[^>]*disabled/)
+  })
   it('値は文字として描く（HTML として解釈しない）', () => {
     const h = renderToStaticMarkup(<AddedRow r={added({ label: { ja: '<b>x</b>', en: '' }, definition: { ja: '<img src=x onerror=1>', en: '' } })} lang="ja" open onToggle={() => {}} onChanged={() => {}} />)
     expect(h).not.toContain('<b>x</b>')
@@ -210,6 +266,11 @@ describe('「言えなかった関係の種類」との結び', () => {
     expect(h).toContain('data-x="form"')
     expect(h).not.toContain('gp-unstated-add')
   })
+  it('ほかの書き方: 代表の名前そのもの・空は並べず、0 件なら行ごと出さない', () => {
+    const h = row(group({ variants: [{ label: '条件', count: 5 }, { label: ' ', count: 1 }, { label: '', count: 1 }] }))
+    expect(h).not.toContain('unstated.variants')
+    expect(row(group({ variants: [{ label: '条件', count: 5 }, { label: '状況', count: 1 }] }))).toContain('状況')
+  })
   it('閉じた行には出ない・add が無ければ従来どおり出ない', () => {
     expect(row(group(), add, false)).not.toContain('gp-unstated-add')
     expect(row(group(), null)).not.toContain('gp-unstated-add')
@@ -230,6 +291,34 @@ describe('足した関係の言語の欠け（片方の言語だけで書かれ�
     expect(r?.label).toEqual({ ja: '条件', en: '条件' })
     expect(r?.sentence.en).toBe('{a} → {b}')
     expect(getCatalog().relations.slice(0, BUILTIN.relations.length)).toEqual(BUILTIN.relations)
+  })
+})
+
+describe('目録の読み直しの順序・失敗', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    resetCatalogForTest()
+  })
+  const body = (extra: object[]) => JSON.stringify({ relations: [...BUILTIN.relations, ...extra], predicates: BUILTIN.predicates })
+  const human = (name: string) => ({ name, label: { ja: name, en: name }, sentence: { ja: '{a}', en: '{a}' }, predicates: [{ name: 'sub', iri: 'x', when: null }], symmetric_draft: false, symmetric_pair: false, experiment: false, builtin: false })
+  it('後から始めた読み込みの結果だけを採る（先に始めて遅れて返った古い結果で上書きしない）', async () => {
+    let releaseOld: (r: Response) => void = () => {}
+    const old = new Promise<Response>((res) => { releaseOld = res })
+    const calls: Promise<Response>[] = [old, Promise.resolve(new Response(body([human('u_new')]), { status: 200 }))]
+    const f = vi.fn(() => calls.shift() as Promise<Response>)
+    const p1 = reloadRelationCatalog(f as unknown as typeof fetch)
+    const p2 = reloadRelationCatalog(f as unknown as typeof fetch)
+    expect(await p2).toBe(true)
+    releaseOld(new Response(body([human('u_old')]), { status: 200 }))
+    expect(await p1).toBe(true)
+    const names = getCatalog().relations.map((r) => r.name)
+    expect(names).toContain('u_new')
+    expect(names).not.toContain('u_old')
+  })
+  it('読み直しに失敗したら false（今の目録は残る）', async () => {
+    expect(await reloadRelationCatalog(vi.fn(async () => new Response('x', { status: 500 })) as unknown as typeof fetch)).toBe(false)
+    expect(await reloadRelationCatalog(vi.fn(async () => { throw new Error('down') }) as unknown as typeof fetch)).toBe(false)
+    expect(getCatalog()).toBe(BUILTIN)
   })
 })
 

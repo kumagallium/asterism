@@ -27,9 +27,22 @@ export function draftFor(group: UnstatedGroup | null): RelationFormValues {
   return { label: group ? group.label.slice(0, LABEL_MAX) : '', definition: '', symmetric: false, toPropertyOnly: false, exactMatch: '' }
 }
 
-/** 足した関係を直す入力欄の初期値（向き・項目に限るは読むだけなので値に持つが送らない）。 */
+/** 足した関係を直す入力欄の初期値。**今の画面の言語の欄の値だけ**を入れる（もう片方の言語の値を写さない）。
+ *  その言語の値が無ければ空（直さなければ、もう片方の値がそのまま残る）。 */
 export function valuesOf(r: AddedRelation, lang: Lang): RelationFormValues {
-  return { label: r.label[lang] || r.label.ja || r.label.en, definition: r.definition[lang] || r.definition.ja || r.definition.en, symmetric: r.symmetric, toPropertyOnly: r.toPropertyOnly, exactMatch: r.exactMatch ?? '' }
+  return { label: r.label[lang], definition: r.definition[lang], symmetric: r.symmetric, toPropertyOnly: r.toPropertyOnly, exactMatch: r.exactMatch ?? '' }
+}
+
+/** 直すとき、今の言語の欄が空でもよいか（その言語の値が元から無く、もう片方の言語の値がある）。 */
+export function editOptional(r: AddedRelation, lang: Lang): { label: boolean; definition: boolean } {
+  const other: Lang = lang === 'ja' ? 'en' : 'ja'
+  return { label: !r.label[lang] && !!r.label[other], definition: !r.definition[lang] && !!r.definition[other] }
+}
+
+/** 直す入力欄の空欄の目安として見せる、もう片方の言語の値（読むだけ・送らない）。 */
+export function otherLangHint(r: AddedRelation, lang: Lang): { label: string; definition: string } {
+  const other: Lang = lang === 'ja' ? 'en' : 'ja'
+  return { label: r.label[lang] ? '' : r.label[other], definition: r.definition[lang] ? '' : r.definition[other] }
 }
 
 /** 例として読むだけで並べる、その種類の例の組の AI の理由（重複を除いて 2〜3 件）。 */
@@ -51,14 +64,17 @@ const chars = (s: string): number => [...s].length
 const isHttpIri = (s: string): boolean => /^https?:\/\/[^\s<>"{}]+$/.test(s)
 
 /** 送る前の検査（最後はサーバが検査する）。問題が無ければ空。 */
-export function problemsOf(v: RelationFormValues): FormProblem[] {
+export function problemsOf(v: RelationFormValues, optional: { label?: boolean; definition?: boolean } = {}): FormProblem[] {
   const out: FormProblem[] = []
   const label = v.label.trim()
   const def = v.definition.trim()
-  if (!label) out.push('labelEmpty')
+  if (!label) {
+    if (!optional.label) out.push('labelEmpty')
+  }
   else if (chars(label) > LABEL_MAX) out.push('labelLong')
-  if (!def) out.push('definitionEmpty')
-  else if (chars(def) > DEFINITION_MAX) out.push('definitionLong')
+  if (!def) {
+    if (!optional.definition) out.push('definitionEmpty')
+  } else if (chars(def) > DEFINITION_MAX) out.push('definitionLong')
   if (v.exactMatch.trim() && !isHttpIri(v.exactMatch.trim())) out.push('exactBad')
   return out
 }
@@ -76,8 +92,14 @@ export function buildAdd(v: RelationFormValues, lang: Lang, unstatedKey?: string
   }
 }
 
-/** 直す: 表示名・説明・同じ意味の標準の述語だけ（向き・項目に限るは送らない）。 */
-export function buildPatch(v: RelationFormValues, lang: Lang): PatchBody {
+/** 直す: 表示名・説明・標準の述語だけ（向き・項目に限るは送らない）。画面の言語の欄は入力した値、もう片方の言語は
+ *  **元の値をそのまま**送る（サーバは渡した欄を丸ごと置き換えるので、送らないと消える）。写しは送らない。 */
+export function buildPatch(v: RelationFormValues, lang: Lang, r: AddedRelation): PatchBody {
+  const other: Lang = lang === 'ja' ? 'en' : 'ja'
   const exact = v.exactMatch.trim()
-  return { label: { [lang]: v.label.trim() }, definition: { [lang]: v.definition.trim() }, exact_match: exact || null }
+  const pick = (mine: string, orig: { ja: string; en: string }): Partial<Record<Lang, string>> => ({
+    ...(orig[other] ? { [other]: orig[other] } : {}),
+    ...(mine.trim() ? { [lang]: mine.trim() } : {}),
+  })
+  return { label: pick(v.label, r.label), definition: pick(v.definition, r.definition), exact_match: exact || null }
 }

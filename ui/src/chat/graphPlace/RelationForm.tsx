@@ -10,6 +10,10 @@ export interface RelationFormProps {
   onChange: (v: RelationFormValues) => void
   /** 直すとき: 向き・項目に限るは読むだけ（変えられない理由を 1 行）。 */
   editing?: boolean
+  /** 直すとき: 今の言語の欄が空でもよい欄（元の値はもう片方の言語に残る）。 */
+  optional?: { label?: boolean; definition?: boolean }
+  /** 空欄の目安（もう片方の言語の値・読むだけ）。 */
+  hints?: { label: string; definition: string }
   /** 種類から開いたとき、読むだけで並べる例（AI の理由）。 */
   examples?: string[]
   pending: boolean
@@ -20,12 +24,9 @@ export interface RelationFormProps {
   testPrefix: string
 }
 
-const problemKey: Record<FormProblem, string> = {
-  labelEmpty: 'form.problem.labelEmpty',
-  labelLong: 'form.problem.labelLong',
-  definitionEmpty: 'form.problem.definitionEmpty',
-  definitionLong: 'form.problem.definitionLong',
-  exactBad: 'form.problem.exactBad',
+/** 画面の検査の文言は 400 と同じ 1 行。まだ何も入れていない必須の欄は、叱らない（送れないだけ）。 */
+function visibleProblems(v: RelationFormValues, ps: FormProblem[]): FormProblem[] {
+  return ps.filter((p) => !(p === 'labelEmpty' && v.label === '') && !(p === 'definitionEmpty' && v.definition === ''))
 }
 
 function ExactMatch({ value, onPick, id }: { value: string; onPick: (iri: string) => void; id: string }) {
@@ -76,19 +77,19 @@ function ExactMatch({ value, onPick, id }: { value: string; onPick: (iri: string
   )
 }
 
-export function RelationForm({ values, onChange, editing = false, examples = [], pending, error, submitLabel, onSubmit, onCancel, testPrefix: id }: RelationFormProps) {
+export function RelationForm({ values, onChange, editing = false, optional, hints, examples = [], pending, error, submitLabel, onSubmit, onCancel, testPrefix: id }: RelationFormProps) {
   const { t } = useTranslation('graphPlace')
-  const problems = problemsOf(values)
+  const problems = problemsOf(values, optional)
   const set = (patch: Partial<RelationFormValues>) => onChange({ ...values, ...patch })
   return (
     <div className="gp-rform" data-testid={id}>
       <label className="gp-sel">
         {t('form.label')}
-        <input type="text" value={values.label} maxLength={LABEL_MAX * 2} data-testid={`${id}-label`} onChange={(e) => set({ label: e.target.value })} />
+        <input type="text" value={values.label} placeholder={hints?.label} maxLength={LABEL_MAX * 2} data-testid={`${id}-label`} onChange={(e) => set({ label: e.target.value })} />
       </label>
       <label className="gp-sel">
         {t('form.definition')}
-        <textarea rows={2} value={values.definition} data-testid={`${id}-definition`} onChange={(e) => set({ definition: e.target.value })} />
+        <textarea rows={2} value={values.definition} placeholder={hints?.definition} data-testid={`${id}-definition`} onChange={(e) => set({ definition: e.target.value })} />
       </label>
       <p className="gp-ev">{t('form.definitionNote')}</p>
       {examples.length > 0 && (
@@ -117,12 +118,8 @@ export function RelationForm({ values, onChange, editing = false, examples = [],
       </label>
       {editing && <p className="gp-ev" data-testid={`${id}-fixed`}>{t('form.fixed')}</p>}
       <ExactMatch value={values.exactMatch} onPick={(iri) => set({ exactMatch: iri })} id={id} />
-      {problems.length > 0 && (values.label !== '' || values.definition !== '' || values.exactMatch !== '') && (
-        <ul className="gp-problems" data-testid={`${id}-problems`}>
-          {problems.filter((p) => !(p === 'labelEmpty' && values.label === '') && !(p === 'definitionEmpty' && values.definition === '')).map((p) => (
-            <li key={p} className="gp-ev">{t(problemKey[p], { label: LABEL_MAX, definition: DEFINITION_MAX })}</li>
-          ))}
-        </ul>
+      {visibleProblems(values, problems).length > 0 && (
+        <p className="gp-ev gp-err" role="alert" data-testid={`${id}-problems`}>{t('error.rel.input', { label: LABEL_MAX, definition: DEFINITION_MAX })}</p>
       )}
       <div className="gp-acts">
         <button type="button" className="btn btn--sm btn--accent" data-testid={`${id}-submit`} disabled={pending || problems.length > 0} onClick={onSubmit}>{submitLabel}</button>

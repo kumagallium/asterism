@@ -77,7 +77,15 @@
     "busy": "Please wait until the import has finished.",
     "other": "Something went wrong: {{message}}",
     "rejected": "This relation cannot be set: {{reason}}",
-    "skipped": "{{n}} could not be changed."
+    "skipped": "{{n}} could not be changed.",
+    "rel": {
+      "input": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "exists": "This relation already exists ({{name}}).",
+      "existsPlain": "This relation already exists.",
+      "limit": "Up to {{n}} relations can be added.",
+      "notFound": "This relation was not found (it may have been deleted in another window).",
+      "failed": "Could not save. Please try again."
+    }
   },
   "state": {
     "loading": "Loading…",
@@ -157,11 +165,11 @@
     "exactFailed": "Search failed. You can paste an IRI instead.",
     "exactNone": "Nothing found.",
     "problem": {
-      "labelEmpty": "Enter a name.",
-      "labelLong": "The name can be up to {{label}} characters.",
-      "definitionEmpty": "Enter a description.",
-      "definitionLong": "The description can be up to {{definition}} characters.",
-      "exactBad": "Enter the IRI starting with http(s)://."
+      "labelEmpty": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "labelLong": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "definitionEmpty": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "definitionLong": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "exactBad": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code)."
     }
   },
   "added": {
@@ -183,6 +191,9 @@
     "confirmDelete": "Deleting cannot be undone.",
     "confirmRetire": "Once stopped, it can no longer be newly chosen. Pairs already set and their evidence stay.",
     "inUse": "It is in use, so it cannot be deleted. Use \"Stop using\" instead.",
-    "done": "Added the relation \"{{name}}\". The AI can choose it from the next pairs imported. Existing pairs are not asked again"
+    "done": "Added the relation \"{{name}}\". The AI can choose it from the next pairs imported. Existing pairs are not asked again",
+    "doneReflectFailed": "Added the relation \"{{name}}\" (the screen could not be refreshed. Please reload).",
+    "reflectFailed": "Saved (the screen could not be refreshed. Please reload).",
+    "usageUnknown": "Usage unknown"
   }
 }

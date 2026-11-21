@@ -13,12 +13,15 @@ export interface UnstatedAdd {
   /** 入力欄を開いている群の鍵。 */
   adding: string | null
   onAdd: (key: string) => void
+  /** 読み直しの途中は [関係として足す] を押せない（in_catalog が古い間に二重に足さない）。 */
+  busy?: boolean
   adder: (group: UnstatedGroup) => ReactNode
 }
 
 export function UnstatedRow({ group, lang, open, onToggle, add }: { group: UnstatedGroup; lang: Lang; open: boolean; onToggle: () => void; add?: UnstatedAdd }) {
   const { t } = useTranslation('graphPlace')
-  const others = group.variants.filter((v) => v.label !== group.label)
+  // 代表の名前そのもの・空の書き方は並べない（0 件なら行ごと出さない）
+  const others = group.variants.filter((v) => v.label.trim() !== '' && v.label.trim() !== group.label.trim())
   const rest = group.count - group.examples.length
   return (
     <li className={`gp-item${open ? ' open' : ''}`} data-testid="gp-unstated-row" data-key={group.key}>
@@ -45,7 +48,7 @@ export function UnstatedRow({ group, lang, open, onToggle, add }: { group: Unsta
           {others.length > 0 && <p className="gp-ev" data-testid="gp-unstated-variants">{t('unstated.variants', { names: others.map((v) => v.label).join(t('unstated.sep')) })}</p>}
           {add && !group.inCatalog && (add.adding === group.key ? add.adder(group) : (
             <div className="gp-acts">
-              <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-unstated-add" onClick={() => add.onAdd(group.key)}>{t('act.addFromKind')}</button>
+              <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-unstated-add" disabled={add.busy} onClick={() => add.onAdd(group.key)}>{t('act.addFromKind')}</button>
             </div>
           ))}
         </div>

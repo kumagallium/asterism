@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { UnstatedGroup } from './knowledgeRelationsApi'
-import { addFailureOf, addRelation } from './relationAddApi'
+import { addFailureOf, addRelation, failureText } from './relationAddApi'
 import { buildAdd, draftFor, exampleNotes, problemsOf, type RelationFormValues } from './relationFormModel'
 import { RelationForm } from './RelationForm'
 
@@ -20,8 +20,8 @@ export function AddRelation({ group, lang, onAdded, onCancel }: { group: Unstate
       await addRelation(buildAdd(values, lang, group?.key))
       onAdded(values.label.trim())
     } catch (e) {
-      const f = addFailureOf(e)
-      setError(f.kind === 'unavailable' ? t('added.unavailable') : f.message)
+      const f = addFailureOf(e, 'add')
+      setError(failureText(t, f))
     } finally {
       setPending(false)
     }

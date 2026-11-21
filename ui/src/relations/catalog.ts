@@ -175,21 +175,27 @@ export async function loadRelationCatalog(fetchImpl: typeof fetch = fetch, retry
   await tryLoad(fetchImpl)
 }
 
-/** 関係を足した・直した・やめた・消したあとに、目録を読み直す（読み込み済みかどうかに関わらず 1 回）。失敗は黙って今のまま。 */
-export async function reloadRelationCatalog(fetchImpl: typeof fetch = fetch): Promise<void> {
+/** 関係を足した・直した・やめた・消したあとに、目録を読み直す（読み込み済みかどうかに関わらず 1 回）。失敗は今のまま残し false を返す。 */
+export async function reloadRelationCatalog(fetchImpl: typeof fetch = fetch): Promise<boolean> {
   started = true
-  await tryLoad(fetchImpl)
+  return tryLoad(fetchImpl)
 }
 
-/** 1 回読んで重ねる。成功（重ねた or 同じ内容）なら true。 */
+/** 読み込みの順序札。後から始めた読み込みの結果だけを採る（先に始めて遅れて返った古い結果で上書きしない）。 */
+let loadSeq = 0
+
+/** 1 回読んで重ねる。成功（重ねた or 同じ内容 or 後の読み込みに譲った）なら true。 */
 async function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
+  const mine = ++loadSeq
   try {
     const res = await fetchImpl('/api/relations')
     if (!res.ok) return false
     const body = fillLangs(await res.json())
     if (!isCatalogShape(body)) return false
+    if (mine !== loadSeq) return true // もっと後に始めた読み込みがある。そちらの結果を採る
     const next = mergeCatalog(BUILTIN, body)
     exerciseCatalog(next) // 安全網: 画面が呼ぶ主な関数を試し呼びし、落ちるなら捨てる
+    if (mine !== loadSeq) return true
     if (JSON.stringify(next) !== JSON.stringify(current)) {
       current = next
       for (const fn of [...listeners]) fn()
@@ -204,5 +210,6 @@ async function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
 export function resetCatalogForTest(): void {
   current = BUILTIN
   started = false
+  loadSeq = 0
   listeners.clear()
 }

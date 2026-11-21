@@ -780,14 +780,16 @@ async def _human_pair(
 async def _add_relation_locked(client: Any, spec: dict[str, Any], *, at: str) -> relation_catalog.Relation:
     """人が関係を足す。名前（``u_<8 桁の 16 進>``）と述語は機械が作る。
 
-    ``spec``: ``label {ja, en?}``（ja 必須）・``definition {ja?, en?}``（どちらか必須・AI への 1 文）・
+    ``spec``: ``label {ja?, en?}``（どちらか必須）・``definition {ja?, en?}``（どちらか必須・AI への 1 文）・
     ``symmetric``・``to_property_only``・``sentence?``・``exact_match?``・``unstated_key?``。
     入力の検査は :class:`RelationInputError`・同じ名前（表示名）は :class:`RelationExists`。"""
     if not _ISO_AT.match(at):
         raise ValueError(f"at must be an ISO-8601 datetime: {at!r}")
     label = _clean_lang_map(
-        spec.get("label"), field_name="label", max_len=_LABEL_MAX, required=("ja",), strict=True
+        spec.get("label"), field_name="label", max_len=_LABEL_MAX, strict=True
     )
+    if not label:
+        raise RelationInputError("label: 表示名を入れてください（日本語か英語）")
     definition = _clean_lang_map(
         spec.get("definition"), field_name="definition", max_len=_DEFINITION_MAX
     )
@@ -838,16 +840,15 @@ async def _update_relation_locked(
 
     渡さなかった欄はそのまま。``exact_match`` は ``None`` を渡すと消す。"""
     rel, pred = await _human_pair(client, name)
-    new_label = (
-        _clean_lang_map(label, field_name="label", max_len=_LABEL_MAX, required=("ja",), strict=True)
-        if label is not None
-        else dict(rel.label)
-    )
-    new_def = (
-        _clean_lang_map(definition, field_name="definition", max_len=_DEFINITION_MAX)
-        if definition is not None
-        else dict(rel.definition)
-    )
+    # 渡した欄は丸ごと置き換える（言語は ja か en の少なくとも 1 つ。欠けた言語は読むときに埋まる）
+    new_label = dict(rel.label)
+    if label is not None:
+        new_label = _clean_lang_map(label, field_name="label", max_len=_LABEL_MAX, strict=True)
+        if not new_label:
+            raise RelationInputError("label: 表示名を入れてください（日本語か英語）")
+    new_def = dict(rel.definition)
+    if definition is not None:
+        new_def = _clean_lang_map(definition, field_name="definition", max_len=_DEFINITION_MAX)
     if not new_def:
         raise RelationInputError("definition: AI への説明を 1 文入れてください（日本語か英語）")
     new_match = rel.exact_match if exact_match is _UNSET else _clean_exact_match(exact_match)
