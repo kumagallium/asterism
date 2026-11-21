@@ -154,13 +154,13 @@ describe('API', () => {
   })
   it('画面の文言に直す（サーバの文は出さない）', () => {
     const t = (k: string, o?: Record<string, unknown>) => (o ? `${k}${JSON.stringify(o)}` : k)
-    expect(failureText(t, { kind: 'exists', name: '条件' })).toBe('error.rel.exists{"name":"条件"}')
-    expect(failureText(t, { kind: 'exists', name: null })).toBe('error.rel.existsPlain')
-    expect(failureText(t, { kind: 'limit' })).toContain('error.rel.limit')
-    expect(failureText(t, { kind: 'inUse' })).toBe('added.inUse')
-    expect(failureText(t, { kind: 'notFound' })).toBe('error.rel.notFound')
-    expect(failureText(t, { kind: 'failed' })).toBe('error.rel.failed')
-    expect(failureText(t, { kind: 'input' })).toContain('error.rel.input')
+    expect(failureText(t, { kind: 'exists', name: '条件' })).toBe('graphPlace:error.rel.exists{"name":"条件"}')
+    expect(failureText(t, { kind: 'exists', name: null })).toBe('graphPlace:error.rel.existsPlain')
+    expect(failureText(t, { kind: 'limit' })).toContain('graphPlace:error.rel.limit')
+    expect(failureText(t, { kind: 'inUse' })).toBe('graphPlace:added.inUse')
+    expect(failureText(t, { kind: 'notFound' })).toBe('graphPlace:error.rel.notFound')
+    expect(failureText(t, { kind: 'failed' })).toBe('graphPlace:error.rel.failed')
+    expect(failureText(t, { kind: 'input' })).toContain('graphPlace:error.rel.input')
   })
   it('使われ方の形が壊れていれば「分からない」（null）', () => {
     const one = (usage: unknown) => normalizeAdded({ relations: [{ name: 'u_1', builtin: false, usage }] })[0].used

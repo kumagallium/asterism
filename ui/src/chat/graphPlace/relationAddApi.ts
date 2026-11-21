@@ -156,18 +156,18 @@ type T = (key: string, opts?: Record<string, unknown>) => string
 export function failureText(t: T, f: AddFailure): string {
   switch (f.kind) {
     case 'unavailable':
-      return t('added.unavailable')
+      return t('graphPlace:added.unavailable')
     case 'input':
-      return t('error.rel.input', { label: 40, definition: 200 })
+      return t('graphPlace:error.rel.input', { label: 40, definition: 200 })
     case 'exists':
-      return f.name ? t('error.rel.exists', { name: f.name }) : t('error.rel.existsPlain')
+      return f.name ? t('graphPlace:error.rel.exists', { name: f.name }) : t('graphPlace:error.rel.existsPlain')
     case 'limit':
-      return t('error.rel.limit', { n: 500 })
+      return t('graphPlace:error.rel.limit', { n: 500 })
     case 'inUse':
-      return t('added.inUse')
+      return t('graphPlace:added.inUse')
     case 'notFound':
-      return t('error.rel.notFound')
+      return t('graphPlace:error.rel.notFound')
     default:
-      return t('error.rel.failed')
+      return t('graphPlace:error.rel.failed')
   }
 }
