@@ -56,7 +56,16 @@
     "assignDo": "Set",
     "cancel": "Cancel",
     "more": "Show more ({{n}} left)",
-    "close": "Close"
+    "close": "Close",
+    "save": "Save",
+    "yes": "Yes",
+    "keep": "Keep it",
+    "edit": "Edit",
+    "delete": "Delete",
+    "retire": "Stop using",
+    "addRelation": "Add a relation",
+    "addFromKind": "Add as a relation",
+    "addDo": "Add"
   },
   "assign": {
     "rel": "Relation",
@@ -68,7 +77,15 @@
     "busy": "Please wait until the import has finished.",
     "other": "Something went wrong: {{message}}",
     "rejected": "This relation cannot be set: {{reason}}",
-    "skipped": "{{n}} could not be changed."
+    "skipped": "{{n}} could not be changed.",
+    "rel": {
+      "input": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "exists": "This relation already exists ({{name}}).",
+      "existsPlain": "This relation already exists.",
+      "limit": "Up to {{n}} relations can be added.",
+      "notFound": "This relation was not found (it may have been deleted in another window).",
+      "failed": "Could not save. Please try again."
+    }
   },
   "state": {
     "loading": "Loading…",
@@ -120,7 +137,7 @@
   },
   "unstated": {
     "title": "Relation kinds it could not state",
-    "note": "Kinds of relation the AI named that are not in the set. Whether to add them as relations is decided in a later step.",
+    "note": "Kinds of relation the AI named that are not in the set. You decide here whether to add one as a relation.",
     "count": "{{n}} pairs",
     "inCatalog": "Already a relation ({{name}})",
     "examples": "Example pairs",
@@ -129,5 +146,55 @@
     "loading": "Loading relation kinds it could not state…",
     "failed": "Could not load the relation kinds it could not state.",
     "sep": ", "
+  },
+  "form": {
+    "label": "Name",
+    "definition": "Description",
+    "definitionNote": "The AI reads this when it judges a pair (one sentence).",
+    "examples": "Examples (the AI's reasons for pairs of this kind)",
+    "symmetric": "No direction",
+    "symmetricNote": "Swapping A and B means the same thing",
+    "toProperty": "B must be an item",
+    "toPropertyNote": "Only when the other end is a property or quantity",
+    "fixed": "Direction and \"B must be an item\" cannot be changed once added (it would change the meaning of pairs already set).",
+    "exact": "Standard predicate with the same meaning (IRI)",
+    "exactOpen": "Point to a standard predicate with the same meaning (optional)",
+    "exactNote": "This only points to a standard predicate as \"the same meaning\". The relation's name in Asterism does not change.",
+    "exactSearch": "Search standard predicates",
+    "exactFind": "Search",
+    "exactFailed": "Search failed. You can paste an IRI instead.",
+    "exactNone": "Nothing found.",
+    "problem": {
+      "labelEmpty": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "labelLong": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "definitionEmpty": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "definitionLong": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code).",
+      "exactBad": "Please check the input (name up to {{label}} characters, description up to {{definition}} characters, no URLs or code)."
+    }
+  },
+  "added": {
+    "title": "Added relations {{n}}",
+    "loading": "Loading added relations…",
+    "failed": "Could not read the added relations.",
+    "unavailable": "Relations cannot be added in this environment.",
+    "empty": "No relations added yet.",
+    "limit": "The AI is given only the first {{n}} added",
+    "unused": "Unused",
+    "used": "In use {{n}}",
+    "retired": "No longer used",
+    "symmetric": "No direction",
+    "directed": "Has a direction",
+    "toProperty": "B must be an item",
+    "definition": "Description",
+    "exact": "Standard predicate with the same meaning:",
+    "addedAt": "Added {{date}}",
+    "confirmDelete": "Deleting cannot be undone.",
+    "confirmRetire": "Once stopped, it can no longer be newly chosen. Pairs already set and their evidence stay.",
+    "inUse": "It is in use, so it cannot be deleted. Use \"Stop using\" instead.",
+    "done": "Added the relation \"{{name}}\". The AI can choose it from the next pairs imported. Existing pairs are not asked again",
+    "doneReflectFailed": "Added the relation \"{{name}}\" (the screen could not be refreshed. Please reload).",
+    "reflectFailed": "Saved (the screen could not be refreshed. Please reload).",
+    "usageUnknown": "Usage unknown",
+    "reflectFailedTail": "(The screen could not be refreshed. Please reload.)"
   }
 }

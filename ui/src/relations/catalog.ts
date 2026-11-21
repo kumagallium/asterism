@@ -24,6 +24,8 @@ export interface CatalogRelation {
   readonly symmetric_pair: boolean
   readonly experiment: boolean
   readonly builtin: boolean
+  /** 足した関係だけ。使うのをやめた物（新しくは選べない）。 */
+  readonly retired?: boolean
 }
 
 /** 確定側の述語 1 つ（`predicates[]`）。 */
@@ -115,6 +117,24 @@ function isPredicateShape(p: unknown): boolean {
   )
 }
 
+/** 足した関係は、表示名・文・述語の名前が片方の言語だけのことがある（人が今の画面の言語でだけ書く）。
+ *  もう片方は、あるほうで埋めて形をそろえる（ui は両方の言語の欄を読む）。形が違う物はそのまま返す（形の検査で捨てる）。 */
+export function fillLangs(v: unknown): unknown {
+  if (!isObj(v) || !Array.isArray(v.relations)) return v
+  const fill = (x: unknown): unknown => {
+    if (!isObj(x)) return x
+    const ja = typeof x.ja === 'string' ? x.ja : undefined
+    const en = typeof x.en === 'string' ? x.en : undefined
+    if (ja === undefined && en === undefined) return x
+    return { ...x, ja: ja ?? en, en: en ?? ja }
+  }
+  const relations = v.relations.map((r) => (isObj(r) && r.builtin === false ? { ...r, label: fill(r.label), sentence: fill(r.sentence) } : r))
+  const predicates = Array.isArray(v.predicates)
+    ? v.predicates.map((p) => (isObj(p) && isObj(p.own) ? { ...p, own: { ...p.own, label: fill(p.own.label) } } : p))
+    : v.predicates
+  return { ...v, relations, predicates }
+}
+
 /** API の返りが目録の形か（ui が読む欄の型まで見る。形が違えば捨てて組み込みのまま）。 */
 export function isCatalogShape(v: unknown): v is RelationCatalog {
   if (!isObj(v)) return false
@@ -155,13 +175,44 @@ export async function loadRelationCatalog(fetchImpl: typeof fetch = fetch, retry
   await tryLoad(fetchImpl)
 }
 
-/** 1 回読んで重ねる。成功（重ねた or 同じ内容）なら true。 */
-async function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
+/** 関係を足した・直した・やめた・消したあとに、目録を読み直す（読み込み済みかどうかに関わらず 1 回）。失敗は今のまま残し false を返す。 */
+export async function reloadRelationCatalog(fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  started = true
+  return tryLoad(fetchImpl)
+}
+
+/** 読み込みの順序札。後から始めた読み込みの結果だけを採る（先に始めて遅れて返った古い結果で上書きしない）。 */
+let loadSeq = 0
+/** いちばん後に始めた読み込み。譲った読み込みは、この結果を待って返す（譲っただけで「失敗」を返さない）。 */
+let latestLoad: Promise<boolean> = Promise.resolve(true)
+/** 目録の取得の時間切れ（ミリ秒）。時間切れは失敗として扱う。 */
+export const LOAD_TIMEOUT_MS = 15000
+
+/** 時間切れは失敗（reject）として扱う。 */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timeout')), ms)
+  })
+  return Promise.race([p, limit]).finally(() => clearTimeout(timer))
+}
+
+/** 1 回読んで重ねる。成功（重ねた or 同じ内容）なら true。後の読み込みに譲ったときは、その結果を返す。 */
+function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
+  const mine = ++loadSeq
+  const p = runLoad(fetchImpl, mine)
+  latestLoad = p
+  return p
+}
+
+async function runLoad(fetchImpl: typeof fetch, mine: number): Promise<boolean> {
+  const superseded = () => mine !== loadSeq
   try {
-    const res = await fetchImpl('/api/relations')
-    if (!res.ok) return false
-    const body: unknown = await res.json()
-    if (!isCatalogShape(body)) return false
+    const res = await withTimeout(fetchImpl('/api/relations'), LOAD_TIMEOUT_MS)
+    if (!res.ok) return superseded() ? latestLoad : false
+    const body = fillLangs(await res.json())
+    if (!isCatalogShape(body)) return superseded() ? latestLoad : false
+    if (superseded()) return latestLoad // もっと後に始めた読み込みがある。そちらの結果を採る
     const next = mergeCatalog(BUILTIN, body)
     exerciseCatalog(next) // 安全網: 画面が呼ぶ主な関数を試し呼びし、落ちるなら捨てる
     if (JSON.stringify(next) !== JSON.stringify(current)) {
@@ -170,7 +221,7 @@ async function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
     }
     return true
   } catch {
-    return false
+    return superseded() ? latestLoad : false
   }
 }
 
@@ -178,5 +229,7 @@ async function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
 export function resetCatalogForTest(): void {
   current = BUILTIN
   started = false
+  loadSeq = 0
+  latestLoad = Promise.resolve(true)
   listeners.clear()
 }

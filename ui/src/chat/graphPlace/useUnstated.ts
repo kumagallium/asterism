@@ -14,6 +14,8 @@ export function unstatedArgs(api: Pick<LedgersApi, 'status' | 'ledgers' | 'filte
 export interface UnstatedLoad {
   status: 'loading' | 'ok' | 'error'
   groups: UnstatedGroup[]
+  /** 読み直しの途中（今の群は古いかもしれない）。 */
+  busy?: boolean
 }
 
 /**
@@ -22,21 +24,27 @@ export interface UnstatedLoad {
  * @param enabled false の間は読まない（候補のタブを開いていない・台帳がまだ）
  */
 export function useUnstated(trigger: unknown, lang: 'ja' | 'en', source: string | undefined, enabled: boolean, fetcher: typeof fetchUnstated = fetchUnstated): UnstatedLoad {
-  const [state, setState] = useState<UnstatedLoad & { source: string | undefined; lang: 'ja' | 'en' }>({ status: 'loading', groups: [], source, lang })
+  const { status, groups } = useUnstatedBusy(trigger, lang, source, enabled, fetcher)
+  return { status, groups }
+}
+
+/** `useUnstated` に「読み直しの途中か」（`busy`）を足した物。書いた直後の窓で節の操作を無効にするのに使う。 */
+export function useUnstatedBusy(trigger: unknown, lang: 'ja' | 'en', source: string | undefined, enabled: boolean, fetcher: typeof fetchUnstated = fetchUnstated): UnstatedLoad {
+  const [state, setState] = useState<UnstatedLoad & { source: string | undefined; lang: 'ja' | 'en'; trigger: unknown }>({ status: 'loading', groups: [], source, lang, trigger: undefined })
   const seq = useRef(0)
   useEffect(() => {
     if (!enabled) return
     const n = ++seq.current
     void fetcher(lang, source).then(
       (r) => {
-        if (n === seq.current) setState({ status: 'ok', groups: r.groups, source, lang })
+        if (n === seq.current) setState({ status: 'ok', groups: r.groups, source, lang, trigger })
       },
       () => {
-        if (n === seq.current) setState(() => ({ status: 'error', groups: [], source, lang }))
+        if (n === seq.current) setState(() => ({ status: 'error', groups: [], source, lang, trigger }))
       },
     )
   }, [trigger, lang, source, enabled, fetcher])
   // 別の取り込み元・言語の群は、読み直しが済むまで見せない（その取り込み元の物に見えてしまう）
-  if (state.source !== source || state.lang !== lang) return { status: 'loading', groups: [] }
-  return { status: state.status, groups: state.groups }
+  if (state.source !== source || state.lang !== lang) return { status: 'loading', groups: [], busy: enabled }
+  return { status: state.status, groups: state.groups, busy: enabled && !Object.is(state.trigger, trigger) }
 }

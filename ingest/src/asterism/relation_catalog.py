@@ -551,8 +551,8 @@ def own_relations() -> dict[str, dict[str, Any]]:
     """自前の述語の記録（``crosswalk_runtime.OWN_RELATIONS`` と同じ形）。"""
     return {
         p.name: {
-            "label_ja": p.own.label["ja"],
-            "label_en": p.own.label["en"],
+            "label_ja": p.own.label.get("ja") or p.own.label.get("en") or "",
+            "label_en": p.own.label.get("en") or p.own.label.get("ja") or "",
             "definition": p.own.definition,
             "searched": list(p.own.searched),
             "date": p.own.date,
