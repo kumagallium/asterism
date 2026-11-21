@@ -13,6 +13,7 @@ import { AddedRow, AddedSection } from './AddedSection'
 import { type UnstatedGroup } from './knowledgeRelationsApi'
 import { addFailureOf, addRelation, deleteRelation, failureText, fetchAdded, normalizeAdded, patchRelation, retireRelation, type AddedRelation } from './relationAddApi'
 import { buildAdd, buildPatch, draftFor, editOptional, exampleNotes, otherLangHint, problemsOf, valuesOf } from './relationFormModel'
+import { reflectChange } from './relationReflect'
 import { UnstatedRow } from './UnstatedSection'
 import type { AddedLoad } from './useAddedRelations'
 
@@ -80,7 +81,7 @@ describe('入力欄の純関数', () => {
   })
   it('直す: 表示名・説明・標準の述語だけ。画面の言語の欄は入力値・もう片方は元の値をそのまま（写しを送らない）', () => {
     const r = added({ exactMatch: 'https://x.example/p', definition: { ja: '後ろの語が前の語の条件になっている', en: '' } })
-    expect(buildPatch(valuesOf(r, 'ja'), 'ja', r)).toEqual({ label: { en: 'Condition', ja: '条件' }, definition: { ja: '後ろの語が前の語の条件になっている' }, exact_match: 'https://x.example/p' })
+    expect(buildPatch(valuesOf(r, 'ja'), 'ja', r)).toEqual({ label: { ja: '条件' }, definition: { ja: '後ろの語が前の語の条件になっている' }, exact_match: 'https://x.example/p' })
     expect(Object.keys(buildPatch(valuesOf(added(), 'en'), 'en', added())).sort()).toEqual(['definition', 'exact_match', 'label'])
     expect(buildPatch(valuesOf(added(), 'ja'), 'ja', added()).exact_match).toBeNull()
   })
@@ -93,10 +94,10 @@ describe('入力欄の純関数', () => {
     expect(problemsOf(v, editOptional(r, 'en'))).toEqual([])
     expect(problemsOf(v)).toContain('labelEmpty')
     expect(otherLangHint(r, 'en')).toEqual({ label: '条件', definition: '説明です' })
-    // 触らなければ元の値だけ（en の欄は送らない）
-    expect(buildPatch(v, 'en', r)).toEqual({ label: { ja: '条件' }, definition: { ja: '説明です' }, exact_match: null })
+    // 触らなければ表示名は何も送らない（サーバは渡さない言語を生の値のまま残す）。説明は丸ごと置き換わるので元の値を添える
+    expect(buildPatch(v, 'en', r)).toEqual({ label: {}, definition: { ja: '説明です' }, exact_match: null })
     // 英語で入れれば en は入力値・ja は元の値
-    expect(buildPatch({ ...v, label: 'Condition', definition: 'B conditions A' }, 'en', r)).toEqual({ label: { ja: '条件', en: 'Condition' }, definition: { ja: '説明です', en: 'B conditions A' }, exact_match: null })
+    expect(buildPatch({ ...v, label: 'Condition', definition: 'B conditions A' }, 'en', r)).toEqual({ label: { en: 'Condition' }, definition: { ja: '説明です', en: 'B conditions A' }, exact_match: null })
   })
 })
 
@@ -319,6 +320,62 @@ describe('目録の読み直しの順序・失敗', () => {
     expect(await reloadRelationCatalog(vi.fn(async () => new Response('x', { status: 500 })) as unknown as typeof fetch)).toBe(false)
     expect(await reloadRelationCatalog(vi.fn(async () => { throw new Error('down') }) as unknown as typeof fetch)).toBe(false)
     expect(getCatalog()).toBe(BUILTIN)
+  })
+})
+
+describe('書いた直後の窓（reflectChange）', () => {
+  const t = (k: string, o?: Record<string, unknown>) => (o ? `${k}${JSON.stringify(o)}` : k)
+  const make = (reload: () => Promise<boolean>) => {
+    const log: string[] = []
+    return { log, d: { reload, bump: () => log.push('bump'), setBusy: (b: boolean) => log.push(b ? 'busy' : 'free'), notify: (x: string) => log.push(`notify:${x}`), t } }
+  }
+  it('読み直しが終わるまで busy・終わってから bump して free（遅い fetch でも窓が開いている）', async () => {
+    let done: (ok: boolean) => void = () => {}
+    const { log, d } = make(() => new Promise<boolean>((r) => { done = r }))
+    const p = reflectChange(d)
+    expect(log).toEqual(['busy'])
+    done(true)
+    await p
+    expect(log).toEqual(['busy', 'bump', 'free'])
+  })
+  it('読み直しが失敗しても・例外でも、必ず窓を閉じる', async () => {
+    const a = make(async () => false)
+    await reflectChange(a.d, { done: '条件' })
+    expect(a.log).toEqual(['busy', 'notify:added.doneReflectFailed{"name":"条件"}', 'bump', 'free'])
+    const b = make(async () => { throw new Error('x') })
+    await reflectChange(b.d)
+    expect(b.log).toEqual(['busy', 'notify:added.reflectFailed', 'bump', 'free'])
+  })
+  it('404 の知らせを優先し、反映の失敗は後ろに添える（上書きしない）', async () => {
+    const a = make(async () => false)
+    await reflectChange(a.d, { msg: '見つかりません' })
+    expect(a.log[1]).toBe('notify:見つかりません added.reflectFailedTail')
+    const b = make(async () => true)
+    await reflectChange(b.d, { msg: '見つかりません' })
+    expect(b.log).toEqual(['busy', 'notify:見つかりません', 'bump', 'free'])
+  })
+})
+
+describe('目録の読み込み: 譲った読み込み・時間切れ', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    resetCatalogForTest()
+  })
+  it('後の読み込みに譲った古い読み込みは、失敗を返さず最後の結果を返す', async () => {
+    let failOld: () => void = () => {}
+    const old = new Promise<Response>((_, rej) => { failOld = () => rej(new Error('down')) })
+    const f = vi.fn().mockReturnValueOnce(old).mockResolvedValueOnce(new Response(JSON.stringify({ relations: BUILTIN.relations, predicates: BUILTIN.predicates }), { status: 200 }))
+    const p1 = reloadRelationCatalog(f as unknown as typeof fetch)
+    const p2 = reloadRelationCatalog(f as unknown as typeof fetch)
+    failOld()
+    expect(await p1).toBe(true)
+    expect(await p2).toBe(true)
+  })
+  it('15 秒で時間切れ（失敗として false）', async () => {
+    vi.useFakeTimers()
+    const p = reloadRelationCatalog((() => new Promise<Response>(() => {})) as unknown as typeof fetch)
+    await vi.advanceTimersByTimeAsync(15001)
+    expect(await p).toBe(false)
   })
 })
 

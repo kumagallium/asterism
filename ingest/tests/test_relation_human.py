@@ -619,6 +619,32 @@ async def test_画面が送る形が_検査を通る_足す_直す_英語だけ_
     # ja の画面で直す: ja は入力値・en は元の値をそのまま
     new = await rs.update_relation(c, rel.name, label={"en": "Condition", "ja": "条件"}, definition={"en": "B is a condition of A", "ja": "B は A の条件"}, exact_match=None)
     assert new.label == {"en": "Condition", "ja": "条件"} and new.definition["ja"] == "B は A の条件"
-    # 触っていない言語を送らない形（片方だけ）も通る
-    again = await rs.update_relation(c, rel.name, label={"ja": "条件"}, definition={"ja": "B は A の条件"}, exact_match=None)
-    assert again.label == {"ja": "条件"}
+    # 画面の言語の欄だけを送る形（ui の buildPatch）も通り、渡さない言語は元のまま残る
+    again = await rs.update_relation(c, rel.name, label={"ja": "条件 2"}, definition={"ja": "B は A の条件", "en": "B is a condition of A"}, exact_match=None)
+    assert again.label == {"en": "Condition", "ja": "条件 2"}
+
+
+async def test_直しは渡した言語の欄だけ置き換える_渡さない言語は生の値のまま():
+    c = _Client()
+    await rs.seed_builtin(c, at=AT)
+    # en だけで足す → en だけを直す: 読み出しで埋まる ja の写しが本物の ja として保存されない
+    rel = await _add(c, label={"en": "Condition"}, definition={"en": "B conditions A"})
+    await rs.update_relation(c, rel.name, label={"en": "Condition 2"})
+    (raw,) = (await rs._read_human_raw(c))[0]
+    assert raw.label == {"en": "Condition 2"}  # ja は無いまま
+    assert raw.sentence["en"] == "{s} → {o} (Condition 2)"
+    # ja と en の両方がある関係で en を直すと ja は変わらない（文の既定も ja は元の表示名のまま）
+    both = await _add(c, label={"ja": "支える", "en": "supports"})
+    await rs.update_relation(c, both.name, label={"en": "holds up"})
+    (_, raw2) = (await rs._read_human_raw(c))[0]
+    assert raw2.label == {"ja": "支える", "en": "holds up"}
+    assert raw2.sentence == {"ja": "{s} → {o}（支える）", "en": "{s} → {o} (holds up)"}
+    # 書かれた文は渡さない言語のまま残る
+    await rs.update_relation(c, both.name, sentence={"en": "{s} holds up {o}"})
+    await rs.update_relation(c, both.name, label={"ja": "支持する"})
+    (_, raw3) = (await rs._read_human_raw(c))[0]
+    assert raw3.sentence["en"] == "{s} holds up {o}" and raw3.sentence["ja"] == "{s} → {o}（支持する）"
+    # 衝突の判定は直した後の値で行う（渡していない言語の既存の値は衝突させない）
+    with pytest.raises(rs.RelationExists):
+        await rs.update_relation(c, both.name, label={"en": "Condition 2"})
+    await rs.update_relation(c, both.name, label={"en": "holds up"})  # 自分自身とは衝突しない

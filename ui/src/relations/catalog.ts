@@ -183,26 +183,45 @@ export async function reloadRelationCatalog(fetchImpl: typeof fetch = fetch): Pr
 
 /** 読み込みの順序札。後から始めた読み込みの結果だけを採る（先に始めて遅れて返った古い結果で上書きしない）。 */
 let loadSeq = 0
+/** いちばん後に始めた読み込み。譲った読み込みは、この結果を待って返す（譲っただけで「失敗」を返さない）。 */
+let latestLoad: Promise<boolean> = Promise.resolve(true)
+/** 目録の取得の時間切れ（ミリ秒）。時間切れは失敗として扱う。 */
+export const LOAD_TIMEOUT_MS = 15000
 
-/** 1 回読んで重ねる。成功（重ねた or 同じ内容 or 後の読み込みに譲った）なら true。 */
-async function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
+/** 時間切れは失敗（reject）として扱う。 */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timeout')), ms)
+  })
+  return Promise.race([p, limit]).finally(() => clearTimeout(timer))
+}
+
+/** 1 回読んで重ねる。成功（重ねた or 同じ内容）なら true。後の読み込みに譲ったときは、その結果を返す。 */
+function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
   const mine = ++loadSeq
+  const p = runLoad(fetchImpl, mine)
+  latestLoad = p
+  return p
+}
+
+async function runLoad(fetchImpl: typeof fetch, mine: number): Promise<boolean> {
+  const superseded = () => mine !== loadSeq
   try {
-    const res = await fetchImpl('/api/relations')
-    if (!res.ok) return false
+    const res = await withTimeout(fetchImpl('/api/relations'), LOAD_TIMEOUT_MS)
+    if (!res.ok) return superseded() ? latestLoad : false
     const body = fillLangs(await res.json())
-    if (!isCatalogShape(body)) return false
-    if (mine !== loadSeq) return true // もっと後に始めた読み込みがある。そちらの結果を採る
+    if (!isCatalogShape(body)) return superseded() ? latestLoad : false
+    if (superseded()) return latestLoad // もっと後に始めた読み込みがある。そちらの結果を採る
     const next = mergeCatalog(BUILTIN, body)
     exerciseCatalog(next) // 安全網: 画面が呼ぶ主な関数を試し呼びし、落ちるなら捨てる
-    if (mine !== loadSeq) return true
     if (JSON.stringify(next) !== JSON.stringify(current)) {
       current = next
       for (const fn of [...listeners]) fn()
     }
     return true
   } catch {
-    return false
+    return superseded() ? latestLoad : false
   }
 }
 
@@ -211,5 +230,6 @@ export function resetCatalogForTest(): void {
   current = BUILTIN
   started = false
   loadSeq = 0
+  latestLoad = Promise.resolve(true)
   listeners.clear()
 }

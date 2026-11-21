@@ -194,6 +194,7 @@
     "done": "Added the relation \"{{name}}\". The AI can choose it from the next pairs imported. Existing pairs are not asked again",
     "doneReflectFailed": "Added the relation \"{{name}}\" (the screen could not be refreshed. Please reload).",
     "reflectFailed": "Saved (the screen could not be refreshed. Please reload).",
-    "usageUnknown": "Usage unknown"
+    "usageUnknown": "Usage unknown",
+    "reflectFailedTail": "(The screen could not be refreshed. Please reload.)"
   }
 }

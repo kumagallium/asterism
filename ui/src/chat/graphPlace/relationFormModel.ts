@@ -92,14 +92,18 @@ export function buildAdd(v: RelationFormValues, lang: Lang, unstatedKey?: string
   }
 }
 
-/** 直す: 表示名・説明・標準の述語だけ（向き・項目に限るは送らない）。画面の言語の欄は入力した値、もう片方の言語は
- *  **元の値をそのまま**送る（サーバは渡した欄を丸ごと置き換えるので、送らないと消える）。写しは送らない。 */
+/** 直す: 表示名・説明・標準の述語だけ（向き・項目に限るは送らない）。表示名は**画面の言語の欄だけ**送る
+ *  （サーバは渡した言語だけを置き換え、渡さない言語は保存してある生の値のまま残す）。
+ *  説明だけは、サーバが渡した欄を丸ごと置き換えるので、もう片方の言語は元の値をそのまま添える（写しではない）。 */
 export function buildPatch(v: RelationFormValues, lang: Lang, r: AddedRelation): PatchBody {
   const other: Lang = lang === 'ja' ? 'en' : 'ja'
   const exact = v.exactMatch.trim()
-  const pick = (mine: string, orig: { ja: string; en: string }): Partial<Record<Lang, string>> => ({
-    ...(orig[other] ? { [other]: orig[other] } : {}),
-    ...(mine.trim() ? { [lang]: mine.trim() } : {}),
-  })
-  return { label: pick(v.label, r.label), definition: pick(v.definition, r.definition), exact_match: exact || null }
+  return {
+    label: v.label.trim() ? { [lang]: v.label.trim() } : {},
+    definition: {
+      ...(r.definition[other] ? { [other]: r.definition[other] } : {}),
+      ...(v.definition.trim() ? { [lang]: v.definition.trim() } : {}),
+    },
+    exact_match: exact || null,
+  }
 }

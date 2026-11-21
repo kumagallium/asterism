@@ -840,25 +840,28 @@ async def _update_relation_locked(
 
     渡さなかった欄はそのまま。``exact_match`` は ``None`` を渡すと消す。"""
     rel, pred = await _human_pair(client, name)
-    # 渡した欄は丸ごと置き換える（言語は ja か en の少なくとも 1 つ。欠けた言語は読むときに埋まる）
-    new_label = dict(rel.label)
+    # 表示名・文: 渡した言語の欄だけ置き換え、渡していない言語は保存してある生の値のまま残す
+    # （読み出しで埋めた写し（sanitize）を、本物の値として保存しない）。説明は渡した欄を丸ごと置き換える
+    raw = await _raw_relation(client, name)
+    new_label = dict(raw.label)
     if label is not None:
-        new_label = _clean_lang_map(label, field_name="label", max_len=_LABEL_MAX, strict=True)
-        if not new_label:
+        given_label = _clean_lang_map(label, field_name="label", max_len=_LABEL_MAX, strict=True)
+        if not given_label:
             raise RelationInputError("label: 表示名を入れてください（日本語か英語）")
-    new_def = dict(rel.definition)
+        new_label = {**new_label, **given_label}
+    new_def = dict(raw.definition)
     if definition is not None:
         new_def = _clean_lang_map(definition, field_name="definition", max_len=_DEFINITION_MAX)
     if not new_def:
         raise RelationInputError("definition: AI への説明を 1 文入れてください（日本語か英語）")
     new_match = rel.exact_match if exact_match is _UNSET else _clean_exact_match(exact_match)
+    # 既定の文のままだった言語は新しい表示名で作り直す。書かれた文はそのまま（渡した言語だけ置き換える）
+    old = default_sentence(raw.label, symmetric=rel.symmetric_pair)
+    given = {lang: v for lang, v in raw.sentence.items() if v != old.get(lang)}
     if sentence is not None:
-        given = _clean_sentence(sentence)
-    else:  # 既定の文のままだった言語は新しい表示名で作り直す。書かれた文はそのまま
-        old = default_sentence(rel.label, symmetric=rel.symmetric_pair)
-        given = {lang: v for lang, v in rel.sentence.items() if v != old.get(lang)}
+        given = {**given, **_clean_sentence(sentence)}
     new_sentence = _sentence_for(given, new_label, symmetric=rel.symmetric_pair)
-    if new_label != rel.label:
+    if new_label != raw.label:
         rels, preds = await read_human(client)
         relation_catalog.set_human(rels, preds)
         _check_no_clash(new_label, ignore=name)

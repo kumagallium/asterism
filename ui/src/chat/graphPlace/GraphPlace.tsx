@@ -10,10 +10,11 @@ import { useStoreText } from './storeText'
 import { ALL, filterCandidates, filterRelations, firstRows, PAGE_SIZE, relKinds, pinFirst, summarizeTerms, unconfirmedKeys, type LedgerFilter, type StatusFilter, type TermSummary } from './ledgerView'
 import { CandidateRow, RelationRow, TermRow } from './LedgerRows'
 import { UnstatedSection } from './UnstatedSection'
-import { unstatedArgs, useUnstated } from './useUnstated'
+import { unstatedArgs, useUnstatedBusy } from './useUnstated'
 import { AddedSection } from './AddedSection'
 import { AddRelation } from './AddRelation'
 import { useAddedRelations } from './useAddedRelations'
+import { reflectChange } from './relationReflect'
 import { assignRels, rowId, type AssignForm } from './rowFns'
 import { writeFailureOf, type LedgersApi } from './useLedgers'
 import './graphPlace.css'
@@ -151,9 +152,12 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   const { source: unSource, enabled: unEnabled } = unstatedArgs(api, tab)
   // 関係を足す・直す・やめる・消すたびに `relVersion` を進め、目録と「言えなかった関係の種類」「足した関係」を読み直す（R3c）
   const [relVersion, setRelVersion] = useState(0)
+  // 書き込みの成功から読み直しが全部終わるまで、節の操作を無効にする（古い行で直す・消すを押させない）
+  const [reflecting, setReflecting] = useState(false)
   const unTrigger = useMemo(() => ({}), [api.ledgers, relVersion]) // eslint-disable-line react-hooks/exhaustive-deps
-  const unstated = useUnstated(unTrigger, lang, unSource, unEnabled)
+  const unstated = useUnstatedBusy(unTrigger, lang, unSource, unEnabled)
   const added = useAddedRelations(unTrigger, tab === 'candidates')
+  const sectionBusy = reflecting || !!added.busy || !!unstated.busy
   const [adding, setAdding] = useState<string | null>(null) // 入力欄を開いている種類の鍵。空の入力欄は NEW_KEY
   const [addedOpen, setAddedOpen] = useState<string | null>(null)
   // 知らせは言語つきで持つ（言語を切り替えたら出さない）。次の操作・タブの切り替えでも消す
@@ -162,11 +166,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   const setRelNotice = (text: string | null) => setRelNoticeRaw(text ? { text, lang } : null)
   /** 書いたあと: 目録を読み直し、一覧も引き直す。目録の読み直しに失敗したら知らせを「反映に失敗」に変える。 */
   const relationsChanged = (opts: { done?: string; msg?: string } = {}) => {
-    void reloadRelationCatalog().then((ok) => {
-      if (!ok) setRelNotice(opts.done ? t('added.doneReflectFailed', { name: opts.done }) : t('added.reflectFailed'))
-      else if (opts.msg) setRelNotice(opts.msg)
-      setRelVersion((v) => v + 1)
-    })
+    void reflectChange({ reload: reloadRelationCatalog, bump: () => setRelVersion((v) => v + 1), setBusy: setReflecting, notify: setRelNotice, t }, opts)
   }
   // やめられた関係を選んでいたら、選びを外す（[付ける] は関係を選ぶまで押せない）
   if (form.rel && !assignRels().includes(form.rel)) setForm({ ...form, rel: '' })
@@ -310,13 +310,13 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
           onMore={() => setUnShown((n) => n + UNSTATED_PAGE)}
           add={{
             adding,
-            busy: added.busy,
+            busy: sectionBusy,
             onAdd: (k) => { setAdding(k); setRelNotice(null) },
             adder: (g) => <AddRelation group={g} lang={lang} onAdded={onAdded} onCancel={() => setAdding(null)} />,
           }}
         />
         <AddedSection
-          load={added}
+          load={{ ...added, busy: sectionBusy }}
           lang={lang}
           openName={addedOpen}
           onToggle={(n) => { setRelNotice(null); setAddedOpen((cur) => (cur === n ? null : n)) }}
