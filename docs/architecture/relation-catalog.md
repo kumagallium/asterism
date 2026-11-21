@@ -293,3 +293,7 @@ rc:predicate-competesWith-own  rdfs:label "競合する"@ja ; xw:date "2026-11-1
 ## R3b — 足した関係を組ごとに関係を選ぶ AI に渡す
 
 R3a で足した関係は、R3b で AI の選べる集合に入る（別名 `x1`… で答え、機械が名前に戻す・上限 40・聞き直さない）。詳細は [`pair-relations.md`](pair-relations.md) の「足した関係を AI に渡す」。画面は R3c。
+
+## R4 — 足した関係で同じ種類の「言えない」組を判定し直す
+
+R3b で AI が選べるようになった足した関係は、R4 のボタンで、同じ種類の「言えない」組だけを聞き直せる（`GET/POST /api/relations/{name}/reask`・台帳の `reasked`）。足した関係の `unstated_key`・表示名が組の種類に結ばれる。詳細は [`pair-relations.md`](pair-relations.md) の「判定し直し」。

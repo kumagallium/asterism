@@ -30,9 +30,11 @@ export interface AddedRowProps {
   onStart?: () => void
   /** 読み直しの途中。ボタンを無効にする。 */
   busy?: boolean
+  /** 開いた中の「判定し直す」（R4）。やめた関係には渡さない。 */
+  reask?: ReactNode
 }
 
-export function AddedRow({ r, lang, open, onToggle, onChanged, onStart, busy = false }: AddedRowProps) {
+export function AddedRow({ r, lang, open, onToggle, onChanged, onStart, busy = false, reask }: AddedRowProps) {
   const { t } = useTranslation('graphPlace')
   const [editing, setEditing] = useState<RelationFormValues | null>(null)
   const [confirm, setConfirm] = useState<Confirm>(null)
@@ -98,6 +100,7 @@ export function AddedRow({ r, lang, open, onToggle, onChanged, onStart, busy = f
                 <p className="gp-ev" data-testid="gp-added-exact">{t('added.exact')} {r.exactMatch}</p>
               )}
               {r.addedAt && <p className="gp-ev" data-testid="gp-added-date">{t('added.addedAt', { date: dateOf(r.addedAt) })}</p>}
+              {!r.retired && reask}
               {confirm ? (
                 <div className="gp-confirm" data-testid="gp-added-confirm" role="group">
                   <p className="gp-warn">{confirm === 'delete' ? t('added.confirmDelete') : t('added.confirmRetire')}</p>
@@ -133,10 +136,12 @@ export interface AddedSectionProps {
   adder: ReactNode
   adding: boolean
   onAdd: () => void
+  /** 行の中の「判定し直す」を作る（R4）。無ければ出さない。 */
+  renderReask?: (r: AddedRelation) => ReactNode
 }
 
 /** 0 件でも見出しと「関係を足す」は出す。読み込み中・失敗は 1 行。 */
-export function AddedSection({ load, lang, openName, onToggle, onChanged, onStart, adder, adding, onAdd }: AddedSectionProps) {
+export function AddedSection({ load, lang, openName, onToggle, onChanged, onStart, adder, adding, onAdd, renderReask }: AddedSectionProps) {
   const { t } = useTranslation('graphPlace')
   const { status, relations, unavailable } = load
   const active = relations.filter((r) => !r.retired).length
@@ -149,7 +154,7 @@ export function AddedSection({ load, lang, openName, onToggle, onChanged, onStar
       {relations.length > 0 && (
         <ul className="gp-list" data-testid="gp-added-list">
           {relations.map((r) => (
-            <AddedRow key={r.name} r={r} lang={lang} open={openName === r.name} onToggle={() => onToggle(r.name)} onChanged={onChanged} onStart={onStart} busy={load.busy} />
+            <AddedRow key={r.name} r={r} lang={lang} open={openName === r.name} onToggle={() => onToggle(r.name)} onChanged={onChanged} onStart={onStart} busy={load.busy} reask={renderReask?.(r)} />
           ))}
         </ul>
       )}

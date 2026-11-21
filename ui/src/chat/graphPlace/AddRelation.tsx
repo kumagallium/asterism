@@ -7,7 +7,7 @@ import { addFailureOf, addRelation, failureText } from './relationAddApi'
 import { buildAdd, draftFor, exampleNotes, problemsOf, type RelationFormValues } from './relationFormModel'
 import { RelationForm } from './RelationForm'
 
-export function AddRelation({ group, lang, onAdded, onCancel }: { group: UnstatedGroup | null; lang: 'ja' | 'en'; onAdded: (label: string) => void; onCancel: () => void }) {
+export function AddRelation({ group, lang, onAdded, onCancel }: { group: UnstatedGroup | null; lang: 'ja' | 'en'; onAdded: (label: string, name?: string) => void; onCancel: () => void }) {
   const { t } = useTranslation('graphPlace')
   const [values, setValues] = useState<RelationFormValues>(() => draftFor(group))
   const [pending, setPending] = useState(false)
@@ -17,8 +17,9 @@ export function AddRelation({ group, lang, onAdded, onCancel }: { group: Unstate
     setPending(true)
     setError(null)
     try {
-      await addRelation(buildAdd(values, lang, group?.key))
-      onAdded(values.label.trim())
+      const res = await addRelation(buildAdd(values, lang, group?.key))
+      const rel = res && typeof res === 'object' ? (res as { relation?: { name?: unknown } }).relation : undefined
+      onAdded(values.label.trim(), typeof rel?.name === 'string' ? rel.name : undefined)
     } catch (e) {
       const f = addFailureOf(e, 'add')
       setError(failureText(t, f))

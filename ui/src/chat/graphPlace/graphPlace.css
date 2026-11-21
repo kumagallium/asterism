@@ -416,3 +416,23 @@
 .gp-item--retired > .gp-item-h {
   opacity: 0.6;
 }
+
+/* 判定し直し（R4）: ボタン・確かめ・進み・結果の 1 行。 */
+.gp-reask {
+  margin: 8px 0 0;
+}
+.gp-reask .gp-body {
+  margin: 0 0 6px;
+}
+.gp-reask-bar {
+  height: 4px;
+  margin: 0 0 8px;
+  border-radius: 2px;
+  background: var(--surface-sink);
+  overflow: hidden;
+}
+.gp-reask-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}

@@ -33,6 +33,7 @@ from asterism import knowledge_bundle, relation_catalog
 from asterism.knowledge import LINE_OPS, MISSING_MIN_OTHERS
 from asterism.knowledge_bundle import KnowledgeCopy
 from asterism.shared_vocab import describe_selection
+from asterism.term_match import merge_key
 from asterism.themes import (
     RELATION_KINDS,
     experiment_relation_problem,
@@ -65,6 +66,8 @@ __all__ = [
     "origin_relations",
     "plan_run",
     "questions",
+    "reask_keys",
+    "reask_targets",
     "reject",
     "relation_problem",
     "remove_ledger",
@@ -602,12 +605,63 @@ def load_ledger(root: str | Path, source: str) -> dict:
                 v["unstated_kind"] = kind
             else:
                 del v["unstated_kind"]
+    for v in data["pairs"].values():  # R4: 判定し直しの記録。文字列の並びでなければ欄ごと外す
+        if "reasked" in v and not _valid_reasked(v["reasked"]):
+            del v["reasked"]
     data["source"] = source
     data.setdefault("dataset_id", None)
     data.setdefault("origin", [])
     if "stored_terms" in data and not isinstance(data["stored_terms"], dict):
         del data["stored_terms"]  # 14e-1b: 語の対応の控え。形が違えば捨てる（次の回で決め直す）
     return data
+
+
+def _valid_reasked(raw: Any) -> bool:
+    return isinstance(raw, list) and all(isinstance(x, str) and x for x in raw)
+
+
+def reask_keys(rel: Any) -> frozenset[str]:
+    """足した関係に「言えなかった種類」を結ぶ鍵（R4）: ``unstated_key`` と表示名（ja・en）の
+    ``merge_key``。空の鍵は入れない。``rel`` は :class:`relation_catalog.Relation`。"""
+    out: set[str] = set()
+    uk = getattr(rel, "unstated_key", None)
+    if isinstance(uk, str) and uk:
+        out.add(uk)
+    for lang in ("ja", "en"):
+        text = (getattr(rel, "label", None) or {}).get(lang)
+        if isinstance(text, str) and text:
+            out.add(merge_key(text))
+    out.discard("")
+    return frozenset(out)
+
+
+def reask_targets(
+    ledger: Mapping[str, Any], *, relation_name: str, keys: set[str]
+) -> list[str]:
+    """足した関係 ``relation_name`` で判定し直す組の鍵（R4・決定論の並び）。
+
+    ``state == "none"`` で ``merge_key(unstated_kind)`` が ``keys`` にある組。
+    入れない: ``unstated_kind`` の無い組・取り残し（``orphan``）・
+    ``confirmed``・``rejected`` のある組・
+    人／取り込み元が付けた組（``by`` が ``user``・``origin``）・
+    同じ関係の名前が ``reasked`` に入っている組。"""
+    out: list[str] = []
+    for k in sorted(ledger.get("pairs") or {}):
+        e = ledger["pairs"][k]
+        if not isinstance(e, Mapping) or e.get("state") != "none":
+            continue
+        if e.get("orphan") or e.get("confirmed") or e.get("rejected"):
+            continue
+        if e.get("by") in ("user", "origin"):
+            continue
+        kind = _unstated_kind(e.get("unstated_kind"))
+        if not kind or merge_key(kind) not in keys:
+            continue
+        done = e.get("reasked")
+        if _valid_reasked(done) and relation_name in done:
+            continue
+        out.append(str(k))
+    return out
 
 
 def save_ledger(root: str | Path, ledger: dict, *, at: str) -> Path:
@@ -628,15 +682,21 @@ def save_ledger(root: str | Path, ledger: dict, *, at: str) -> Path:
 
 
 def plan_run(
-    ledger: Mapping[str, Any], tasks: Iterable[Mapping[str, Any]]
+    ledger: Mapping[str, Any],
+    tasks: Iterable[Mapping[str, Any]],
+    *,
+    force: Iterable[str] = frozenset(),
 ) -> tuple[list[dict], dict]:
     """聞く仕事の一覧と、次の台帳の土台を返す。
 
     聞くのは 台帳に無い組・指紋が変わった組・``failed`` の組（``confirmed`` のある組は聞かない）。
     土台は今の台帳から、写しに無くなった組を外し（``confirmed`` か ``rejected`` があれば
     ``orphan: True`` で残す。戻ってきたら ``orphan`` を外す）、
-    聞き直す組は今の件を残したもの（答えが来たら :func:`merge_entry` で置き換える）。"""
+    聞き直す組は今の件を残したもの（答えが来たら :func:`merge_entry` で置き換える）。
+
+    ``force``（R4）の組は指紋が同じでも聞く（``confirmed`` は今のまま聞かない）。空なら今と同じ。"""
     tasks = list(tasks)
+    forced = set(force)
     base = _copy.deepcopy(dict(ledger))
     pairs: dict[str, dict] = base.setdefault("pairs", {})
     keys = {t["key"] for t in tasks}
@@ -657,15 +717,25 @@ def plan_run(
         if cur is not None and cur.get("confirmed"):
             continue
         stale = cur is None or cur.get("fingerprint") != t["fingerprint"]
-        if stale or cur.get("state") == "failed":
+        if stale or cur.get("state") == "failed" or t["key"] in forced:
             todo.append(dict(t))
     return todo, base
 
 
-def merge_entry(ledger: dict, entry: Mapping[str, Any], *, model: str, at: str) -> None:
+def merge_entry(
+    ledger: dict,
+    entry: Mapping[str, Any],
+    *,
+    model: str,
+    at: str,
+    reasked_as: str | None = None,
+) -> None:
     """台帳の 1 件を置き換える（``by: "ai"``・``model``・``proposed_at`` を付け、前の件の
     ``rejected`` を引き継ぐ）。前の件に ``confirmed`` があれば置き換えない。新しい件が ``failed`` で
-    前の件が ``failed`` 以外なら、前の件を残す。"""
+    前の件が ``failed`` 以外なら、前の件を残す。
+
+    ``reasked``（R4）: 前の件の記録を引き継ぎ、``reasked_as``（判定し直した関係の名前）があれば足す
+    （答えが「言えない」でも関係でも残る・失敗したときは前の件のままなので足さない）。"""
     pairs = ledger.setdefault("pairs", {})
     prev = pairs.get(entry["key"]) or {}
     if prev.get("confirmed"):
@@ -682,6 +752,11 @@ def merge_entry(ledger: dict, entry: Mapping[str, Any], *, model: str, at: str) 
         confirmed=None,
         rejected=_copy.deepcopy(prev.get("rejected") or []),
     )
+    done = list(prev["reasked"]) if _valid_reasked(prev.get("reasked")) else []
+    if reasked_as and reasked_as not in done:
+        done.append(reasked_as)
+    if done:
+        new["reasked"] = done
     pairs[entry["key"]] = new
 
 

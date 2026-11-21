@@ -105,6 +105,8 @@ async def run_relations(
     should_cancel: Callable[[], bool] | None = None,
     concurrency: int = CONCURRENCY,
     ask: bool = True,
+    force: frozenset[str] | set[str] = frozenset(),
+    reasked_as: str | None = None,
 ) -> dict[str, Any]:
     """語の組ごとに関係を聞いて台帳に残す。
     返り ``{summary, asked, reused, failed, kept_stale, cancelled, aborted, abort_reason}``。
@@ -118,6 +120,11 @@ async def run_relations(
     ``ask=False`` は AI を呼ばない仕上げ（聞く組を 0 件にする。``make_llm`` も呼ばない）: 台帳を
     ``finalize``・保存・``summarize`` するだけで、取り込み元の関係と前の回の結果は残る
     （14d-2a・AI 未設定と ``relations: false``）。台帳の扱いは普段と同じ。
+
+    ``force``（R4）の組は指紋が同じでも聞き直す（``confirmed`` は聞かない）。``reasked_as`` は
+    判定し直した足した関係の名前で、``force`` の組の件に ``reasked`` として残る。``force`` が空なら
+    今までと同じ。返りに ``relation``・``none``（``force`` の組のうち答えが関係／「言えない」に
+    なった数）を足す。
 
     止まり方: 取り消し・時間切れ・途中の例外でも、済んだ答えは台帳に入れ、``finalize`` して保存して
     から抜ける。最初の :data:`ABORT_AFTER_FAILURES` 件が全部失敗なら（鍵が切れているなど）残りは
@@ -133,7 +140,7 @@ async def run_relations(
 
     tasks = pr.build_tasks(copy)
     ledger = pr.load_ledger(registry_root, source)
-    todo_all, base = pr.plan_run(ledger, tasks)
+    todo_all, base = pr.plan_run(ledger, tasks, force=force)
     reused = len(tasks) - len(todo_all)
     todo = (todo_all[:limit] if limit else todo_all) if ask else []
     total = len(todo)
@@ -176,7 +183,8 @@ async def run_relations(
             logger.warning("relations: usage record failed", exc_info=True)
 
     st: dict[str, Any] = {
-        "done": 0, "failed": 0, "ok": 0, "kept_stale": 0, "since_save": 0, "inflight": 0,
+        "done": 0, "failed": 0, "relation": 0, "none": 0, "ok": 0, "kept_stale": 0,
+        "since_save": 0, "inflight": 0,
         "last_exc": None, "halt": False, "aborted": False, "wake": asyncio.Event(),
     }  # fmt: skip
 
@@ -223,7 +231,12 @@ async def run_relations(
                     st["kept_stale"] += 1  # 前の件を残す（merge_entry）。台帳の failed には入らない
                 else:
                     st["failed"] += 1
-            pr.merge_entry(base, entry, model=model, at=_now())
+            forced = task["key"] in force
+            pr.merge_entry(
+                base, entry, model=model, at=_now(), reasked_as=reasked_as if forced else None
+            )
+            if forced and entry.get("state") in ("relation", "none"):
+                st[str(entry["state"])] += 1
             st["done"] += 1
             st["since_save"] += 1
             st["inflight"] -= 1
@@ -260,6 +273,8 @@ async def run_relations(
         "reused": reused,
         "failed": st["failed"],
         "kept_stale": st["kept_stale"],
+        "relation": st["relation"],
+        "none": st["none"],
         "cancelled": bool(cancelled_now()),
         "aborted": bool(st["aborted"]),
         "abort_reason": st["last_exc"] if st["aborted"] else None,
@@ -468,22 +483,9 @@ def register_knowledge_relations_routes(
             raise HTTPException(409, f"{source} の写しは作り直している途中です")
         return dataset_id, meta
 
-    @app.post("/api/knowledge-copies/{source}/relations", status_code=202, dependencies=deps)
-    async def knowledge_relations_start(
-        source: str, request: Request, body: RelationsBody | None = None
-    ) -> dict[str, Any]:
-        """語の組ごとの関係選びを始める。本文 ``{lang?, limit?}``。"""
-        body = body or RelationsBody()
-        dataset_id, _meta = _current_copy(source)
-        _ledger_or_409(source)
-        running = _running()
-        if source in running:
-            raise HTTPException(409, f"{source} の関係選びは走っている途中です")
-        other = busy_kind(app, source)  # 取り込み・外すも同じ取り込み元では 1 つずつ
-        if other is not None:
-            raise HTTPException(409, f"{source} は別の作業 ({other}) が走っている途中です")
-
-        # 「作る AI」をブラウザの X-LLM-* から組む（論文の提案と同じ）
+    def _llm_setup(request: Request) -> tuple[Callable[[], Any], Callable[[Any], None], bool]:
+        """「作る AI」をブラウザの X-LLM-* から組む（論文の提案と同じ）。
+        返りは ``(make_llm, on_usage, serial)``。設定が無い・組めなければ 409。"""
         headers = chat_attach.llm_headers_of(request.headers)
         provider, model, api_base, key = _llm_coords(
             headers.get("x-api-key"),
@@ -511,6 +513,24 @@ def register_knowledge_relations_routes(
             _record_usage(root, _FEATURE, provider, llm, model)
 
         serial = provider.strip().lower() in _SERIAL_PROVIDERS
+        return make_llm, on_usage, serial
+
+    @app.post("/api/knowledge-copies/{source}/relations", status_code=202, dependencies=deps)
+    async def knowledge_relations_start(
+        source: str, request: Request, body: RelationsBody | None = None
+    ) -> dict[str, Any]:
+        """語の組ごとの関係選びを始める。本文 ``{lang?, limit?}``。"""
+        body = body or RelationsBody()
+        dataset_id, _meta = _current_copy(source)
+        _ledger_or_409(source)
+        running = _running()
+        if source in running:
+            raise HTTPException(409, f"{source} の関係選びは走っている途中です")
+        other = busy_kind(app, source)  # 取り込み・外すも同じ取り込み元では 1 つずつ
+        if other is not None:
+            raise HTTPException(409, f"{source} は別の作業 ({other}) が走っている途中です")
+
+        make_llm, on_usage, serial = _llm_setup(request)
 
         running.add(source)  # await を挟まずに付ける（2 つ目は必ず 409）
 
@@ -592,3 +612,169 @@ def register_knowledge_relations_routes(
             }
 
         return await asyncio.to_thread(work)
+
+    # ---- 判定し直し（R4）----
+
+    def _reasking() -> set[str]:
+        """判定し直しが走っている関係の名前（同じ関係の 2 本目を 409 にする）。"""
+        names: set[str] | None = getattr(app.state, "relations_reasking", None)
+        if names is None:
+            names = set()
+            app.state.relations_reasking = names
+        return names
+
+    def _added_or_error(name: str) -> relation_catalog.Relation:
+        """足した関係を返す。無い・組み込みは 404・やめた関係は 409。"""
+        try:
+            rel = relation_catalog.relation(name)
+        except KeyError:
+            raise HTTPException(404, f"relation not found: {name}") from None
+        if rel.builtin:
+            raise HTTPException(404, f"relation not found: {name}")
+        if rel.retired:
+            raise HTTPException(409, f"{name} は使うのをやめた関係です")
+        return rel
+
+    def _reask_plan(name: str, rel: relation_catalog.Relation) -> dict[str, list[str]]:
+        """取り込み元 → 判定し直す組の鍵（写しに両端の語がある組だけ・台帳は書き換えない）。"""
+        keys = set(pr.reask_keys(rel))
+        out: dict[str, list[str]] = {}
+        if not keys:
+            return out
+        for source, ledger, copy in ledger_answer.find_ledgers(root):
+            terms = {str(t["id"]) for t in copy.terms if isinstance(t, dict) and "id" in t}
+            pairs = ledger.get("pairs") or {}
+            found = [
+                k
+                for k in pr.reask_targets(ledger, relation_name=name, keys=keys)
+                if str(pairs[k].get("a")) in terms and str(pairs[k].get("b")) in terms
+            ]
+            if found:
+                out[source] = found
+        return out
+
+    @app.get("/api/relations/{name}/reask", dependencies=deps)
+    async def relation_reask_count(name: str) -> dict[str, Any]:
+        """足した関係で判定し直せる「言えない」組の数（読むだけ）。"""
+        rel = _added_or_error(name)
+        plan = await asyncio.to_thread(_reask_plan, name, rel)
+        return {
+            "name": name,
+            "keys": sorted(k for ks in plan.values() for k in ks),
+            "sources": {s: len(ks) for s, ks in sorted(plan.items())},
+            "total": sum(len(ks) for ks in plan.values()),
+        }
+
+    @app.post("/api/relations/{name}/reask", status_code=202, dependencies=deps)
+    async def relation_reask_start(
+        name: str, request: Request, body: RelationsBody | None = None
+    ) -> dict[str, Any]:
+        """足した関係で、同じ種類の「言えない」組だけを AI に判定し直す（取り込み元ごとに順に）。"""
+        body = body or RelationsBody()
+        rel = _added_or_error(name)
+        reasking = _reasking()
+        if name in reasking:
+            raise HTTPException(409, f"{name} の判定し直しは走っている途中です")
+        plan = await asyncio.to_thread(_reask_plan, name, rel)
+        if not plan:
+            raise HTTPException(409, "判定し直す組がありません")
+        running = _running()
+        # 飛ばした理由は符号: relations_running・busy・no_copy・rebuilding（始めに）／
+        # cancelled・aborted・error（走りの途中）。画面が文にする
+        skipped: dict[str, str] = {}
+        todo: list[tuple[str, str, list[str]]] = []
+        for source, keys in plan.items():
+            if source in running:
+                skipped[source] = "relations_running"
+                continue
+            if busy_kind(app, source) is not None:
+                skipped[source] = "busy"  # 取り込み・写す・外す
+                continue
+            dataset_id = find_copy_dataset(root, source)
+            if dataset_id is None:
+                skipped[source] = "no_copy"
+                continue
+            meta = registry.load_meta(root, dataset_id) or {}
+            if not copy_is_current(meta):
+                skipped[source] = "rebuilding"
+                continue
+            todo.append((source, dataset_id, keys))
+        if not todo:
+            detail = {"detail": "判定し直せる取り込み元がありません", "skipped": skipped}
+            raise HTTPException(409, detail)
+        make_llm, on_usage, serial = _llm_setup(request)
+
+        # await を挟まずに付ける（2 本目・同じ取り込み元の別の作業は必ず 409）
+        reasking.add(name)
+        running.update(s for s, _d, _k in todo)
+
+        async def work(emit: Callable[..., None], should_cancel: Callable[[], bool]) -> Any:
+            results: dict[str, dict[str, Any]] = {}
+            failed_sources: dict[str, str] = dict(skipped)
+            try:
+                for i, (source, dataset_id, keys) in enumerate(todo, start=1):
+                    if should_cancel():
+                        failed_sources[source] = "cancelled"
+                        running.discard(source)
+                        continue
+
+                    def emit_one(_s: str = source, _i: int = i, **kw: Any) -> None:
+                        emit(source=_s, source_index=_i, source_total=len(todo), **kw)
+
+                    try:
+                        run = await run_relations(
+                            root,
+                            source,
+                            dataset_id,
+                            make_llm=make_llm,
+                            on_usage=on_usage,
+                            lang=body.lang,
+                            limit=body.limit,
+                            emit=emit_one,
+                            should_cancel=should_cancel,
+                            concurrency=1 if serial else CONCURRENCY,
+                            force=frozenset(keys),
+                            reasked_as=name,
+                        )
+                        results[source] = {
+                            "asked": run["asked"],
+                            "relation": run["relation"],
+                            "none": run["none"],
+                            "failed": run["failed"],
+                            "cancelled": run["cancelled"],
+                            "aborted": run["aborted"],
+                        }
+                        if run["aborted"] or run["cancelled"]:
+                            for rest, _d, _k in todo[i:]:
+                                why = "cancelled" if run["cancelled"] else "aborted"
+                                failed_sources[rest] = why
+                                running.discard(rest)
+                            running.discard(source)
+                            break
+                    except Exception:
+                        logger.warning("relations: reask failed for %s", source, exc_info=True)
+                        failed_sources[source] = "error"
+                    finally:
+                        running.discard(source)
+            finally:
+                for source, _d, _k in todo:
+                    running.discard(source)
+                reasking.discard(name)
+            total = {
+                key: sum(r[key] for r in results.values())
+                for key in ("asked", "relation", "none", "failed")
+            }
+            return {"name": name, "sources": results, "skipped": failed_sources, "total": total}
+
+        try:
+            job_id = app.state.jobs.start_coro(work)
+        except Exception:
+            reasking.discard(name)
+            for source, _d, _k in todo:
+                running.discard(source)
+            raise
+        return {
+            "job_id": job_id,
+            "sources": [s for s, _d, _k in todo],
+            "skipped": skipped,
+        }
