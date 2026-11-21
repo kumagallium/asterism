@@ -204,7 +204,7 @@ def test_force_empty_keeps_run_relations_behavior(tmp_path: Path) -> None:
         env.copy(client)
         env.go(client)
         again = env.go(client)
-        assert again["asked"] == 0 and again["relation"] == 0 and again["none"] == 0
+        assert again["asked"] == 0 and "relation" not in again
 
 
 def test_run_relations_force_asks_same_fingerprint_pair(tmp_path: Path) -> None:
@@ -249,6 +249,7 @@ def test_force_asks_only_forced_pairs(tmp_path: Path) -> None:
         env.root, "lab", dataset_id, make_llm=lambda: ai, force={forced}
     ))
     assert out["asked"] == 1 and ai.calls == before + 1
+    assert out["relation"] + out["none"] + out["unusable"] == 1
     got = pr.load_ledger(env.root, "lab")["pairs"]
     assert got[failed]["state"] == "failed" and got[stale]["fingerprint"] == "古い"
     assert gone not in got
@@ -313,9 +314,10 @@ def test_unusable_when_relation_retired_midrun_and_stops_next_source(tmp_path: P
         t = out["total"]
         assert t["asked"] == t["relation"] + t["none"] + t["unusable"] + t["failed"]
         assert set(out["sources"]) == {"lab"} and out["skipped"]["lab2"] == "retired"
-        # 使えない答えは前の件を残し、reasked も付けない
+        # 使えない答えは前の件を残し、reasked だけ足す（何度も聞かない）
         pairs = pr.load_ledger(env.root, "lab")["pairs"].values()
-        assert all("reasked" not in e for e in pairs)
+        assert all(e["state"] == "none" for e in pairs if e.get("reasked"))
+        assert any(e.get("reasked") == [NAME] for e in pairs)
         assert any(e.get("unstated_kind") == "併用" for e in pairs)
 
 
@@ -366,3 +368,10 @@ def test_count_excludes_blocked_sources_and_reports_them(tmp_path: Path) -> None
         busy = client.get(f"/api/relations/{NAME}/reask", headers=_KEY).json()
         assert busy["blocked"]["lab"]["reason"] == "busy"
         client.app.state.knowledge_busy = {}
+
+
+def test_plain_run_result_has_no_reask_counts(tmp_path: Path) -> None:
+    env, _ai = _setup(tmp_path)
+    with TestClient(env.app, headers=_AUTH) as client:
+        out = _first_run(env, client)
+    assert not {"relation", "none", "unusable"} & set(out)

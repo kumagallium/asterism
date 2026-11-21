@@ -169,7 +169,7 @@ def test_forced_dropped_は前の件を残し_none_で種類が欠けたら前�
     dropped = _entry("t0|t1", "dropped", reason="evidence")
     pr.merge_entry(led, dropped, model="m", at="t", reasked_as=["u_1"], forced=True)
     e = led["pairs"]["t0|t1"]
-    assert e["state"] == "none" and e["unstated_kind"] == "併用" and "reasked" not in e
+    assert e["state"] == "none" and e["unstated_kind"] == "併用" and e["reasked"] == ["u_1"]
     pr.merge_entry(led, _entry("t0|t1"), model="m", at="t", reasked_as=["u_1"], forced=True)
     e = led["pairs"]["t0|t1"]
     assert e["state"] == "none" and e["unstated_kind"] == "併用" and e["reasked"] == ["u_1"]

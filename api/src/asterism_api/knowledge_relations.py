@@ -280,12 +280,11 @@ async def run_relations(
         "reused": reused,
         "failed": st["failed"],
         "kept_stale": st["kept_stale"],
-        "relation": st["relation"],
-        "none": st["none"],
-        "unusable": st["unusable"],
         "cancelled": bool(cancelled_now()),
         "aborted": bool(st["aborted"]),
         "abort_reason": st["last_exc"] if st["aborted"] else None,
+        # 判定し直し（force）の走りだけ（普段の走りの返りは今までと同じ）
+        **({k: st[k] for k in ("relation", "none", "unusable")} if force else {}),
     }
 
 

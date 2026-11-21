@@ -745,8 +745,8 @@ def merge_entry(
     ``reasked``（R4）: 前の件の記録を引き継ぎ、``reasked_as``（その走りで AI に渡した足した関係の
     名前。1 つか並び）を足す（答えが「言えない」でも関係でも残る。失敗の件には足さない）。
 
-    ``forced``（判定し直しの組）: 答えが ``dropped`` なら前の件をそのまま残し
-    （``reasked`` も付けない）。答えが「言えない」で種類が欠けていれば、
+    ``forced``（判定し直しの組）: 答えが ``dropped`` なら前の件を残し
+    ``reasked`` だけ足す。答えが「言えない」で種類が欠けていれば、
     前の件の ``unstated_kind`` を残す。"""
     pairs = ledger.setdefault("pairs", {})
     prev = pairs.get(entry["key"]) or {}
@@ -755,7 +755,13 @@ def merge_entry(
     if entry.get("state") == "failed" and prev and prev.get("state") != "failed":
         return  # AI が落ちている間に、既存の件を消さない（指紋は古いまま → 次の回にまた聞く）
     if forced and prev and entry.get("state") == "dropped":
-        return  # 使えない答え: 前の件を残す（種類の一覧から消さない・次にまた聞ける）
+        # 使えない答え: 前の件を残す（種類の一覧から消さない）。reasked だけ足す（何度も聞かない）
+        done = list(prev["reasked"]) if _valid_reasked(prev.get("reasked")) else []
+        names = [reasked_as] if isinstance(reasked_as, str) else list(reasked_as or [])
+        done += [n for n in names if n and n not in done]
+        if done:
+            prev["reasked"] = done
+        return
     new = dict(entry)
     if forced and entry.get("state") == "none" and "unstated_kind" not in entry:
         kind = _unstated_kind(prev.get("unstated_kind")) if prev.get("state") == "none" else None
