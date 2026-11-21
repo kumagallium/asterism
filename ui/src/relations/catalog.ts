@@ -24,6 +24,8 @@ export interface CatalogRelation {
   readonly symmetric_pair: boolean
   readonly experiment: boolean
   readonly builtin: boolean
+  /** 足した関係だけ。使うのをやめた物（新しくは選べない）。 */
+  readonly retired?: boolean
 }
 
 /** 確定側の述語 1 つ（`predicates[]`）。 */
@@ -115,6 +117,24 @@ function isPredicateShape(p: unknown): boolean {
   )
 }
 
+/** 足した関係は、表示名・文・述語の名前が片方の言語だけのことがある（人が今の画面の言語でだけ書く）。
+ *  もう片方は、あるほうで埋めて形をそろえる（ui は両方の言語の欄を読む）。形が違う物はそのまま返す（形の検査で捨てる）。 */
+export function fillLangs(v: unknown): unknown {
+  if (!isObj(v) || !Array.isArray(v.relations)) return v
+  const fill = (x: unknown): unknown => {
+    if (!isObj(x)) return x
+    const ja = typeof x.ja === 'string' ? x.ja : undefined
+    const en = typeof x.en === 'string' ? x.en : undefined
+    if (ja === undefined && en === undefined) return x
+    return { ...x, ja: ja ?? en, en: en ?? ja }
+  }
+  const relations = v.relations.map((r) => (isObj(r) && r.builtin === false ? { ...r, label: fill(r.label), sentence: fill(r.sentence) } : r))
+  const predicates = Array.isArray(v.predicates)
+    ? v.predicates.map((p) => (isObj(p) && isObj(p.own) ? { ...p, own: { ...p.own, label: fill(p.own.label) } } : p))
+    : v.predicates
+  return { ...v, relations, predicates }
+}
+
 /** API の返りが目録の形か（ui が読む欄の型まで見る。形が違えば捨てて組み込みのまま）。 */
 export function isCatalogShape(v: unknown): v is RelationCatalog {
   if (!isObj(v)) return false
@@ -155,12 +175,18 @@ export async function loadRelationCatalog(fetchImpl: typeof fetch = fetch, retry
   await tryLoad(fetchImpl)
 }
 
+/** 関係を足した・直した・やめた・消したあとに、目録を読み直す（読み込み済みかどうかに関わらず 1 回）。失敗は黙って今のまま。 */
+export async function reloadRelationCatalog(fetchImpl: typeof fetch = fetch): Promise<void> {
+  started = true
+  await tryLoad(fetchImpl)
+}
+
 /** 1 回読んで重ねる。成功（重ねた or 同じ内容）なら true。 */
 async function tryLoad(fetchImpl: typeof fetch): Promise<boolean> {
   try {
     const res = await fetchImpl('/api/relations')
     if (!res.ok) return false
-    const body: unknown = await res.json()
+    const body = fillLangs(await res.json())
     if (!isCatalogShape(body)) return false
     const next = mergeCatalog(BUILTIN, body)
     exerciseCatalog(next) // 安全網: 画面が呼ぶ主な関数を試し呼びし、落ちるなら捨てる

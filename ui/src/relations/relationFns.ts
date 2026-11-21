@@ -108,7 +108,7 @@ export function knowledgePredicateOf(rel: string, toKind: 'class' | 'property' |
 export function assignableRelations(c: RelationCatalog = getCatalog()): string[] {
   const ix = index(c)
   const quantity = (r: CatalogRelation) => r.predicates.every((p) => ix.predicates.get(p.name)?.shapes.to.length === 0)
-  const rows = c.relations.filter((r) => !quantity(r))
+  const rows = c.relations.filter((r) => !quantity(r) && !r.retired) // やめた関係は新しくは選べない
   const last = (r: CatalogRelation) => r.symmetric_pair && !r.experiment
   return [...rows.filter((r) => !last(r)), ...rows.filter(last)].map((r) => r.name)
 }

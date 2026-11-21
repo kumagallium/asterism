@@ -56,7 +56,16 @@
     "assignDo": "付ける",
     "cancel": "やめる",
     "more": "もっと見る（残り {{n}}）",
-    "close": "閉じる"
+    "close": "閉じる",
+    "save": "直す",
+    "yes": "はい",
+    "keep": "やめておく",
+    "edit": "直す",
+    "delete": "削除",
+    "retire": "使うのをやめる",
+    "addRelation": "関係を足す",
+    "addFromKind": "関係として足す",
+    "addDo": "足す"
   },
   "assign": {
     "rel": "関係",
@@ -120,7 +129,7 @@
   },
   "unstated": {
     "title": "言えなかった関係の種類",
-    "note": "AI が、集合に無い関係として挙げた種類です。関係として足すかは、次の段で決めます。",
+    "note": "AI が、集合に無い関係として挙げた種類です。関係として足すかは、ここで決めます。",
     "count": "{{n}} 組",
     "inCatalog": "既にある関係（{{name}}）",
     "examples": "例の組",
@@ -129,5 +138,51 @@
     "loading": "言えなかった関係の種類を読み込み中…",
     "failed": "言えなかった関係の種類を読めませんでした。",
     "sep": "、"
+  },
+  "form": {
+    "label": "表示名",
+    "definition": "説明",
+    "definitionNote": "AI が組を判定するときに読む説明です（1 文）。",
+    "examples": "例（この種類の組の AI の理由）",
+    "symmetric": "向きが無い",
+    "symmetricNote": "A と B を入れ替えても同じ意味",
+    "toProperty": "B は項目に限る",
+    "toPropertyNote": "相手が性質・量のときだけ",
+    "fixed": "向きと「B は項目に限る」は、足した後は変えられません（付いた組の意味が変わるため）。",
+    "exact": "同じ意味の標準の述語（IRI）",
+    "exactOpen": "同じ意味の標準の述語を指す（任意）",
+    "exactNote": "標準の述語を「同じ意味」として指すだけです。Asterism の関係の名前は変わりません。",
+    "exactSearch": "標準の述語を探す",
+    "exactFind": "探す",
+    "exactFailed": "探せませんでした。IRI を貼ることもできます。",
+    "exactNone": "見つかりませんでした。",
+    "problem": {
+      "labelEmpty": "表示名を入れてください。",
+      "labelLong": "表示名は {{label}} 文字までです。",
+      "definitionEmpty": "説明を入れてください。",
+      "definitionLong": "説明は {{definition}} 文字までです。",
+      "exactBad": "IRI は http(s):// で始まる形で入れてください。"
+    }
+  },
+  "added": {
+    "title": "足した関係 {{n}}",
+    "loading": "足した関係を読み込み中…",
+    "failed": "足した関係を読めませんでした。",
+    "unavailable": "この環境では関係を足せません。",
+    "empty": "まだ足した関係はありません。",
+    "limit": "AI に渡すのは先に足した {{n}} 件までです",
+    "unused": "未使用",
+    "used": "使われている {{n}}",
+    "retired": "使うのをやめた",
+    "symmetric": "向きが無い",
+    "directed": "向きがある",
+    "toProperty": "B は項目に限る",
+    "definition": "説明",
+    "exact": "同じ意味の標準の述語:",
+    "addedAt": "足した日 {{date}}",
+    "confirmDelete": "削除すると元に戻せません。",
+    "confirmRetire": "やめると新しくは選べなくなります。付いた組と根拠は残ります。",
+    "inUse": "使われているので削除できません。「使うのをやめる」を使ってください。",
+    "done": "関係「{{name}}」を足しました。次に取り込んだ組から AI が選べます。今ある組は聞き直しません"
   }
 }

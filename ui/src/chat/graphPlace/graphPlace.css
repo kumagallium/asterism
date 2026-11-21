@@ -32,7 +32,10 @@
   gap: 2px;
   min-width: 0;
 }
-.gp-sel select {
+.gp-sel select,
+.gp-sel input[type='text'],
+.gp-sel textarea,
+.gp-exact .gp-acts input[type='text'] {
   background: var(--surface);
   color: var(--fg);
   border: 1px solid var(--border-strong);
@@ -40,6 +43,12 @@
   padding: 5px 8px;
   font-size: 0.8125rem;
   max-width: 100%;
+  box-sizing: border-box;
+  width: 100%;
+  font-family: inherit;
+}
+.gp-sel textarea {
+  resize: vertical;
 }
 .gp-tog {
   display: flex;
@@ -326,4 +335,84 @@
 }
 .gp-un > .gp-note {
   margin: 0;
+}
+
+/* 関係の入力欄・足した関係の節（R3c） */
+.gp-rform {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 2px;
+  min-width: 0;
+}
+.gp-rform p {
+  margin: 0;
+}
+.gp-chk {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.8125rem;
+  color: var(--fg);
+}
+.gp-chk input {
+  margin-top: 3px;
+  flex: none;
+}
+.gp-exact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gp-exact .gp-acts input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.gp-hits {
+  list-style: none;
+  padding-left: 0;
+}
+.gp-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.gp-problems {
+  margin: 0;
+  padding-left: 18px;
+}
+.gp-added {
+  border-bottom: 1px solid var(--border);
+}
+.gp-body {
+  margin: 2px 0 6px;
+  font-size: 0.8125rem;
+  color: var(--body);
+  overflow-wrap: anywhere;
+}
+.gp-warn {
+  margin: 6px 0;
+  font-size: 0.8125rem;
+  color: var(--warn-fg);
+}
+.gp-confirm {
+  margin-top: 6px;
+}
+.gp-tag--retired {
+  background: var(--surface-sink);
+  color: var(--muted);
+}
+.gp-item--retired > .gp-item-h {
+  opacity: 0.6;
 }
