@@ -686,6 +686,7 @@ def plan_run(
     tasks: Iterable[Mapping[str, Any]],
     *,
     force: Iterable[str] = frozenset(),
+    only_force: bool = False,
 ) -> tuple[list[dict], dict]:
     """聞く仕事の一覧と、次の台帳の土台を返す。
 
@@ -694,7 +695,9 @@ def plan_run(
     ``orphan: True`` で残す。戻ってきたら ``orphan`` を外す）、
     聞き直す組は今の件を残したもの（答えが来たら :func:`merge_entry` で置き換える）。
 
-    ``force``（R4）の組は指紋が同じでも聞く（``confirmed`` は今のまま聞かない）。空なら今と同じ。"""
+    ``force``（R4）の組は指紋が同じでも聞く（``confirmed`` は今のまま聞かない）。空なら今と同じ。
+    ``only_force`` が真なら、聞くのは ``force`` の組だけ（台帳に無い組・指紋が変わった組・
+    ``failed`` の組は聞かない）。土台（``base``）の作り方は普段と同じ。"""
     tasks = list(tasks)
     forced = set(force)
     base = _copy.deepcopy(dict(ledger))
@@ -716,6 +719,10 @@ def plan_run(
         cur = pairs.get(t["key"])
         if cur is not None and cur.get("confirmed"):
             continue
+        if only_force:
+            if t["key"] in forced and cur is not None:
+                todo.append(dict(t))
+            continue
         stale = cur is None or cur.get("fingerprint") != t["fingerprint"]
         if stale or cur.get("state") == "failed" or t["key"] in forced:
             todo.append(dict(t))
@@ -728,21 +735,32 @@ def merge_entry(
     *,
     model: str,
     at: str,
-    reasked_as: str | None = None,
+    reasked_as: str | Iterable[str] | None = None,
+    forced: bool = False,
 ) -> None:
     """台帳の 1 件を置き換える（``by: "ai"``・``model``・``proposed_at`` を付け、前の件の
     ``rejected`` を引き継ぐ）。前の件に ``confirmed`` があれば置き換えない。新しい件が ``failed`` で
     前の件が ``failed`` 以外なら、前の件を残す。
 
-    ``reasked``（R4）: 前の件の記録を引き継ぎ、``reasked_as``（判定し直した関係の名前）があれば足す
-    （答えが「言えない」でも関係でも残る・失敗したときは前の件のままなので足さない）。"""
+    ``reasked``（R4）: 前の件の記録を引き継ぎ、``reasked_as``（その走りで AI に渡した足した関係の
+    名前。1 つか並び）を足す（答えが「言えない」でも関係でも残る。失敗の件には足さない）。
+
+    ``forced``（判定し直しの組）: 答えが ``dropped`` なら前の件をそのまま残し
+    （``reasked`` も付けない）。答えが「言えない」で種類が欠けていれば、
+    前の件の ``unstated_kind`` を残す。"""
     pairs = ledger.setdefault("pairs", {})
     prev = pairs.get(entry["key"]) or {}
     if prev.get("confirmed"):
         return
     if entry.get("state") == "failed" and prev and prev.get("state") != "failed":
         return  # AI が落ちている間に、既存の件を消さない（指紋は古いまま → 次の回にまた聞く）
+    if forced and prev and entry.get("state") == "dropped":
+        return  # 使えない答え: 前の件を残す（種類の一覧から消さない・次にまた聞ける）
     new = dict(entry)
+    if forced and entry.get("state") == "none" and "unstated_kind" not in entry:
+        kind = _unstated_kind(prev.get("unstated_kind")) if prev.get("state") == "none" else None
+        if kind:
+            new["unstated_kind"] = kind
     for k in _ANNOTATED:
         new.pop(k, None)
     new.update(
@@ -753,8 +771,9 @@ def merge_entry(
         rejected=_copy.deepcopy(prev.get("rejected") or []),
     )
     done = list(prev["reasked"]) if _valid_reasked(prev.get("reasked")) else []
-    if reasked_as and reasked_as not in done:
-        done.append(reasked_as)
+    names = [reasked_as] if isinstance(reasked_as, str) else list(reasked_as or [])
+    if entry.get("state") != "failed":
+        done += [n for n in names if n and n not in done]
     if done:
         new["reasked"] = done
     pairs[entry["key"]] = new

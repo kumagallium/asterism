@@ -12,9 +12,18 @@ type Obj = Record<string, unknown>
 const isObj = (x: unknown): x is Obj => !!x && typeof x === 'object' && !Array.isArray(x)
 const count = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? Math.floor(x) : 0)
 
+/** いま判定し直せない取り込み元（組の数と理由の符号）。 */
+export interface ReaskBlocked {
+  source: string
+  count: number
+  reason: string
+}
+
 export interface ReaskCount {
+  /** 今すぐ走れる取り込み元の組だけ。 */
   total: number
   sources: Record<string, number>
+  blocked: ReaskBlocked[]
 }
 
 /** 数える。形が違えば例外（呼び側は「ボタンを出さない」）。 */
@@ -23,7 +32,14 @@ export async function fetchReaskCount(name: string): Promise<ReaskCount> {
   if (!isObj(body) || typeof body.total !== 'number') throw new KnowledgeApiError(0, 'bad shape')
   const sources: Record<string, number> = {}
   if (isObj(body.sources)) for (const [k, v] of Object.entries(body.sources)) sources[k] = count(v)
-  return { total: count(body.total), sources }
+  const blocked: ReaskBlocked[] = []
+  if (isObj(body.blocked)) {
+    for (const [source, v] of Object.entries(body.blocked)) {
+      if (isObj(v)) blocked.push({ source, count: count(v.count), reason: typeof v.reason === 'string' ? v.reason : 'busy' })
+    }
+  }
+  blocked.sort((a, b) => a.source.localeCompare(b.source))
+  return { total: count(body.total), sources, blocked }
 }
 
 export interface ReaskStart {
@@ -67,16 +83,20 @@ export async function startReask(name: string, lang: 'ja' | 'en', creds: LlmCred
 export interface ReaskResult {
   relation: number
   none: number
+  /** 検査で落ちた答え（使えなかった）。 */
+  unusable: number
   failed: number
   asked: number
   /** 取り込み元 → 飛ばした理由の符号。 */
   skipped: Record<string, string>
+  /** 途中で止めた理由（足した関係がやめられた・削除された＝`retired`）。 */
+  stopped: string | null
 }
 
 /** ジョブの結果を正す。形が違えば null。 */
 export function normalizeReaskResult(x: unknown): ReaskResult | null {
   if (!isObj(x) || !isObj(x.total)) return null
-  return { relation: count(x.total.relation), none: count(x.total.none), failed: count(x.total.failed), asked: count(x.total.asked), skipped: skippedOf(x.skipped) }
+  return { relation: count(x.total.relation), none: count(x.total.none), unusable: count(x.total.unusable), failed: count(x.total.failed), asked: count(x.total.asked), skipped: skippedOf(x.skipped), stopped: typeof x.stopped === 'string' ? x.stopped : null }
 }
 
 export type ReaskFailKind = 'aiUnset' | 'busy' | 'nothing' | 'cancelled' | 'other'

@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from asterism_api import knowledge_relations as kr
 
 from .test_ingest import _AUTH
-from .test_knowledge_relations import _Env
+from .test_knowledge_relations import _Env, _terms_bundle
 
 pytest.importorskip("morph_kgc", reason="the copy runs the real declarative ingest")
 
@@ -102,7 +102,7 @@ def test_count_start_flow_and_second_count_zero(tmp_path: Path) -> None:
         assert start["sources"] == ["lab"] and start["skipped"] == {}
         out = env.finish(client, start["job_id"])
         n = len(none_kind)
-        assert out["total"] == {"asked": n, "relation": n, "none": 0, "failed": 0}
+        assert out["total"] == {"asked": n, "relation": n, "none": 0, "unusable": 0, "failed": 0}
         assert out["sources"]["lab"]["asked"] == len(none_kind)
         assert ai.calls == calls + len(none_kind)  # 聞いたのは「言えない」の同じ種類だけ
         ledger = pr.load_ledger(env.root, "lab")
@@ -215,9 +215,154 @@ def test_run_relations_force_asks_same_fingerprint_pair(tmp_path: Path) -> None:
     ledger = pr.load_ledger(env.root, "lab")
     key = sorted(ledger["pairs"])[0]
     before = ai.calls
+    _add()
     out = asyncio.run(kr.run_relations(
-        env.root, "lab", dataset_id, make_llm=lambda: ai, force={key}, reasked_as="u_x"
+        env.root, "lab", dataset_id, make_llm=lambda: ai, force={key}
     ))
     assert out["asked"] == 1 and ai.calls == before + 1
-    assert pr.load_ledger(env.root, "lab")["pairs"][key]["reasked"] == ["u_x"]
+    assert pr.load_ledger(env.root, "lab")["pairs"][key]["reasked"] == [NAME]
 
+
+
+def _second_source(env: _Env, client: TestClient, ai: _KindAI) -> None:
+    r = client.post("/api/knowledge-copies", json={"source": "lab2", "bundle": _terms_bundle()})
+    assert r.status_code == 200, r.text
+    r = client.post("/api/knowledge-copies/lab2/relations", json={}, headers=_KEY)
+    env.finish(client, r.json()["job_id"])
+
+
+def test_force_asks_only_forced_pairs(tmp_path: Path) -> None:
+    """failed・新しい組・指紋が変わった組が混ざる台帳でも、force の組だけを聞く。"""
+    env, ai = _setup(tmp_path)
+    with TestClient(env.app, headers=_AUTH) as client:
+        dataset_id = env.copy(client)["dataset_id"]
+        env.go(client)
+    led = pr.load_ledger(env.root, "lab")
+    keys = sorted(led["pairs"])
+    forced, failed, stale, gone = keys[0], keys[1], keys[2], keys[3]
+    led["pairs"][failed]["state"] = "failed"
+    led["pairs"][stale]["fingerprint"] = "古い"
+    del led["pairs"][gone]
+    pr.save_ledger(env.root, led, at="t")
+    before = ai.calls
+    out = asyncio.run(kr.run_relations(
+        env.root, "lab", dataset_id, make_llm=lambda: ai, force={forced}
+    ))
+    assert out["asked"] == 1 and ai.calls == before + 1
+    got = pr.load_ledger(env.root, "lab")["pairs"]
+    assert got[failed]["state"] == "failed" and got[stale]["fingerprint"] == "古い"
+    assert gone not in got
+
+
+def test_counts_failed_and_unusable_and_sum(tmp_path: Path) -> None:
+    env, _ai = _setup(tmp_path)
+    with TestClient(env.app, headers=_AUTH) as client:
+        dataset_id = env.copy(client)["dataset_id"]
+        env.go(client)
+    ledger = pr.load_ledger(env.root, "lab")
+    keys = sorted(ledger["pairs"])[:4]
+    before = {k: dict(ledger["pairs"][k]) for k in keys}
+    rel, pred = _human()
+    rc.set_human([rel], [pred])
+
+    class _Mixed:
+        model = "m"
+
+        def __init__(self) -> None:
+            self.n = 0
+
+        def complete(self, system: str, user: str) -> str:
+            self.n += 1
+            if "Mg2Si" in user or "Mg2Sn" in user:
+                raise RuntimeError("boom")  # AI の失敗
+            return json.dumps({"rel": "none", "from": None, "evidence": [], "note": "x"})
+
+    out = asyncio.run(kr.run_relations(
+        env.root, "lab", dataset_id, make_llm=_Mixed, force=set(keys)
+    ))
+    assert out["asked"] == len(keys)
+    assert out["relation"] + out["none"] + out["unusable"] + out["failed"] == out["asked"]
+    assert out["failed"] >= 1 and out["kept_stale"] == 0
+    after = pr.load_ledger(env.root, "lab")["pairs"]
+    for k in keys:
+        if after[k].get("reasked") is None:  # 失敗した組は前の件のまま
+            assert after[k]["state"] == before[k]["state"]
+
+
+def test_unusable_when_relation_retired_midrun_and_stops_next_source(tmp_path: Path) -> None:
+    env, ai = _setup(tmp_path)
+    with TestClient(env.app, headers=_AUTH) as client:
+        _first_run(env, client)
+        _second_source(env, client, ai)
+        rel, pred = _human()
+        rc.set_human([rel], [pred])
+        real = ai.complete
+
+        def retire_then_answer(system: str, user: str) -> str:
+            if "x1 = " in system:
+                rc.set_human([dataclasses.replace(rel, retired=True)], [pred])
+                return json.dumps({"rel": "x1", "from": "a", "evidence": ["c1"], "note": "n"})
+            return real(system, user)
+
+        ai.complete = retire_then_answer  # type: ignore[method-assign]
+        r = client.post(f"/api/relations/{NAME}/reask", json={}, headers=_KEY)
+        assert r.status_code == 202, r.text
+        out = env.finish(client, r.json()["job_id"])
+        assert out["stopped"] == "retired"
+        assert out["total"]["unusable"] > 0 and out["total"]["relation"] == 0
+        t = out["total"]
+        assert t["asked"] == t["relation"] + t["none"] + t["unusable"] + t["failed"]
+        assert set(out["sources"]) == {"lab"} and out["skipped"]["lab2"] == "retired"
+        # 使えない答えは前の件を残し、reasked も付けない
+        pairs = pr.load_ledger(env.root, "lab")["pairs"].values()
+        assert all("reasked" not in e for e in pairs)
+        assert any(e.get("unstated_kind") == "併用" for e in pairs)
+
+
+def test_plain_run_marks_reasked_with_all_added_names(tmp_path: Path) -> None:
+    env, _ai = _setup(tmp_path)
+    rel, pred = _human()
+    with TestClient(env.app, headers=_AUTH) as client:
+        env.copy(client)
+        rc.set_human([rel], [pred])
+        env.go(client)
+        pairs = pr.load_ledger(env.root, "lab")["pairs"]
+        done = [e for e in pairs.values() if e["state"] != "failed"]
+        assert done and all(e.get("reasked") == [NAME] for e in done)
+        # ボタンで二重に聞かない
+        assert client.get(f"/api/relations/{NAME}/reask", headers=_KEY).json()["total"] == 0
+
+
+def test_reasking_is_set_before_counting_and_cleared_on_409(tmp_path: Path, monkeypatch) -> None:
+    env, _ai = _setup(tmp_path)
+    with TestClient(env.app, headers=_AUTH) as client:
+        _first_run(env, client)
+        _add()
+        seen: list[bool] = []
+        real = kr.ledger_answer.find_ledgers
+
+        def spy(root, **kw):
+            seen.append(NAME in client.app.state.relations_reasking)
+            return real(root, **kw)
+
+        monkeypatch.setattr(kr.ledger_answer, "find_ledgers", spy)
+        client.post(f"/api/relations/{NAME}/reask", json={})  # AI なしで 409
+        assert seen == [True]
+        assert NAME not in client.app.state.relations_reasking
+
+
+def test_count_excludes_blocked_sources_and_reports_them(tmp_path: Path) -> None:
+    env, _ai = _setup(tmp_path)
+    with TestClient(env.app, headers=_AUTH) as client:
+        _first_run(env, client)
+        _add()
+        full = client.get(f"/api/relations/{NAME}/reask", headers=_KEY).json()
+        client.app.state.knowledge_relations_running = {"lab"}
+        got = client.get(f"/api/relations/{NAME}/reask", headers=_KEY).json()
+        assert got["total"] == 0 and got["sources"] == {} and got["keys"] == []
+        assert got["blocked"] == {"lab": {"count": full["total"], "reason": "relations_running"}}
+        client.app.state.knowledge_relations_running = set()
+        client.app.state.knowledge_busy = {"lab": "import"}
+        busy = client.get(f"/api/relations/{NAME}/reask", headers=_KEY).json()
+        assert busy["blocked"]["lab"]["reason"] == "busy"
+        client.app.state.knowledge_busy = {}

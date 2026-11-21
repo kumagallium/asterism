@@ -205,7 +205,6 @@
     "starting": "Starting to judge again…",
     "running": "Judging again (source {{index}} of {{total}})",
     "cancel": "Cancel",
-    "done": "Judged again: now a relation {{relation}} · still unstated {{none}} · failed {{failed}}",
     "skippedTail": " (skipped sources: {{list}})",
     "skippedOne": "{{source}} ({{reason}})",
     "why": {
@@ -215,7 +214,8 @@
       "rebuilding": "the copy was being rebuilt",
       "cancelled": "cancelled",
       "aborted": "the AI could not answer",
-      "error": "it did not work"
+      "error": "it did not work",
+      "retired": "the relation was retired"
     },
     "fail": {
       "aiUnset": "The AI is not set up, so the pairs cannot be judged again. Set it up and try again",
@@ -223,6 +223,17 @@
       "nothing": "There were no pairs to judge again",
       "cancelled": "Cancelled. The pairs already judged are kept",
       "other": "Could not judge again. Please try again"
-    }
+    },
+    "doneHead": "Judged again:",
+    "sep": " · ",
+    "item": {
+      "relation": "now a relation {{n}}",
+      "none": "still unstated {{n}}",
+      "unusable": "answers not usable {{n}}",
+      "failed": "failed {{n}}"
+    },
+    "stoppedRetired": "The relation was retired (or deleted), so the remaining sources were stopped.",
+    "blocked": "Sources that cannot be judged again now: {{list}}",
+    "blockedOne": "{{source}} ({{n}} pairs, {{reason}})"
   }
 }

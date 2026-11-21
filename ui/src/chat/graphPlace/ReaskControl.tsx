@@ -2,7 +2,8 @@
 // 数は GET /api/relations/{name}/reask。0 組ならボタンも「ありません」の文も出さない。やめた関係には出さない（呼ぶ側が出さない）。
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { resultText, useReaskCount } from './reaskCount'
+import { blockedText, resultItems, resultTail, useReaskCount } from './reaskCount'
+import type { ReaskBlocked } from './reaskApi'
 import { busyPhase } from './reaskState'
 import type { ReaskApi } from './useReask'
 
@@ -34,13 +35,13 @@ export interface ReaskControlProps {
 }
 
 export function ReaskControl({ name, trigger, reask, titleOf, busy = false, onCount }: ReaskControlProps) {
-  const { n } = useReaskCount(name, trigger, true)
+  const { n, blocked } = useReaskCount(name, trigger, true)
   useEffect(() => { onCount?.(n) }, [n, onCount])
-  return <ReaskView name={name} n={n} reask={reask} titleOf={titleOf} busy={busy} />
+  return <ReaskView name={name} n={n} blocked={blocked} reask={reask} titleOf={titleOf} busy={busy} />
 }
 
 /** 数（`n`）と状態から描くだけの部分（試験でも使う）。 */
-export function ReaskView({ name, n, reask, titleOf, busy = false }: { name: string; n: number | null; reask: ReaskApi; titleOf: (source: string) => string; busy?: boolean }) {
+export function ReaskView({ name, n, blocked = [], reask, titleOf, busy = false }: { name: string; n: number | null; blocked?: ReaskBlocked[]; reask: ReaskApi; titleOf: (source: string) => string; busy?: boolean }) {
   const { t } = useTranslation('graphPlace')
   const mine = reask.state.phase !== 'idle' && reask.state.name === name
   const others = busyPhase(reask.state) && !mine
@@ -72,23 +73,29 @@ export function ReaskView({ name, n, reask, titleOf, busy = false }: { name: str
   if (mine && s.phase === 'done') {
     return (
       <div className="gp-reask" data-testid="gp-reask-result" role="status">
-        <p className="gp-body">{resultText(t, s.result, titleOf)}</p>
+        <p className="gp-body" data-testid="gp-reask-result-line">
+          {t('reask.doneHead')}{' '}
+          {resultItems(t, s.result).map((item, i) => (
+            <span key={item}>{i > 0 && t('reask.sep')}<span className="gp-nw">{item}</span></span>
+          ))}
+          {resultTail(t, s.result, titleOf)}
+        </p>
         <div className="gp-acts"><button type="button" className="btn btn--sm btn--ghost" data-testid="gp-reask-dismiss" onClick={reask.dismiss}>{t('act.close')}</button></div>
       </div>
     )
   }
-  if (mine && s.phase === 'failed') {
-    return (
-      <div className="gp-reask" data-testid="gp-reask-failed" role="alert">
-        <p className="gp-err">{t(`reask.fail.${s.kind}`)}</p>
-        <div className="gp-acts"><button type="button" className="btn btn--sm btn--ghost" data-testid="gp-reask-dismiss" onClick={reask.dismiss}>{t('act.close')}</button></div>
-      </div>
-    )
-  }
-  if (n === null || n <= 0) return null
+  const failed = mine && s.phase === 'failed'
+  const showButton = n !== null && n > 0
+  if (!failed && !showButton && blocked.length === 0) return null
   return (
-    <div className="gp-acts gp-reask" data-testid="gp-reask">
-      <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-reask-button" disabled={busy || others} onClick={() => reask.ask(name, n)}>{t('reask.button', { n })}</button>
+    <div className="gp-reask" data-testid="gp-reask">
+      {failed && <p className="gp-err" role="alert" data-testid="gp-reask-failed">{t(`reask.fail.${s.kind}`)}</p>}
+      {showButton && (
+        <div className="gp-acts">
+          <button type="button" className="btn btn--sm btn--ghost" data-testid="gp-reask-button" disabled={busy || others} onClick={() => reask.ask(name, n)}>{t('reask.button', { n })}</button>
+        </div>
+      )}
+      {blocked.length > 0 && <p className="gp-ev" data-testid="gp-reask-blocked">{blockedText(t, blocked, titleOf)}</p>}
     </div>
   )
 }

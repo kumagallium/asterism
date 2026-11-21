@@ -205,7 +205,6 @@
     "starting": "判定し直しを始めています…",
     "running": "判定し直しています（取り込み元 {{total}} つのうち {{index}} つ目）",
     "cancel": "取り消す",
-    "done": "判定し直しました: 関係になった組 {{relation}}・言えないのまま {{none}}・失敗 {{failed}}",
     "skippedTail": "（飛ばした取り込み元: {{list}}）",
     "skippedOne": "{{source}}は{{reason}}",
     "why": {
@@ -215,7 +214,8 @@
       "rebuilding": "写しを作り直していた",
       "cancelled": "取り消した",
       "aborted": "AI が答えられなかった",
-      "error": "うまくいかなかった"
+      "error": "うまくいかなかった",
+      "retired": "関係がやめられた"
     },
     "fail": {
       "aiUnset": "AI が設定されていないので、判定し直せません。設定してからお試しください",
@@ -223,6 +223,17 @@
       "nothing": "判定し直す組はありませんでした",
       "cancelled": "取り消しました。済んだ分は残っています",
       "other": "判定し直せませんでした。もう一度お試しください"
-    }
+    },
+    "doneHead": "判定し直しました:",
+    "sep": "・",
+    "item": {
+      "relation": "関係になった組 {{n}}",
+      "none": "言えないのまま {{n}}",
+      "unusable": "使えなかった {{n}}",
+      "failed": "失敗 {{n}}"
+    },
+    "stoppedRetired": "関係がやめられた（削除された）ので、残りの取り込み元は止めました。",
+    "blocked": "いま判定し直せない取り込み元: {{list}}",
+    "blockedOne": "{{source}}（{{n}} 組・{{reason}}）"
   }
 }

@@ -9,7 +9,7 @@ vi.mock('react-i18next', async (importOriginal) => ({
 
 import { AddedRow, AddedSection } from './AddedSection'
 import { fetchReaskCount, normalizeReaskResult, reaskFailureOf, startReask, type ReaskResult } from './reaskApi'
-import { resultText } from './reaskCount'
+import { blockedText, resultItems, resultTail } from './reaskCount'
 import { AddedDoneNotice, ReaskView } from './ReaskControl'
 import { idle, reaskReducer, type ReaskAction, type ReaskState } from './reaskState'
 import type { ReaskApi } from './useReask'
@@ -19,9 +19,10 @@ import type { AddedRelation } from './relationAddApi'
 afterEach(() => vi.unstubAllGlobals())
 
 const run = (actions: ReaskAction[], from: ReaskState = idle): ReaskState => actions.reduce(reaskReducer, from)
-const result: ReaskResult = { relation: 3, none: 2, failed: 1, asked: 6, skipped: {} }
+const result: ReaskResult = { relation: 3, none: 2, unusable: 0, failed: 1, asked: 6, skipped: {}, stopped: null }
+const tt = (k: string, o?: Record<string, unknown>) => (o ? `${k}${JSON.stringify(o)}` : k)
 const api = (state: ReaskState): ReaskApi => ({ state, ask: vi.fn(), yes: vi.fn(), no: vi.fn(), cancel: vi.fn(), dismiss: vi.fn() })
-const view = (state: ReaskState, n: number | null, name = 'u_1') => renderToStaticMarkup(<ReaskView name={name} n={n} reask={api(state)} titleOf={(s) => `題-${s}`} />).replaceAll('&quot;', '"')
+const view = (state: ReaskState, n: number | null, name = 'u_1', blocked: { source: string; count: number; reason: string }[] = []) => renderToStaticMarkup(<ReaskView name={name} n={n} blocked={blocked} reask={api(state)} titleOf={(s) => `題-${s}`} />).replaceAll('&quot;', '"')
 
 describe('状態の遷移', () => {
   it('ボタン → 確かめ → はい → 走る → 進み → 結果', () => {
@@ -53,7 +54,7 @@ describe('状態の遷移', () => {
 describe('API の形', () => {
   it('数える: total と取り込み元ごとの数・形が違えば例外', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ name: 'u_1', keys: ['a'], sources: { s: 2 }, total: 2 }), { status: 200 })))
-    expect(await fetchReaskCount('u_1')).toEqual({ total: 2, sources: { s: 2 } })
+    expect(await fetchReaskCount('u_1')).toEqual({ total: 2, sources: { s: 2 }, blocked: [] })
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ x: 1 }), { status: 200 })))
     await expect(fetchReaskCount('u_1')).rejects.toBeInstanceOf(KnowledgeApiError)
   })
@@ -99,14 +100,32 @@ describe('ボタンと確かめ・進み・結果の出し分け', () => {
     expect(h).toContain('data-testid="gp-reask-cancel"')
     expect(h).not.toContain('gp-reask-button')
   })
-  it('結果の 1 行（関係になった・言えないのまま・失敗）と、飛ばした取り込み元の理由', () => {
+  it('結果の 1 行: 項目ごとに折り返さない・使えなかったは 0 でないときだけ・飛ばした理由と止めた理由', () => {
     const h = view({ phase: 'done', name: 'u_1', result: { ...result, skipped: { s: 'busy' } } }, 0)
-    expect(h).toContain('graphPlace:reask.done{"relation":3,"none":2,"failed":1}')
+    expect(h).toContain('graphPlace:reask.item.relation{"n":3}')
+    expect(h).toContain('class="gp-nw"')
     expect(h).toContain('題-s')
-    expect(resultText((k, o) => (o ? `${k}${JSON.stringify(o)}` : k), result, (s) => s)).toBe('graphPlace:reask.done{"relation":3,"none":2,"failed":1}')
+    expect(h).not.toContain('reask.item.unusable')
+    const items = resultItems(tt, { ...result, unusable: 2 })
+    expect(items).toEqual(['graphPlace:reask.item.relation{"n":3}', 'graphPlace:reask.item.none{"n":2}', 'graphPlace:reask.item.unusable{"n":2}', 'graphPlace:reask.item.failed{"n":1}'])
+    expect(resultTail(tt, { ...result, stopped: 'retired' }, (s) => s)).toContain('reask.stoppedRetired')
+    expect(resultTail(tt, result, (s) => s)).toBe('')
   })
-  it('失敗の 1 行・別の関係の状態のときは自分のボタンだけ（走っている間は押せない）', () => {
-    expect(view({ phase: 'failed', name: 'u_1', kind: 'aiUnset' }, 4)).toContain('reask.fail.aiUnset')
+  it('いま判定し直せない取り込み元は別の 1 行（ボタンは走れる分だけ）', () => {
+    const b = [{ source: 's', count: 3, reason: 'busy' }]
+    const h = view(idle, 2, 'u_1', b)
+    expect(h).toContain('gp-reask-blocked')
+    expect(h).toContain('reask.button{"n":2}')
+    expect(h).toContain('題-s')
+    const only = view(idle, 0, 'u_1', b)
+    expect(only).toContain('gp-reask-blocked')
+    expect(only).not.toContain('gp-reask-button')
+    expect(blockedText(tt, b, (s) => s)).toContain('reask.blocked')
+  })
+  it('失敗の 1 行を出し、ボタンは戻る・別の関係の状態のときは自分のボタンだけ（走っている間は押せない）', () => {
+    const f = view({ phase: 'failed', name: 'u_1', kind: 'other' }, 4)
+    expect(f).toContain('reask.fail.other')
+    expect(f).toContain('gp-reask-button')
     const other = view({ phase: 'running', name: 'u_2', index: 1, total: 1, done: null, pairs: null }, 4)
     expect(other).toContain('gp-reask-button')
     expect(other).toContain('disabled')

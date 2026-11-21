@@ -7,10 +7,8 @@ import dataclasses
 
 from asterism import pair_relations as pr
 from asterism import relation_catalog as rc
-from asterism import relation_store as rs
 from asterism.knowledge_bundle import KnowledgeCopy
 from asterism.term_match import merge_key
-from asterism.unstated_groups import unstated_groups
 
 
 def _e(a, b, kind=None, state="none", **kw):
@@ -140,29 +138,45 @@ def test_load_ledger_壊れた_reasked_は欄ごと外す(tmp_path):
     assert all("reasked" not in got[k] for k in ("t0|t2", "t0|t3", "t0|t4"))
 
 
-def test_unstated_groups_reaskable():
-    def _t(tid):
-        return {"id": tid, "name": tid, "kind": "class", "role": None, "iri": f"https://k/{tid}"}
-
-    cp = KnowledgeCopy(terms=[_t(f"t{i}") for i in range(6)], claims=[], term_claims=[])
+def test_plan_run_only_force_は_force_の組だけ聞く():
     led = _ledger(
-        _e("t0", "t1", "併用"), _e("t0", "t2", "併用", reasked=["u_1"]), _e("t0", "t3", "条件")
+        _e("t0", "t1", "併用"),  # 強制
+        _e("t0", "t2", "併用", fingerprint="古い"),  # 指紋が変わった
+        _e("t0", "t3", state="failed"),  # 失敗
     )
-    rel, pred = rs._build(
-        "u_1", label={"ja": "同時"}, sentence=rs.default_sentence({"ja": "同時"}, symmetric=True),
-        definition={"ja": "説明"}, symmetric=True, to_property_only=False, exact_match=None,
-        unstated_key=merge_key("併用"), added_at="2026-11-20T00:00:00Z",
-    )
-    old = rc.human_relations(), rc.human_predicates()
-    try:
-        rc.set_human([rel], [pred])
-        groups = {g["label"]: g for g in unstated_groups([("s", led, cp)])}
-        assert groups["併用"]["reaskable"] == {"u_1": 1}
-        assert "reaskable" not in groups["条件"]
-        rc.set_human([dataclasses.replace(rel, retired=True)], [pred])
-        groups = {g["label"]: g for g in unstated_groups([("s", led, cp)])}
-        assert "reaskable" not in groups["併用"]
-    finally:
-        rc.set_human(*old)
-    groups = {g["label"]: g for g in unstated_groups([("s", led, cp)])}
-    assert all("reaskable" not in g for g in groups.values())
+    tasks = [_task("t0|t1"), _task("t0|t2"), _task("t0|t3"), _task("t0|t4")]  # t4 は新規
+    todo, base = pr.plan_run(led, tasks)
+    assert {t["key"] for t in todo} == {"t0|t2", "t0|t3", "t0|t4"}
+    todo, base = pr.plan_run(led, tasks, force={"t0|t1"}, only_force=True)
+    assert [t["key"] for t in todo] == ["t0|t1"]
+    assert set(base["pairs"]) == {"t0|t1", "t0|t2", "t0|t3"}  # 土台は普段と同じ
+    # 写しから外れた組の扱いも普段と同じ
+    todo, base = pr.plan_run(led, [_task("t0|t1")], force={"t0|t1"}, only_force=True)
+    assert set(base["pairs"]) == {"t0|t1"}
+
+
+def test_merge_entry_全部の足した関係の名前を付ける_失敗には付けない():
+    led = _ledger(_e("t0", "t1", "併用"))
+    pr.merge_entry(led, _entry("t0|t1"), model="m", at="t", reasked_as=["u_1", "u_2"])
+    assert led["pairs"]["t0|t1"]["reasked"] == ["u_1", "u_2"]
+    led = _ledger(_e("t0", "t1", "併用", state="failed"))
+    pr.merge_entry(led, pr.failed_entry(_task("t0|t1"), "x"), model="m", at="t", reasked_as=["u_1"])
+    assert "reasked" not in led["pairs"]["t0|t1"]
+
+
+def test_forced_dropped_は前の件を残し_none_で種類が欠けたら前の種類を残す():
+    led = _ledger(_e("t0", "t1", "併用"))
+    dropped = _entry("t0|t1", "dropped", reason="evidence")
+    pr.merge_entry(led, dropped, model="m", at="t", reasked_as=["u_1"], forced=True)
+    e = led["pairs"]["t0|t1"]
+    assert e["state"] == "none" and e["unstated_kind"] == "併用" and "reasked" not in e
+    pr.merge_entry(led, _entry("t0|t1"), model="m", at="t", reasked_as=["u_1"], forced=True)
+    e = led["pairs"]["t0|t1"]
+    assert e["state"] == "none" and e["unstated_kind"] == "併用" and e["reasked"] == ["u_1"]
+    # 新しい種類があればそちらを使う
+    pr.merge_entry(led, _entry("t0|t1", unstated_kind="条件"), model="m", at="t", forced=True)
+    assert led["pairs"]["t0|t1"]["unstated_kind"] == "条件"
+    # forced でなければ（通常の走り）前の種類は引き継がない・dropped は置き換える
+    led = _ledger(_e("t0", "t1", "併用"))
+    pr.merge_entry(led, _entry("t0|t1", "dropped", reason="evidence"), model="m", at="t")
+    assert led["pairs"]["t0|t1"]["state"] == "dropped"

@@ -436,3 +436,6 @@
   height: 100%;
   background: var(--accent);
 }
+.gp-nw {
+  white-space: nowrap;
+}

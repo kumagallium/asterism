@@ -50,8 +50,6 @@ def unstated_groups(
     * ``label``: 群の中で最も多い元の書き方（同数なら文字の順で先）。
     * ``variants``: 群の全部の書き方と数（``label`` も含む。多い順 → 文字の順）。
     * ``examples``: 最大 ``examples`` 件。並びは 取り込み元の名前 → 組の鍵。
-    * ``reaskable``（R4・足した関係が種類に結ばれているときだけ）: ``{関係の名前: その関係で
-      聞き直していない組の数}``（やめた関係は入れない）。
     * ``in_catalog``: 目録の関係の名前・日本語名・英語名と同じ鍵のとき、その関係の名前。
       （``lang`` は今は結果を変えない。画面の言語を口で受けるために置く。）
     """
@@ -61,7 +59,6 @@ def unstated_groups(
     spellings: dict[str, Counter[str]] = {}
     per_source: dict[str, Counter[str]] = {}
     rows: dict[str, list[tuple[str, str, dict]]] = {}
-    reasked_by: dict[str, list[list[str]]] = {}  # 群の鍵 → 各組の reasked（R4）
     for source, ledger, copy in ledgers:
         terms = {str(t["id"]): t for t in copy.terms if isinstance(t, Mapping) and "id" in t}
         for pair_key, entry in (ledger.get("pairs") or {}).items():
@@ -78,8 +75,6 @@ def unstated_groups(
                 continue
             spellings.setdefault(key, Counter())[kind] += 1
             per_source.setdefault(key, Counter())[source] += 1
-            done = entry.get("reasked")
-            reasked_by.setdefault(key, []).append(done if pr._valid_reasked(done) else [])
             note = entry.get("note")
             rows.setdefault(key, []).append(
                 (
@@ -94,11 +89,6 @@ def unstated_groups(
                     },
                 )
             )
-    added = [
-        (r.name, pr.reask_keys(r))
-        for r in relation_catalog.human_relations()
-        if not r.retired
-    ]  # R4: やめていない足した関係と、それを種類に結ぶ鍵
     groups: list[dict] = []
     for key, spell in spellings.items():
         ordered = sorted(spell.items(), key=lambda kv: (-kv[1], kv[0]))
@@ -114,13 +104,6 @@ def unstated_groups(
         }
         if key in catalog:
             group["in_catalog"] = catalog[key]
-        reaskable = {
-            name: sum(1 for done in reasked_by[key] if name not in done)
-            for name, keys in added
-            if key in keys
-        }
-        if reaskable:  # 足した関係が無い群は欄なし
-            group["reaskable"] = reaskable
         groups.append(group)
     groups.sort(key=lambda g: (-g["count"], g["label"]))
     return groups
