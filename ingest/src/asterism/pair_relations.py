@@ -552,7 +552,12 @@ def ledger_path(root: str | Path, source: str) -> Path:
     name = source if _NAME_RE.fullmatch(source) else "s-" + hashlib.sha1(
         source.encode("utf-8", "surrogatepass")
     ).hexdigest()[:16]
-    return Path(root) / "vocab-shared" / "knowledge" / f"{name}.json"
+    # 名前は上で安全な形にしてあるが、念のため台帳のフォルダの外を指さないことを確かめる
+    base = os.path.normpath(os.path.join(os.fspath(root), "vocab-shared", "knowledge"))
+    full = os.path.normpath(os.path.join(base, f"{name}.json"))
+    if not full.startswith(base + os.sep):
+        raise ValueError(f"台帳のパスが台帳のフォルダの外を指しています: {source!r}")
+    return Path(full)
 
 
 def _set_aside(path: Path) -> None:
