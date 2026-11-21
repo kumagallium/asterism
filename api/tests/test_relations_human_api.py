@@ -71,7 +71,7 @@ def test_足す_直す_やめる_消す(tmp_path: Path) -> None:
         assert name in [x["name"] for x in client.get("/api/relations", params={"source": "store"}).json()["relations"]]
         # 直す（表示名・文・説明・exact_match）
         p = client.patch(f"/api/relations/{name}", json={"label": {"ja": "支持する"}, "exact_match": "https://example.org/x"})
-        assert p.status_code == 200 and p.json()["relation"]["label"] == {"ja": "支持する"}
+        assert p.status_code == 200 and p.json()["relation"]["label"] == {"ja": "支持する", "en": "supports"}  # 渡していない言語は残る（R3c）
         assert p.json()["relation"]["exact_match"] == "https://example.org/x" and p.json()["relation"]["name"] == name
         assert client.patch(f"/api/relations/{name}", json={"symmetric": True}).status_code == 422  # 直せない欄
         # 使われ方は ?usage=1 のときだけ

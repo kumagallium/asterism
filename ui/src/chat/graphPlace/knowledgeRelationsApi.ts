@@ -112,8 +112,8 @@ async function failure(res: Response): Promise<KnowledgeApiError> {
   return new KnowledgeApiError(res.status, detail || `HTTP ${res.status}`)
 }
 
-async function get(path: string): Promise<unknown> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders() })
+async function get(path: string, timeoutMs?: number): Promise<unknown> {
+  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) })
   if (!res.ok) throw await failure(res)
   return res.json()
 }
@@ -328,7 +328,7 @@ export function normalizeUnstated(body: unknown): UnstatedResult {
 /** 言えなかった関係の種類を読む。`source` を付ければその取り込み元だけ。 */
 export async function fetchUnstated(lang: 'ja' | 'en', source?: string): Promise<UnstatedResult> {
   const q = `lang=${lang}${source ? `&source=${encodeURIComponent(source)}` : ''}`
-  const body = await get(`/api/relations/unstated?${q}`)
+  const body = await get(`/api/relations/unstated?${q}`, 15000) // 時間切れは失敗として扱う
   if (!isObj(body) || !Array.isArray(body.groups)) throw new KnowledgeApiError(0, 'bad shape')
   return normalizeUnstated(body)
 }

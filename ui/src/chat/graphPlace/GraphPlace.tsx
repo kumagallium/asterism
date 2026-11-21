@@ -1,17 +1,21 @@
 // 「知識グラフ」の場所（PR 14e-1・設計 §23.11）: 中央の絞り込み（GraphFilters）と、右の「関係・用語・候補」の一覧（GraphPlaceSide）。
 // 図は ChatApp の mapBlock が描く（台帳の下書きを足して 3 つの場所で同じ）。ここは台帳の絞り込み・一覧・確認と「違う」。
 // 確認の意味: 台帳に「人が確認した」と書くだけ（ストアに置くのは 14e-1b）。「全部まとめて確認」は置かない（語ごとの確認だけ）。
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useCatalog } from '../../relations/catalog'
+import { reloadRelationCatalog, useCatalog } from '../../relations/catalog'
 import { draftRelationLabel } from '../map/mapModel'
 import { KnowledgeApiError, type ReviewAction, type ReviewResult, type StoreReport } from './knowledgeRelationsApi'
 import { useStoreText } from './storeText'
 import { ALL, filterCandidates, filterRelations, firstRows, PAGE_SIZE, relKinds, pinFirst, summarizeTerms, unconfirmedKeys, type LedgerFilter, type StatusFilter, type TermSummary } from './ledgerView'
 import { CandidateRow, RelationRow, TermRow } from './LedgerRows'
 import { UnstatedSection } from './UnstatedSection'
-import { unstatedArgs, useUnstated } from './useUnstated'
-import { rowId, type AssignForm } from './rowFns'
+import { unstatedArgs, useUnstatedBusy } from './useUnstated'
+import { AddedSection } from './AddedSection'
+import { AddRelation } from './AddRelation'
+import { useAddedRelations } from './useAddedRelations'
+import { reflectChange } from './relationReflect'
+import { assignRels, rowId, type AssignForm } from './rowFns'
 import { writeFailureOf, type LedgersApi } from './useLedgers'
 import './graphPlace.css'
 
@@ -19,6 +23,8 @@ type Lang = 'ja' | 'en'
 
 /** 「言えなかった関係の種類」を 1 度に出す群の数（「もっと見る」で増やす）。 */
 const UNSTATED_PAGE = 10
+/** 「足した関係」の空の入力欄を開いているときの鍵（種類の鍵とぶつからない）。 */
+const NEW_KEY = '\u0000new'
 
 const STATUSES: StatusFilter[] = ['all', 'unconfirmed', 'confirmed', 'rejected']
 
@@ -144,7 +150,26 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
 
   // 節は取り込み元の絞り込みだけ効く（状態・関係の種類は効かせない）。台帳を読み直したら一緒に引き直す
   const { source: unSource, enabled: unEnabled } = unstatedArgs(api, tab)
-  const unstated = useUnstated(api.ledgers, lang, unSource, unEnabled)
+  // 関係を足す・直す・やめる・消すたびに `relVersion` を進め、目録と「言えなかった関係の種類」「足した関係」を読み直す（R3c）
+  const [relVersion, setRelVersion] = useState(0)
+  // 書き込みの成功から読み直しが全部終わるまで、節の操作を無効にする（古い行で直す・消すを押させない）
+  const [reflecting, setReflecting] = useState(false)
+  const unTrigger = useMemo(() => ({}), [api.ledgers, relVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  const unstated = useUnstatedBusy(unTrigger, lang, unSource, unEnabled)
+  const added = useAddedRelations(unTrigger, tab === 'candidates')
+  const sectionBusy = reflecting || !!added.busy || !!unstated.busy
+  const [adding, setAdding] = useState<string | null>(null) // 入力欄を開いている種類の鍵。空の入力欄は NEW_KEY
+  const [addedOpen, setAddedOpen] = useState<string | null>(null)
+  // 知らせは言語つきで持つ（言語を切り替えたら出さない）。次の操作・タブの切り替えでも消す
+  const [relNoticeRaw, setRelNoticeRaw] = useState<{ text: string; lang: Lang } | null>(null)
+  const relNotice = relNoticeRaw && relNoticeRaw.lang === lang ? relNoticeRaw.text : null
+  const setRelNotice = (text: string | null) => setRelNoticeRaw(text ? { text, lang } : null)
+  /** 書いたあと: 目録を読み直し、一覧も引き直す。目録の読み直しに失敗したら知らせを「反映に失敗」に変える。 */
+  const relationsChanged = (opts: { done?: string; msg?: string } = {}) => {
+    void reflectChange({ reload: reloadRelationCatalog, bump: () => setRelVersion((v) => v + 1), setBusy: setReflecting, notify: setRelNotice, t }, opts)
+  }
+  // やめられた関係を選んでいたら、選びを外す（[付ける] は関係を選ぶまで押せない）
+  if (form.rel && !assignRels().includes(form.rel)) setForm({ ...form, rel: '' })
   // 取り込み元の絞り込みを変えたら、開いている群・見せている数を戻す（描画中に前の値と比べて合わせる）
   const [seenUnSource, setSeenUnSource] = useState(unSource)
   if (seenUnSource !== unSource) {
@@ -268,8 +293,40 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
         </>
       )
   } else {
+    const onAdded = (label: string) => {
+      setAdding(null)
+      setRelNotice(t('added.done', { name: label }))
+      relationsChanged({ done: label })
+    }
     const section = (
-      <UnstatedSection load={unstated} lang={lang} openKey={unOpen} onToggle={(k) => setUnOpen((cur) => (cur === k ? null : k))} shown={unShown} onMore={() => setUnShown((n) => n + UNSTATED_PAGE)} />
+      <>
+        {relNotice && <p className="gp-note gp-store-note" role="status" data-testid="gp-added-notice">{relNotice}</p>}
+        <UnstatedSection
+          load={unstated}
+          lang={lang}
+          openKey={unOpen}
+          onToggle={(k) => { setRelNotice(null); setUnOpen((cur) => (cur === k ? null : k)) }}
+          shown={unShown}
+          onMore={() => setUnShown((n) => n + UNSTATED_PAGE)}
+          add={{
+            adding,
+            busy: sectionBusy,
+            onAdd: (k) => { setAdding(k); setRelNotice(null) },
+            adder: (g) => <AddRelation group={g} lang={lang} onAdded={onAdded} onCancel={() => setAdding(null)} />,
+          }}
+        />
+        <AddedSection
+          load={{ ...added, busy: sectionBusy }}
+          lang={lang}
+          openName={addedOpen}
+          onToggle={(n) => { setRelNotice(null); setAddedOpen((cur) => (cur === n ? null : n)) }}
+          onStart={() => setRelNotice(null)}
+          onChanged={(msg) => relationsChanged({ msg })}
+          adding={adding === NEW_KEY}
+          onAdd={() => { setAdding(NEW_KEY); setRelNotice(null) }}
+          adder={<AddRelation group={null} lang={lang} onAdded={onAdded} onCancel={() => setAdding(null)} />}
+        />
+      </>
     )
     body =
       candidates.length === 0 ? (
@@ -311,7 +368,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   }
 
   const tabBtn = (id: Tab, n: number) => (
-    <button type="button" role="tab" data-testid={`gp-tab-${id}`} aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => { setTab(id); setOpen(null); setMsg(null) }}>
+    <button type="button" role="tab" data-testid={`gp-tab-${id}`} aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => { setTab(id); setOpen(null); setMsg(null); setRelNotice(null) }}>
       {t(`tab.${id}`, { n })}
     </button>
   )
