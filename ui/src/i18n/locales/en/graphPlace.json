@@ -195,6 +195,45 @@
     "doneReflectFailed": "Added the relation \"{{name}}\" (the screen could not be refreshed. Please reload).",
     "reflectFailed": "Saved (the screen could not be refreshed. Please reload).",
     "usageUnknown": "Usage unknown",
-    "reflectFailedTail": "(The screen could not be refreshed. Please reload.)"
+    "reflectFailedTail": "(The screen could not be refreshed. Please reload.)",
+    "doneReask": "Added the relation \"{{name}}\". The AI can choose it from the next pairs imported. There are {{n}} unstated pairs of the same kind",
+    "doneReasked": "Added the relation \"{{name}}\". The AI can choose it from the next pairs imported"
+  },
+  "reask": {
+    "button": "Judge the unstated pairs again ({{n}} pairs)",
+    "confirm": "The AI will judge {{n}} pairs again. This uses the AI and costs money",
+    "starting": "Starting to judge again…",
+    "running": "Judging again (source {{index}} of {{total}})",
+    "cancel": "Cancel",
+    "skippedTail": " (skipped sources: {{list}})",
+    "skippedOne": "{{source}} ({{reason}})",
+    "why": {
+      "relations_running": "relation picking was running",
+      "busy": "another job was running",
+      "no_copy": "no copy",
+      "rebuilding": "the copy was being rebuilt",
+      "cancelled": "cancelled",
+      "aborted": "the AI could not answer",
+      "error": "it did not work",
+      "retired": "the relation was retired"
+    },
+    "fail": {
+      "aiUnset": "The AI is not set up, so the pairs cannot be judged again. Set it up and try again",
+      "busy": "Another job is running on a source. Try again when it finishes",
+      "nothing": "There were no pairs to judge again",
+      "cancelled": "Cancelled. The pairs already judged are kept",
+      "other": "Could not judge again. Please try again"
+    },
+    "doneHead": "Judged again:",
+    "sep": " · ",
+    "item": {
+      "relation": "now a relation {{n}}",
+      "none": "still unstated {{n}}",
+      "unusable": "answers not usable {{n}}",
+      "failed": "failed {{n}}"
+    },
+    "stoppedRetired": "The relation was retired (or deleted), so the remaining sources were stopped.",
+    "blocked": "Sources that cannot be judged again now: {{list}}",
+    "blockedOne": "{{source}} ({{n}} pairs, {{reason}})"
   }
 }

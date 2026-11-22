@@ -15,6 +15,9 @@ import { AddedSection } from './AddedSection'
 import { AddRelation } from './AddRelation'
 import { useAddedRelations } from './useAddedRelations'
 import { reflectChange } from './relationReflect'
+import { AddedDoneNotice, ReaskControl } from './ReaskControl'
+import { useReask } from './useReask'
+import type { LlmCredentials } from '../../settings/store'
 import { assignRels, rowId, type AssignForm } from './rowFns'
 import { writeFailureOf, type LedgersApi } from './useLedgers'
 import './graphPlace.css'
@@ -116,10 +119,12 @@ export interface GraphPlaceSideProps {
   /** 今ある本物の点（ストアの用語・データセット）を押したときの 1 枚と「関係・データ・問い」。無ければ null＝一覧だけ。 */
   point: ReactNode | null
   onClosePoint: () => void
+  /** 今の AI の座標（判定し直しで使う）。無ければ AI 未設定として扱う。 */
+  getCreds?: () => LlmCredentials | null
 }
 
 /** 右の一覧（知識グラフの場所だけ）。「関係」「用語」「候補」の 3 タブ。 */
-export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onClosePoint }: GraphPlaceSideProps) {
+export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onClosePoint, getCreds }: GraphPlaceSideProps) {
   const { t } = useTranslation('graphPlace')
   useCatalog() // API の目録が重なったら、関係の表示名・選択肢を引き直す
   const storeText = useStoreText()
@@ -168,6 +173,14 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
   const relationsChanged = (opts: { done?: string; msg?: string } = {}) => {
     void reflectChange({ reload: reloadRelationCatalog, bump: () => setRelVersion((v) => v + 1), setBusy: setReflecting, notify: setRelNotice, t }, opts)
   }
+  /** 足した直後の知らせに数とボタンを添える相手（R4）。 */
+  const [justAdded, setJustAdded] = useState<{ name: string; label: string } | null>(null)
+  // 判定し直しが終わったら、台帳・言えなかった種類・足した関係（使われ方）を読み直す
+  const reask = useReask(lang, getCreds, () => {
+    api.reload()
+    relationsChanged()
+  })
+  const titleOf = (source: string): string => api.ledgers.find((l) => l.source.source === source)?.source.title ?? source
   // やめられた関係を選んでいたら、選びを外す（[付ける] は関係を選ぶまで押せない）
   if (form.rel && !assignRels().includes(form.rel)) setForm({ ...form, rel: '' })
   // 取り込み元の絞り込みを変えたら、開いている群・見せている数を戻す（描画中に前の値と比べて合わせる）
@@ -293,14 +306,17 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
         </>
       )
   } else {
-    const onAdded = (label: string) => {
+    const onAdded = (label: string, name?: string) => {
       setAdding(null)
       setRelNotice(t('added.done', { name: label }))
+      setJustAdded(name ? { name, label } : null)
       relationsChanged({ done: label })
     }
+    // 足した直後の知らせが「足しました」のままのときだけ、数とボタンを添える（反映の失敗の文に替わっていたら出さない）
+    const noticeName = justAdded && relNotice === t('added.done', { name: justAdded.label }) ? justAdded.name : null
     const section = (
       <>
-        {relNotice && <p className="gp-note gp-store-note" role="status" data-testid="gp-added-notice">{relNotice}</p>}
+        {relNotice && (noticeName ? <AddedDoneNotice name={noticeName} label={justAdded?.label ?? ''} trigger={unTrigger} reask={reask} titleOf={titleOf} busy={sectionBusy} /> : <p className="gp-note gp-store-note" role="status" data-testid="gp-added-notice">{relNotice}</p>)}
         <UnstatedSection
           load={unstated}
           lang={lang}
@@ -325,6 +341,7 @@ export function GraphPlaceSide({ api, lang, focus, onOpenImport, point, onCloseP
           adding={adding === NEW_KEY}
           onAdd={() => { setAdding(NEW_KEY); setRelNotice(null) }}
           adder={<AddRelation group={null} lang={lang} onAdded={onAdded} onCancel={() => setAdding(null)} />}
+          renderReask={(r) => (r.name === noticeName ? null : <ReaskControl name={r.name} trigger={unTrigger} reask={reask} titleOf={titleOf} busy={sectionBusy} />)}
         />
       </>
     )

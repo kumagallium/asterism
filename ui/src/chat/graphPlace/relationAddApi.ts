@@ -79,7 +79,7 @@ async function failure(res: Response): Promise<KnowledgeApiError> {
 /** 一覧の取得の時間切れ（ミリ秒）。時間切れは失敗として扱う（画面の無効が戻る）。 */
 export const READ_TIMEOUT_MS = 15000
 
-async function send(method: string, path: string, body?: unknown): Promise<unknown> {
+export async function send(method: string, path: string, body?: unknown): Promise<unknown> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...authHeaders() },

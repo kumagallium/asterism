@@ -1135,6 +1135,7 @@ export function ChatApp() {
       onOpenImport={() => navigate({ kind: 'import' })}
       point={okSky && (!!pickedId || !!sel) ? graphSide : null}
       onClosePoint={() => onMapSelect(null, null)}
+      getCreds={getActiveCredentials}
     />
   )
 
