@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.73.0](https://github.com/kumagallium/asterism/compare/v0.72.0...v0.73.0) - 2026-11-22
+
+- feat: 「言えない」に関係の種類の名前を書かせて台帳に残す（R1） by @kumagallium in https://github.com/kumagallium/asterism/pull/850
+- feat: 言えなかった関係の種類を束ね、知識グラフの候補のタブに並べる（R2） by @kumagallium in https://github.com/kumagallium/asterism/pull/852
+- feat: 人が関係を足す口をストアに作り、確認・確定・読み戻しで使えるようにする（R3a） by @kumagallium in https://github.com/kumagallium/asterism/pull/853
+- feat: 組ごとに関係を選ぶ AI に、人が足した関係を別名で渡す（R3b） by @kumagallium in https://github.com/kumagallium/asterism/pull/854
+- feat(ui): 候補のタブで、言えなかった関係の種類から関係を足し、直す・使うのをやめる・削除できるようにする（R3c） by @kumagallium in https://github.com/kumagallium/asterism/pull/855
+- feat: 足した関係で、同じ種類の言えなかった組だけをボタンで AI に判定し直す（R4） by @kumagallium in https://github.com/kumagallium/asterism/pull/856
+
 ## [v0.72.0](https://github.com/kumagallium/asterism/compare/v0.71.3...v0.72.0) - 2026-11-20
 
 - fix(deps): upgrade docling to 2.150.1 (clears docling and pillow advisories) by @kumagallium in https://github.com/kumagallium/asterism/pull/838
